@@ -138,10 +138,16 @@ export const useClipboardStore = create<ClipboardStore>((set, get) => ({
   deleteEntry: async (id: string) => {
     try {
       await invoke('delete_entry', { id });
-      // 从本地状态移除
-      set((state) => ({
-        entries: state.entries.filter((entry) => entry.id !== id),
-      }));
+      set((state) => {
+        const remainingEntries = state.entries.filter((entry) => entry.id !== id);
+        const selectedEntry =
+          state.selectedEntry?.id === id ? (remainingEntries[0] ?? null) : state.selectedEntry;
+
+        return {
+          entries: remainingEntries,
+          selectedEntry,
+        };
+      });
     } catch (error) {
       set({ error: String(error) });
     }
@@ -150,7 +156,7 @@ export const useClipboardStore = create<ClipboardStore>((set, get) => ({
   clearHistory: async () => {
     try {
       await invoke('clear_history');
-      set({ entries: [] });
+      set({ entries: [], selectedEntry: null });
     } catch (error) {
       set({ error: String(error) });
     }

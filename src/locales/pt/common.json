@@ -7,6 +7,7 @@
   "save": "Salvar",
   "saving": "Salvando...",
   "copy": "Copiar",
+  "paste": "Colar",
   "delete": "Excluir",
   "from": "De",
   "noData": "Sem dados",
@@ -14,7 +15,7 @@
   "times": "vezes",
   "days": {
     "7": "7 Dias",
-    "14": "14 Dias", 
+    "14": "14 Dias",
     "30": "30 Dias"
   },
   "forever": "Para sempre",

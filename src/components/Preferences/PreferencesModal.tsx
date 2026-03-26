@@ -14,6 +14,9 @@ import {
   Keyboard,
   Shield,
   Power,
+  Sun,
+  Moon,
+  Monitor,
   Plus,
   X,
   CheckCircle,
@@ -28,9 +31,14 @@ import * as Toast from '@radix-ui/react-toast';
 import { analytics } from '../../services/analytics';
 import { getSystemLanguage } from '../../i18n/config';
 import { LogViewer } from '../LogViewer/LogViewer';
+import { useTheme } from '../theme-provider';
+import { cn } from '../../lib/utils';
+
+type AppTheme = 'dark' | 'light' | 'system';
 
 export function PreferencesModal() {
   const { t, i18n } = useTranslation(['preferences', 'common']);
+  const { theme, setTheme } = useTheme();
   const {
     config,
     cacheStats,
@@ -63,6 +71,7 @@ export function PreferencesModal() {
   const [selectedLanguage, setSelectedLanguage] = useState(() => {
     return config?.language || i18n.language || getSystemLanguage();
   });
+  const [selectedTheme, setSelectedTheme] = useState<AppTheme>(theme);
   const [showLogViewer, setShowLogViewer] = useState(false);
 
   useEffect(() => {
@@ -91,6 +100,10 @@ export function PreferencesModal() {
       loadAvailableApps();
     }
   }, [showPreferences, getAutoStartupStatus]);
+
+  useEffect(() => {
+    setSelectedTheme(theme);
+  }, [theme, showPreferences]);
 
   const loadAvailableApps = async () => {
     try {
@@ -148,6 +161,10 @@ export function PreferencesModal() {
         await i18n.changeLanguage(targetLanguage);
       }
 
+      if (selectedTheme !== theme) {
+        setTheme(selectedTheme);
+      }
+
       setShowPreferences(false);
     } catch (error) {
       console.error('Failed to save preferences:', error);
@@ -157,6 +174,7 @@ export function PreferencesModal() {
   const handleCancel = () => {
     setLocalConfig(config);
     setSelectedLanguage(config?.language || 'system');
+    setSelectedTheme(theme);
     setShortcutError(null);
     setShowPreferences(false);
   };
@@ -477,6 +495,48 @@ export function PreferencesModal() {
                   className="flex-1 overflow-y-auto pr-2 data-[state=active]:flex data-[state=active]:flex-col min-h-0"
                 >
                   <div className="space-y-6 pb-4">
+                    <div className="space-y-4">
+                      <h3 className="text-lg font-semibold">{t('common:theme.toggle')}</h3>
+                      <RadioGroup
+                        value={selectedTheme}
+                        onValueChange={(value) => setSelectedTheme(value as AppTheme)}
+                        className="grid grid-cols-1 gap-3 md:grid-cols-3"
+                      >
+                        {[
+                          {
+                            value: 'light',
+                            label: t('common:theme.light'),
+                            Icon: Sun,
+                          },
+                          {
+                            value: 'dark',
+                            label: t('common:theme.dark'),
+                            Icon: Moon,
+                          },
+                          {
+                            value: 'system',
+                            label: t('common:theme.system'),
+                            Icon: Monitor,
+                          },
+                        ].map((option) => (
+                          <Label
+                            key={option.value}
+                            htmlFor={`theme-${option.value}`}
+                            className={cn(
+                              'flex cursor-pointer items-center gap-3 rounded-xl border px-4 py-3 transition-colors',
+                              selectedTheme === option.value
+                                ? 'border-primary/30 bg-primary/10 text-foreground'
+                                : 'border-border bg-background/60 text-muted-foreground hover:bg-accent/40'
+                            )}
+                          >
+                            <RadioGroupItem value={option.value} id={`theme-${option.value}`} />
+                            <option.Icon className="h-4 w-4" />
+                            <span className="text-sm font-medium">{option.label}</span>
+                          </Label>
+                        ))}
+                      </RadioGroup>
+                    </div>
+
                     <div className="space-y-4">
                       <h3 className="text-lg font-semibold">{t('system.startup.title')}</h3>
                       <div className="flex items-center space-x-2">

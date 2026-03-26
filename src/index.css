@@ -4,71 +4,118 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
+    --background: 170 45% 97%;
+    --foreground: 184 45% 13%;
     --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
+    --card-foreground: 184 45% 13%;
     --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
-    --primary: 199 89% 48%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 96%;
-    --secondary-foreground: 222.2 84% 4.9%;
-    --muted: 210 40% 96%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 210 40% 96%;
-    --accent-foreground: 222.2 84% 4.9%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 199 89% 48%;
-    --radius: 0.5rem;
+    --popover-foreground: 184 45% 13%;
+    --primary: 176 84% 33%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 180 24% 93%;
+    --secondary-foreground: 184 38% 17%;
+    --muted: 174 22% 92%;
+    --muted-foreground: 183 16% 38%;
+    --accent: 180 22% 92%;
+    --accent-foreground: 184 45% 13%;
+    --destructive: 0 78% 58%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 180 18% 84%;
+    --input: 180 18% 84%;
+    --ring: 176 84% 33%;
+    --radius: 1rem;
   }
 
   .dark {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
-    --card: 222.2 84% 4.9%;
-    --card-foreground: 210 40% 98%;
-    --popover: 222.2 84% 4.9%;
-    --popover-foreground: 210 40% 98%;
-    --primary: 199 89% 48%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 199 89% 48%;
+    --background: 193 28% 9%;
+    --foreground: 180 25% 94%;
+    --card: 193 24% 13%;
+    --card-foreground: 180 25% 94%;
+    --popover: 193 24% 12%;
+    --popover-foreground: 180 25% 94%;
+    --primary: 172 75% 44%;
+    --primary-foreground: 180 24% 8%;
+    --secondary: 192 18% 18%;
+    --secondary-foreground: 180 22% 92%;
+    --muted: 192 18% 16%;
+    --muted-foreground: 184 12% 66%;
+    --accent: 192 18% 20%;
+    --accent-foreground: 180 22% 92%;
+    --destructive: 0 72% 52%;
+    --destructive-foreground: 180 22% 92%;
+    --border: 192 16% 24%;
+    --input: 192 16% 24%;
+    --ring: 172 75% 44%;
   }
 }
 
 @layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
   * {
     border-color: hsl(var(--border));
   }
+
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    border-radius: 999px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+    background-color: color-mix(in srgb, hsl(var(--foreground)) 18%, transparent);
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    background-color: color-mix(in srgb, hsl(var(--foreground)) 28%, transparent);
+  }
+
   body {
-    background-color: hsl(var(--background));
+    background:
+      radial-gradient(circle at top left, rgba(20, 184, 166, 0.16), transparent 28%),
+      radial-gradient(circle at bottom right, rgba(249, 115, 22, 0.14), transparent 26%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(240, 253, 250, 0.94));
     color: hsl(var(--foreground));
-    font-feature-settings: "rlig" 1, "calt" 1;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-      'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-      sans-serif;
+    font-feature-settings:
+      'rlig' 1,
+      'calt' 1;
+    font-family:
+      'IBM Plex Sans', 'SF Pro Display', 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    scrollbar-color: color-mix(in srgb, hsl(var(--foreground)) 18%, transparent) transparent;
+  }
+
+  .dark body {
+    background:
+      radial-gradient(circle at top left, rgba(45, 212, 191, 0.14), transparent 24%),
+      radial-gradient(circle at bottom right, rgba(251, 146, 60, 0.12), transparent 22%),
+      linear-gradient(180deg, rgba(8, 15, 18, 0.98), rgba(10, 20, 23, 0.94));
+  }
+
+  ::selection {
+    background: color-mix(in srgb, hsl(var(--primary)) 22%, transparent);
+    color: hsl(var(--foreground));
+  }
+
+  kbd {
+    font-family: 'JetBrains Mono', 'SF Mono', 'IBM Plex Mono', ui-monospace, monospace;
   }
 }
 
 @layer components {
-  /* Update Toast Styles */
   .update-toast {
-    @apply bg-card border border-border rounded-lg shadow-lg p-4 min-w-96;
+    @apply min-w-96 rounded-[20px] border border-border/70 bg-card/95 p-4 shadow-[0_20px_60px_rgba(15,23,42,0.16)] backdrop-blur-xl;
     @apply data-[state=open]:animate-in data-[state=closed]:animate-out;
     @apply data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0;
     @apply data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95;
@@ -77,7 +124,7 @@
   }
 
   .update-toast-title {
-    @apply flex items-center gap-2 text-sm font-semibold text-card-foreground mb-2;
+    @apply mb-2 flex items-center gap-2 text-sm font-semibold text-card-foreground;
   }
 
   .update-toast-description {
@@ -85,11 +132,11 @@
   }
 
   .update-toast-close {
-    @apply absolute right-2 top-2 rounded-md p-1 text-muted-foreground hover:text-card-foreground transition-colors;
+    @apply absolute right-2 top-2 rounded-md p-1 text-muted-foreground transition-colors hover:text-card-foreground;
   }
 
   .update-toast-viewport {
-    @apply fixed top-4 right-4 flex flex-col p-6 gap-2 w-96 max-w-[100vw] m-0 list-none z-[2147483647] outline-none;
+    @apply fixed right-4 top-4 z-[2147483647] m-0 flex w-96 max-w-[100vw] list-none flex-col gap-2 p-6 outline-none;
   }
 
   .download-progress {
@@ -101,7 +148,7 @@
   }
 
   .progress-bar {
-    @apply w-full bg-secondary rounded-full h-2 overflow-hidden;
+    @apply h-2 w-full overflow-hidden rounded-full bg-secondary;
   }
 
   .progress-fill {
@@ -109,15 +156,15 @@
   }
 
   .update-notes {
-    @apply text-sm text-card-foreground mb-3 leading-relaxed;
+    @apply mb-3 text-sm leading-relaxed text-card-foreground;
   }
 
   .update-actions {
-    @apply flex gap-2 mt-3;
+    @apply mt-3 flex gap-2;
   }
 
   .update-btn {
-    @apply px-3 py-1.5 rounded-md text-sm font-medium transition-colors;
+    @apply rounded-xl px-3 py-1.5 text-sm font-medium transition-colors;
   }
 
   .update-btn.primary {
@@ -126,5 +173,16 @@
 
   .update-btn.secondary {
     @apply bg-secondary text-secondary-foreground hover:bg-secondary/80;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
   }
 }

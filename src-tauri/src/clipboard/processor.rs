@@ -82,7 +82,7 @@ impl ContentProcessor {
         }
 
         // 如果不是标准分辨率，但数据长度是4的倍数，可能仍然是RGBA数据
-        if image_data.len() % 4 == 0 && image_data.len() >= 64 {
+        if image_data.len().is_multiple_of(4) && image_data.len() >= 64 {
             log::debug!(
                 "[process_image] 数据长度符合RGBA格式 ({})，尝试作为原始像素数据处理",
                 image_data.len()
@@ -511,7 +511,7 @@ impl ContentProcessor {
 
     fn detect_raw_rgba_data(&self, data: &[u8]) -> Option<(u32, u32)> {
         // 基本检查：必须是4的倍数且有足够的数据
-        if data.len() < 16 || data.len() % 4 != 0 {
+        if data.len() < 16 || !data.len().is_multiple_of(4) {
             return None;
         }
 
@@ -632,7 +632,7 @@ impl ContentProcessor {
             if width == 0 {
                 continue;
             }
-            if pixel_count % (width as usize) == 0 {
+            if pixel_count.is_multiple_of(width as usize) {
                 let height = (pixel_count / width as usize) as u32;
                 let ratio = width as f64 / height as f64;
 
@@ -677,7 +677,7 @@ impl ContentProcessor {
             if width == 0 {
                 continue;
             }
-            if pixel_count % (width as usize) == 0 {
+            if pixel_count.is_multiple_of(width as usize) {
                 let height = (pixel_count / width as usize) as u32;
                 if height >= 10 && width >= 10 {
                     // 确保尺寸不会太小

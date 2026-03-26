@@ -506,6 +506,13 @@ pub async fn fetch_url_content(url: String) -> Result<String, String> {
 
     log::info!("[fetch_url_content] 请求获取URL内容: {}", url);
 
+    let parsed_url = url::Url::parse(url.trim())
+        .map_err(|_| "Only absolute HTTP(S) URLs are supported".to_string())?;
+
+    if !matches!(parsed_url.scheme(), "http" | "https") || parsed_url.host_str().is_none() {
+        return Err("Only absolute HTTP(S) URLs are supported".to_string());
+    }
+
     // 创建HTTP客户端，配置超时
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(30))
@@ -514,7 +521,7 @@ pub async fn fetch_url_content(url: String) -> Result<String, String> {
         .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
 
     // 发起HTTP请求
-    match client.get(&url).send().await {
+    match client.get(parsed_url).send().await {
         Ok(response) => {
             if response.status().is_success() {
                 match response.text().await {

@@ -180,34 +180,21 @@ impl ContentDetector {
     }
 
     fn is_url(text: &str) -> bool {
-        // 简化URL检测逻辑 - 只检测明显的URLs，不包括可能的邮箱
-        if text.starts_with("http://") || text.starts_with("https://") || text.starts_with("ftp://")
-        {
-            // 确保URL有实际的域名部分，而不只是协议
-            let without_protocol = if let Some(stripped) = text.strip_prefix("https://") {
-                stripped
-            } else if let Some(stripped) = text.strip_prefix("http://") {
-                stripped
-            } else if let Some(stripped) = text.strip_prefix("ftp://") {
-                stripped
-            } else {
-                text
-            };
-
-            // 必须有实际内容，不能只是协议
-            if without_protocol.is_empty() {
-                return false;
-            }
-
-            return true;
+        if text.is_empty() || text.chars().any(char::is_whitespace) {
+            return false;
         }
 
-        // 检查是否包含域名模式，但排除邮箱地址
-        if text.contains("@") {
+        // 优先识别带协议的完整URL，避免把任意包含冒号的文本误判成链接
+        if let Ok(parsed) = url::Url::parse(text) {
+            return matches!(parsed.scheme(), "http" | "https" | "ftp")
+                && parsed.host_str().is_some();
+        }
+
+        if text.contains('@') {
             return false; // 可能是邮箱，不是URL
         }
-        let domain_regex = Regex::new(r"^[a-zA-Z0-9][a-zA-Z0-9-]{0,61}\.[a-zA-Z]{2,}").unwrap();
-        domain_regex.is_match(text)
+
+        Self::normalize_bare_http_url(text).is_some()
     }
 
     fn parse_url_metadata(url: &str) -> ContentMetadata {
@@ -219,7 +206,11 @@ impl ContentDetector {
             base64_metadata: None,
         };
 
-        if let Ok(parsed) = url::Url::parse(url) {
+        let parsed_url = url::Url::parse(url).ok().or_else(|| {
+            Self::normalize_bare_http_url(url).and_then(|value| url::Url::parse(&value).ok())
+        });
+
+        if let Some(parsed) = parsed_url {
             let query_params: Vec<(String, String)> = parsed
                 .query_pairs()
                 .map(|(k, v)| (k.to_string(), v.to_string()))
@@ -250,6 +241,180 @@ impl ContentDetector {
         }
 
         metadata
+    }
+
+    fn normalize_bare_http_url(text: &str) -> Option<String> {
+        let (host, has_extra_parts) = Self::extract_host_candidate(text)?;
+        let domain_regex =
+            Regex::new(r"^(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,24}$")
+                .unwrap();
+
+        if !domain_regex.is_match(host) {
+            return None;
+        }
+
+        let labels: Vec<&str> = host.split('.').collect();
+        if labels.len() < 2 {
+            return None;
+        }
+
+        let tld = labels.last()?.to_ascii_lowercase();
+        if Self::is_known_file_extension(&tld) {
+            return None;
+        }
+
+        if !has_extra_parts
+            && !host.starts_with("www.")
+            && labels.len() == 2
+            && !Self::is_common_bare_domain_tld(&tld)
+        {
+            return None;
+        }
+
+        Some(format!("https://{}", text))
+    }
+
+    fn extract_host_candidate(text: &str) -> Option<(&str, bool)> {
+        let mut boundary = text.len();
+        for separator in ['/', '?', '#'] {
+            if let Some(index) = text.find(separator) {
+                boundary = boundary.min(index);
+            }
+        }
+
+        let host_and_port = &text[..boundary];
+        if host_and_port.is_empty() {
+            return None;
+        }
+
+        let (host, has_port) = if let Some((host, port)) = host_and_port.rsplit_once(':') {
+            if !host.is_empty() && !port.is_empty() && port.chars().all(|ch| ch.is_ascii_digit()) {
+                (host, true)
+            } else {
+                (host_and_port, false)
+            }
+        } else {
+            (host_and_port, false)
+        };
+
+        if host.is_empty() {
+            return None;
+        }
+
+        Some((host, has_port || boundary < text.len()))
+    }
+
+    fn is_common_bare_domain_tld(tld: &str) -> bool {
+        matches!(
+            tld,
+            "ai" | "app"
+                | "au"
+                | "biz"
+                | "ca"
+                | "cc"
+                | "ch"
+                | "cn"
+                | "co"
+                | "com"
+                | "de"
+                | "dev"
+                | "es"
+                | "fr"
+                | "info"
+                | "in"
+                | "io"
+                | "it"
+                | "jp"
+                | "kr"
+                | "me"
+                | "net"
+                | "nl"
+                | "no"
+                | "online"
+                | "org"
+                | "ru"
+                | "se"
+                | "sh"
+                | "site"
+                | "store"
+                | "tech"
+                | "tv"
+                | "uk"
+                | "us"
+                | "xyz"
+        )
+    }
+
+    fn is_known_file_extension(ext: &str) -> bool {
+        matches!(
+            ext,
+            "7z" | "aac"
+                | "avi"
+                | "bat"
+                | "bmp"
+                | "bz2"
+                | "c"
+                | "conf"
+                | "cpp"
+                | "css"
+                | "csv"
+                | "doc"
+                | "docx"
+                | "flac"
+                | "flv"
+                | "gif"
+                | "go"
+                | "gz"
+                | "h"
+                | "hpp"
+                | "htm"
+                | "html"
+                | "ico"
+                | "ini"
+                | "java"
+                | "jpeg"
+                | "jpg"
+                | "js"
+                | "json"
+                | "jsx"
+                | "log"
+                | "m4a"
+                | "md"
+                | "mkv"
+                | "mov"
+                | "mp3"
+                | "mp4"
+                | "ogg"
+                | "pdf"
+                | "php"
+                | "png"
+                | "ppt"
+                | "pptx"
+                | "py"
+                | "rar"
+                | "rb"
+                | "rs"
+                | "sh"
+                | "sql"
+                | "svg"
+                | "tar"
+                | "tif"
+                | "tiff"
+                | "toml"
+                | "ts"
+                | "tsx"
+                | "txt"
+                | "wav"
+                | "webm"
+                | "webp"
+                | "xls"
+                | "xlsx"
+                | "xml"
+                | "xz"
+                | "yaml"
+                | "yml"
+                | "zip"
+        )
     }
 
     fn is_ip_address(text: &str) -> bool {
@@ -748,6 +913,27 @@ mod tests {
                     ("param2".to_string(), "value2".to_string())
                 );
             }
+        }
+    }
+
+    #[test]
+    fn test_file_names_are_not_detected_as_urls() {
+        let file_names = vec![
+            "code-plan.toml",
+            "notes.txt",
+            "README.md",
+            "config.json",
+            "archive.tar.gz",
+        ];
+
+        for file_name in file_names {
+            let (sub_type, _) = ContentDetector::detect(file_name);
+            assert!(
+                matches!(sub_type, ContentSubType::PlainText),
+                "File name '{}' should not be detected as URL, got {:?}",
+                file_name,
+                sub_type
+            );
         }
     }
 

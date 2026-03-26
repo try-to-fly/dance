@@ -7,7 +7,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '../ui/dropdown-menu';
-import { Button } from '../ui/button';
+import { Button, type ButtonProps } from '../ui/button';
 import { useConfigStore } from '../../stores/configStore';
 
 const languages = [
@@ -23,7 +23,17 @@ const languages = [
   { code: 'it', name: 'Italiano', nativeName: 'Italiano' },
 ];
 
-export const LanguageSwitcher: React.FC = () => {
+interface LanguageSwitcherProps {
+  buttonClassName?: string;
+  variant?: ButtonProps['variant'];
+  size?: ButtonProps['size'];
+}
+
+export const LanguageSwitcher: React.FC<LanguageSwitcherProps> = ({
+  buttonClassName,
+  variant = 'ghost',
+  size = 'icon',
+}) => {
   const { i18n } = useTranslation();
   const { config, updateConfig } = useConfigStore();
 
@@ -45,7 +55,12 @@ export const LanguageSwitcher: React.FC = () => {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon" className="h-9 w-9">
+        <Button
+          variant={variant}
+          size={size}
+          aria-label="Change language"
+          className={buttonClassName}
+        >
           <Globe className="h-4 w-4" />
           <span className="sr-only">Change language</span>
         </Button>

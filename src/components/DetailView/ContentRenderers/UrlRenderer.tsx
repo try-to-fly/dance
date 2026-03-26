@@ -13,97 +13,231 @@ interface UrlRendererProps {
   metadata?: string | null;
 }
 
+interface MediaMetadata {
+  bitrate?: string;
+  codec?: string;
+  duration?: string;
+  format?: string;
+  fps?: number | string;
+  height?: number | string;
+  sample_rate?: number | string;
+  size?: string;
+  width?: number | string;
+}
+
+const KNOWN_FILE_EXTENSIONS = new Set([
+  '7z',
+  'aac',
+  'avi',
+  'bat',
+  'bmp',
+  'bz2',
+  'c',
+  'conf',
+  'cpp',
+  'css',
+  'csv',
+  'doc',
+  'docx',
+  'flac',
+  'flv',
+  'gif',
+  'go',
+  'gz',
+  'h',
+  'hpp',
+  'htm',
+  'html',
+  'ico',
+  'ini',
+  'java',
+  'jpeg',
+  'jpg',
+  'js',
+  'json',
+  'jsx',
+  'log',
+  'm4a',
+  'md',
+  'mkv',
+  'mov',
+  'mp3',
+  'mp4',
+  'ogg',
+  'pdf',
+  'php',
+  'png',
+  'ppt',
+  'pptx',
+  'py',
+  'rar',
+  'rb',
+  'rs',
+  'sh',
+  'sql',
+  'svg',
+  'tar',
+  'tif',
+  'tiff',
+  'toml',
+  'ts',
+  'tsx',
+  'txt',
+  'wav',
+  'webm',
+  'webp',
+  'xls',
+  'xlsx',
+  'xml',
+  'xz',
+  'yaml',
+  'yml',
+  'zip',
+]);
+
+const COMMON_BARE_DOMAIN_TLDS = new Set([
+  'ai',
+  'app',
+  'au',
+  'biz',
+  'ca',
+  'cc',
+  'ch',
+  'cn',
+  'co',
+  'com',
+  'de',
+  'dev',
+  'es',
+  'fr',
+  'in',
+  'info',
+  'io',
+  'it',
+  'jp',
+  'kr',
+  'me',
+  'net',
+  'nl',
+  'no',
+  'online',
+  'org',
+  'ru',
+  'se',
+  'sh',
+  'site',
+  'store',
+  'tech',
+  'tv',
+  'uk',
+  'us',
+  'xyz',
+]);
+
+const normalizeUrlContent = (value: string): string | null => {
+  const trimmed = value.trim();
+  if (!trimmed || /\s/.test(trimmed) || trimmed.includes('@')) {
+    return null;
+  }
+
+  try {
+    const parsed = new URL(trimmed);
+    if (
+      (parsed.protocol === 'http:' || parsed.protocol === 'https:' || parsed.protocol === 'ftp:') &&
+      parsed.host
+    ) {
+      return parsed.toString();
+    }
+    return null;
+  } catch {
+    // fall through to bare-domain heuristics
+  }
+
+  const boundaryCandidates = ['/', '?', '#']
+    .map((separator) => trimmed.indexOf(separator))
+    .filter((index) => index >= 0);
+  const boundary = boundaryCandidates.length > 0 ? Math.min(...boundaryCandidates) : trimmed.length;
+  const hostAndPort = trimmed.slice(0, boundary);
+
+  if (!hostAndPort) {
+    return null;
+  }
+
+  let host = hostAndPort;
+  let hasExtraParts = boundary < trimmed.length;
+  const lastColon = hostAndPort.lastIndexOf(':');
+  if (lastColon > 0) {
+    const port = hostAndPort.slice(lastColon + 1);
+    if (/^\d+$/.test(port)) {
+      host = hostAndPort.slice(0, lastColon);
+      hasExtraParts = true;
+    }
+  }
+
+  if (!/^(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,24}$/.test(host)) {
+    return null;
+  }
+
+  const labels = host.split('.');
+  const tld = labels[labels.length - 1]?.toLowerCase();
+  if (!tld || KNOWN_FILE_EXTENSIONS.has(tld)) {
+    return null;
+  }
+
+  if (
+    !hasExtraParts &&
+    !host.startsWith('www.') &&
+    labels.length === 2 &&
+    !COMMON_BARE_DOMAIN_TLDS.has(tld)
+  ) {
+    return null;
+  }
+
+  return `https://${trimmed}`;
+};
+
+const getPreviewTypeForContent = (value: string): 'none' | 'image' | 'video' | 'audio' | 'text' => {
+  if (value.match(/\.(jpg|jpeg|png|gif|webp|svg|bmp|ico)(\?|$)/i)) {
+    return 'image';
+  }
+
+  if (value.match(/\.(mp4|webm|ogg|avi|mov|mkv|flv)(\?|$)/i)) {
+    return 'video';
+  }
+
+  if (value.match(/\.(mp3|wav|flac|aac|ogg|m4a)(\?|$)/i)) {
+    return 'audio';
+  }
+
+  if (
+    value.match(
+      /\.(json|xml|html|htm|css|js|ts|jsx|tsx|py|java|cpp|c|h|php|rb|go|rs|sql|md|txt|log|csv|yaml|yml|toml|ini|conf|sh|bat)(\?|$)/i
+    ) ||
+    value.includes('/api/')
+  ) {
+    return 'text';
+  }
+
+  return 'none';
+};
+
 export function UrlRenderer({ content, metadata }: UrlRendererProps) {
   const { copyToClipboard, fetchUrlContent, checkFFprobeAvailable, extractMediaMetadata } =
     useClipboardStore();
+  const normalizedUrl = normalizeUrlContent(content);
+  const fetchableUrl =
+    normalizedUrl && (normalizedUrl.startsWith('http://') || normalizedUrl.startsWith('https://'))
+      ? normalizedUrl
+      : null;
   const [urlParts, setUrlParts] = useState<UrlParts | null>(null);
   const [previewType, setPreviewType] = useState<'none' | 'image' | 'video' | 'audio' | 'text'>(
     'none'
   );
   const [textContent, setTextContent] = useState<string>('');
   const [textContentType, setTextContentType] = useState<ContentSubType>('plain_text');
-  const [mediaMetadata, setMediaMetadata] = useState<any>(null);
+  const [mediaMetadata, setMediaMetadata] = useState<MediaMetadata | null>(null);
   const [isLoadingText, setIsLoadingText] = useState(false);
-
-  useEffect(() => {
-    if (metadata) {
-      try {
-        const parsed = JSON.parse(metadata);
-        setUrlParts(parsed.url_parts);
-      } catch (e) {
-        console.warn('Metadata parsing failed:', e);
-        // 如果metadata解析失败，手动解析URL
-        try {
-          const url = new URL(content);
-          const parsedUrl = queryString.parseUrl(content);
-          const queryParams = Object.entries(parsedUrl.query || {}).map(
-            ([k, v]) => [k, Array.isArray(v) ? v.join(',') : String(v)] as [string, string]
-          );
-
-          setUrlParts({
-            protocol: url.protocol.replace(':', ''),
-            host: url.host,
-            path: url.pathname,
-            query_params: queryParams,
-          });
-        } catch (e) {
-          console.error('URL解析失败:', e);
-        }
-      }
-    }
-
-    // 检测内容类型
-    if (content.match(/\.(jpg|jpeg|png|gif|webp|svg|bmp|ico)(\?|$)/i)) {
-      setPreviewType('image');
-    } else if (content.match(/\.(mp4|webm|ogg|avi|mov|mkv|flv)(\?|$)/i)) {
-      setPreviewType('video');
-    } else if (content.match(/\.(mp3|wav|flac|aac|ogg|m4a)(\?|$)/i)) {
-      setPreviewType('audio');
-    } else if (
-      content.match(
-        /\.(json|xml|html|htm|css|js|ts|jsx|tsx|py|java|cpp|c|h|php|rb|go|rs|sql|md|txt|log|csv|yaml|yml|toml|ini|conf|sh|bat)(\?|$)/i
-      ) ||
-      content.includes('/api/')
-    ) {
-      // 文本类型或API
-      fetchTextContent(content);
-    }
-  }, [content, metadata]);
-
-  const fetchTextContent = async (fetchUrl: string) => {
-    setIsLoadingText(true);
-    try {
-      // 使用Tauri命令获取URL内容，绕过浏览器CORS限制
-      const data = await fetchUrlContent(fetchUrl);
-
-      // 根据URL扩展名确定内容类型
-      const contentType = getContentTypeFromUrl(fetchUrl);
-
-      // 如果是JSON内容，尝试格式化
-      let processedContent = data;
-      if (contentType === 'json') {
-        try {
-          const parsed = JSON.parse(data);
-          processedContent = JSON.stringify(parsed, null, 2);
-        } catch (jsonError) {
-          console.log('JSON 解析失败，显示原始内容:', jsonError);
-          // 如果JSON解析失败，就使用原始内容
-        }
-      }
-
-      setTextContent(processedContent);
-      setTextContentType(contentType);
-      setPreviewType('text');
-    } catch (e) {
-      console.error('获取URL内容失败:', e);
-      // 如果获取失败，显示提示信息
-      setTextContent(`// 无法获取URL内容\n// 错误信息: ${String(e)}`);
-      setTextContentType('plain_text');
-      setPreviewType('text');
-    } finally {
-      setIsLoadingText(false);
-    }
-  };
+  const mediaPreviewUrl = normalizedUrl ?? content;
 
   const getContentTypeFromUrl = (url: string): ContentSubType => {
     if (url.match(/\.(json)(\?|$)/i) || url.includes('/api/')) {
@@ -124,34 +258,158 @@ export function UrlRenderer({ content, metadata }: UrlRendererProps) {
     return 'plain_text';
   };
 
+  useEffect(() => {
+    let isActive = true;
+    let nextUrlParts: UrlParts | null = null;
+
+    if (metadata) {
+      try {
+        const parsed = JSON.parse(metadata);
+        nextUrlParts = parsed.url_parts ?? null;
+      } catch (e) {
+        console.warn('Metadata parsing failed:', e);
+      }
+    }
+
+    if (!nextUrlParts && normalizedUrl) {
+      try {
+        const url = new URL(normalizedUrl);
+        const parsedUrl = queryString.parseUrl(normalizedUrl);
+        const queryParams = Object.entries(parsedUrl.query || {}).map(
+          ([k, v]) => [k, Array.isArray(v) ? v.join(',') : String(v)] as [string, string]
+        );
+
+        nextUrlParts = {
+          protocol: url.protocol.replace(':', ''),
+          host: url.host,
+          path: url.pathname,
+          query_params: queryParams,
+        };
+      } catch (e) {
+        console.error('URL解析失败:', e);
+      }
+    }
+
+    setUrlParts(nextUrlParts);
+    const nextPreviewType = getPreviewTypeForContent(content);
+    setPreviewType(nextPreviewType);
+    setTextContent('');
+    setTextContentType('plain_text');
+    setIsLoadingText(false);
+
+    if (nextPreviewType !== 'text' || !fetchableUrl) {
+      return () => {
+        isActive = false;
+      };
+    }
+
+    setIsLoadingText(true);
+
+    void (async () => {
+      try {
+        // 使用Tauri命令获取URL内容，绕过浏览器CORS限制
+        const data = await fetchUrlContent(fetchableUrl);
+        if (!isActive) {
+          return;
+        }
+
+        // 根据URL扩展名确定内容类型
+        const contentType = getContentTypeFromUrl(fetchableUrl);
+
+        // 如果是JSON内容，尝试格式化
+        let processedContent = data;
+        if (contentType === 'json') {
+          try {
+            const parsed = JSON.parse(data);
+            processedContent = JSON.stringify(parsed, null, 2);
+          } catch (jsonError) {
+            console.log('JSON 解析失败，显示原始内容:', jsonError);
+            // 如果JSON解析失败，就使用原始内容
+          }
+        }
+
+        if (!isActive) {
+          return;
+        }
+
+        setTextContent(processedContent);
+        setTextContentType(contentType);
+      } catch (e) {
+        if (!isActive) {
+          return;
+        }
+
+        console.error('获取URL内容失败:', e);
+        // 如果获取失败，显示提示信息
+        setTextContent(`// 无法获取URL内容\n// 错误信息: ${String(e)}`);
+        setTextContentType('plain_text');
+      } finally {
+        if (isActive) {
+          setIsLoadingText(false);
+        }
+      }
+    })();
+
+    return () => {
+      isActive = false;
+    };
+  }, [content, fetchUrlContent, metadata, fetchableUrl, normalizedUrl]);
+
   // 在组件加载时检查 FFprobe 可用性并自动获取媒体元数据
   useEffect(() => {
+    let isActive = true;
+
+    setMediaMetadata(null);
+
     const initialize = async () => {
+      if (!normalizedUrl || !['image', 'video', 'audio'].includes(previewType)) {
+        return;
+      }
+
       const available = await checkFFprobeAvailable();
+      if (!isActive || !available) {
+        return;
+      }
 
       // 如果是媒体文件且 FFprobe 可用，自动获取元数据
-      if (
-        available &&
-        (previewType === 'image' || previewType === 'video' || previewType === 'audio')
-      ) {
+      if (previewType === 'image' || previewType === 'video' || previewType === 'audio') {
         try {
-          const metadata = await extractMediaMetadata(content);
-          setMediaMetadata(metadata);
+          const nextMetadata = await extractMediaMetadata(normalizedUrl);
+          if (!isActive) {
+            return;
+          }
+
+          setMediaMetadata(nextMetadata);
         } catch (error) {
+          if (!isActive) {
+            return;
+          }
+
           console.error('自动获取媒体元数据失败:', error);
         }
       }
     };
-    initialize();
-  }, [previewType, content]);
+
+    void initialize();
+
+    return () => {
+      isActive = false;
+    };
+  }, [checkFFprobeAvailable, extractMediaMetadata, normalizedUrl, previewType]);
 
   const handleCopy = async (text: string) => {
     await copyToClipboard(text);
   };
 
   const handleOpenUrl = () => {
-    window.open(content, '_blank');
+    if (normalizedUrl) {
+      window.open(normalizedUrl, '_blank');
+    }
   };
+
+  if (!normalizedUrl && !urlParts) {
+    return <UnifiedTextRenderer content={content} contentSubType="plain_text" />;
+  }
 
   return (
     <div id="url-renderer" className="space-y-4">
@@ -177,6 +435,7 @@ export function UrlRenderer({ content, metadata }: UrlRendererProps) {
                 onClick={handleOpenUrl}
                 size="sm"
                 variant="outline"
+                disabled={!normalizedUrl}
               >
                 <ExternalLink className="w-4 h-4 mr-2" />
                 打开链接
@@ -266,7 +525,7 @@ export function UrlRenderer({ content, metadata }: UrlRendererProps) {
           </CardHeader>
           <CardContent>
             <img
-              src={content}
+              src={mediaPreviewUrl}
               alt="预览"
               className="max-w-full h-auto rounded border"
               onError={(e) => {
@@ -301,7 +560,7 @@ export function UrlRenderer({ content, metadata }: UrlRendererProps) {
             </div>
           </CardHeader>
           <CardContent>
-            <video src={content} controls className="max-w-full h-auto rounded border" />
+            <video src={mediaPreviewUrl} controls className="max-w-full h-auto rounded border" />
           </CardContent>
         </Card>
       )}
@@ -325,7 +584,7 @@ export function UrlRenderer({ content, metadata }: UrlRendererProps) {
             </div>
           </CardHeader>
           <CardContent>
-            <audio src={content} controls className="w-full" />
+            <audio src={mediaPreviewUrl} controls className="w-full" />
           </CardContent>
         </Card>
       )}

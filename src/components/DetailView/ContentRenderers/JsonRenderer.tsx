@@ -5,7 +5,6 @@ import { JsonView, darkStyles, defaultStyles } from 'react-json-view-lite';
 import 'react-json-view-lite/dist/index.css';
 import { Button } from '../../ui/button';
 import { Badge } from '../../ui/badge';
-import { Card, CardContent, CardHeader } from '../../ui/card';
 import { useResolvedTheme } from '../../../hooks/useResolvedTheme';
 import { defineMonacoThemes } from '../../../utils/monacoTheme';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
@@ -38,6 +37,7 @@ export function JsonRenderer({ content }: JsonRendererProps) {
 
   const monacoTheme = resolvedTheme === 'dark' ? 'clipboard-dark' : 'clipboard-light';
   const jsonViewStyle = resolvedTheme === 'dark' ? darkStyles : defaultStyles;
+  const contentHeight = 'clamp(360px, 52vh, 920px)';
 
   const handleCopy = async () => {
     try {
@@ -54,82 +54,76 @@ export function JsonRenderer({ content }: JsonRendererProps) {
   };
 
   return (
-    <div className="h-full flex flex-col">
-      <Card className="flex-1 flex flex-col">
-        <CardHeader className="pb-3 flex-shrink-0">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Badge variant="secondary">{t('codeEditor.json')}</Badge>
-              <Badge variant="outline" className="text-xs">
-                {viewMode === 'tree' ? t('jsonView.treeView') : t('jsonView.codeView')}
-              </Badge>
-            </div>
-            <div className="flex items-center gap-2">
-              <Button
-                onClick={toggleViewMode}
-                size="sm"
-                variant="outline"
-                title={
-                  viewMode === 'tree' ? t('jsonView.switchToCode') : t('jsonView.switchToTree')
-                }
-              >
-                {viewMode === 'tree' ? (
-                  <Braces className="w-4 h-4" />
-                ) : (
-                  <List className="w-4 h-4" />
-                )}
-              </Button>
-              <Button onClick={handleCopy} size="sm" variant="outline">
-                <Copy className="w-4 h-4 mr-2" />
-                {isCopied ? t('codeEditor.copied') : t('codeEditor.copy')}
-              </Button>
-            </div>
-          </div>
-        </CardHeader>
+    <div className="flex min-h-[320px] min-w-0 flex-1 flex-col overflow-hidden min-[1200px]:min-h-[420px]">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/70 px-3 py-2.5 min-[1200px]:px-4 min-[1200px]:py-3">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <Badge variant="secondary">{t('codeEditor.json')}</Badge>
+          <Badge variant="outline" className="text-xs">
+            {viewMode === 'tree' ? t('jsonView.treeView') : t('jsonView.codeView')}
+          </Badge>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            onClick={toggleViewMode}
+            size="sm"
+            variant="outline"
+            className="h-8 rounded-lg"
+            title={viewMode === 'tree' ? t('jsonView.switchToCode') : t('jsonView.switchToTree')}
+          >
+            {viewMode === 'tree' ? <Braces className="h-4 w-4" /> : <List className="h-4 w-4" />}
+          </Button>
+          <Button onClick={handleCopy} size="sm" variant="outline" className="h-8 rounded-lg">
+            <Copy className="mr-2 h-4 w-4" />
+            {isCopied ? t('codeEditor.copied') : t('codeEditor.copy')}
+          </Button>
+        </div>
+      </div>
 
-        <CardContent className="p-0 flex-1 flex flex-col overflow-hidden">
-          <div className="border-t flex-1 overflow-auto">
-            {viewMode === 'tree' ? (
-              isValidJson && parsedJson !== null ? (
-                <div className="p-4">
-                  <JsonView
-                    data={parsedJson}
-                    shouldExpandNode={(level) => level < 3}
-                    style={jsonViewStyle}
-                  />
-                </div>
-              ) : (
-                <div className="p-4 text-muted-foreground">{t('jsonView.invalidJson')}</div>
-              )
-            ) : (
-              <MonacoEditor
-                key={`json-${resolvedTheme}`}
-                height="100%"
-                language="json"
-                value={formattedJson}
-                theme={monacoTheme}
-                beforeMount={(monacoInstance) => {
-                  defineMonacoThemes(monacoInstance);
-                }}
-                options={{
-                  readOnly: true,
-                  minimap: { enabled: false },
-                  scrollBeyondLastLine: false,
-                  wordWrap: 'on',
-                  fontSize: 13,
-                  lineNumbers: 'on',
-                  renderWhitespace: 'selection',
-                  automaticLayout: true,
-                  padding: { top: 16, bottom: 16 },
-                  tabSize: 2,
-                  folding: true,
-                  foldingHighlight: true,
-                }}
+      <div className="min-h-0 flex-1 overflow-hidden" style={{ minHeight: contentHeight }}>
+        {viewMode === 'tree' ? (
+          isValidJson && parsedJson !== null ? (
+            <div className="h-full overflow-auto p-4">
+              <JsonView
+                data={parsedJson}
+                shouldExpandNode={(level) => level < 3}
+                style={jsonViewStyle}
               />
-            )}
-          </div>
-        </CardContent>
-      </Card>
+            </div>
+          ) : (
+            <div className="flex h-full items-center justify-center p-4 text-sm text-muted-foreground">
+              {t('jsonView.invalidJson')}
+            </div>
+          )
+        ) : (
+          <MonacoEditor
+            key={`json-${resolvedTheme}`}
+            height="100%"
+            language="json"
+            value={formattedJson}
+            theme={monacoTheme}
+            beforeMount={(monacoInstance) => {
+              defineMonacoThemes(monacoInstance);
+            }}
+            options={{
+              readOnly: true,
+              minimap: { enabled: false },
+              scrollBeyondLastLine: false,
+              wordWrap: 'on',
+              fontSize: 13,
+              lineNumbers: 'on',
+              lineNumbersMinChars: 3,
+              glyphMargin: false,
+              lineDecorationsWidth: 10,
+              renderWhitespace: 'selection',
+              automaticLayout: true,
+              padding: { top: 18, bottom: 20 },
+              tabSize: 2,
+              folding: true,
+              foldingHighlight: true,
+            }}
+          />
+        )}
+      </div>
     </div>
   );
 }
