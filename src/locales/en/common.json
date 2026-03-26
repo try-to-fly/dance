@@ -57,7 +57,7 @@
   },
   "codeEditor": {
     "code": "Code",
-    "json": "JSON", 
+    "json": "JSON",
     "markdown": "Markdown",
     "command": "Command",
     "text": "Text",
@@ -65,6 +65,13 @@
     "copied": "Copied",
     "loading": "Loading editor...",
     "copyFailed": "Copy failed"
+  },
+  "jsonView": {
+    "treeView": "Tree View",
+    "codeView": "Code View",
+    "switchToCode": "Switch to Code View",
+    "switchToTree": "Switch to Tree View",
+    "invalidJson": "Invalid JSON format"
   },
   "renderers": {
     "ip": {
@@ -95,7 +102,7 @@
       "invalidFormat": "Unable to parse time format",
       "formats": {
         "standard": "Standard Format",
-        "chinese": "Chinese Format", 
+        "chinese": "Chinese Format",
         "relative": "Relative Time",
         "iso": "ISO Format",
         "unixSeconds": "Unix Seconds",
@@ -112,7 +119,7 @@
       "path": "Path:",
       "queryParams": "Query Parameters:",
       "imagePreview": "Image Preview",
-      "videoPreview": "Video Preview", 
+      "videoPreview": "Video Preview",
       "contentPreview": "Content Preview",
       "fetchError": "Failed to fetch URL content",
       "fetchErrorComment": "// Unable to fetch URL content\n// Error: {{error}}",

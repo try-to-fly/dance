@@ -66,6 +66,13 @@
     "loading": "加载编辑器...",
     "copyFailed": "复制失败"
   },
+  "jsonView": {
+    "treeView": "树形视图",
+    "codeView": "代码视图",
+    "switchToCode": "切换到代码视图",
+    "switchToTree": "切换到树形视图",
+    "invalidJson": "无效的 JSON 格式"
+  },
   "renderers": {
     "ip": {
       "title": "{{type}} 地址",

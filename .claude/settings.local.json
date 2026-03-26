@@ -28,7 +28,8 @@
       "Bash(pnpm list:*)",
       "WebFetch(domain:docs.rs)",
       "WebFetch(domain:raw.githubusercontent.com)",
-      "WebFetch(domain:stackoverflow.com)"
+      "WebFetch(domain:stackoverflow.com)",
+      "Bash(tree:*)"
     ],
     "deny": []
   }

@@ -11,6 +11,7 @@ import {
   IpRenderer,
   EmailRenderer,
   TimeRenderer,
+  JsonRenderer,
 } from './ContentRenderers';
 import { ImagePreview } from './ImagePreview';
 
@@ -169,8 +170,9 @@ export function DetailView() {
         return <ColorRenderer content={content} metadata={metadata} />;
       case 'timestamp':
         return <TimeRenderer content={content} metadata={metadata} />;
-      case 'code':
       case 'json':
+        return <JsonRenderer content={content} />;
+      case 'code':
       case 'markdown':
       case 'command':
       case 'plain_text':
