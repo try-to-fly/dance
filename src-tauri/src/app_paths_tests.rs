@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use crate::app_paths::AppPaths;
 use crate::clipboard::ContentProcessor;
+use crate::commands::{app_log_file_path, clear_log_file_in, read_log_content_in};
 use crate::config::ConfigManager;
 use crate::database::Database;
 use crate::test_support::create_temp_app_roots;
@@ -176,4 +177,52 @@ fn test_app_paths_migrate_legacy_roots() {
         b"current-icon"
     );
     assert!(second_paths.migration_marker_path().is_file());
+}
+
+#[test]
+fn test_app_paths_resolve_relative_asset_path_for_nested_imgs_assets() {
+    let roots = create_temp_app_roots();
+    let paths = AppPaths::from_roots(
+        roots.config_root.clone(),
+        roots.data_root.clone(),
+        roots.cache_root.clone(),
+        roots.log_root.clone(),
+    );
+
+    let resolved = paths
+        .resolve_relative_asset_path("imgs/nested/example.png")
+        .unwrap();
+
+    assert_eq!(
+        resolved,
+        roots
+            .data_root
+            .join("imgs")
+            .join("nested")
+            .join("example.png")
+    );
+}
+
+#[test]
+fn test_app_paths_log_commands_follow_log_dir() {
+    let roots = create_temp_app_roots();
+    let paths = AppPaths::from_roots(
+        roots.config_root.clone(),
+        roots.data_root.clone(),
+        roots.cache_root.clone(),
+        roots.log_root.clone(),
+    );
+
+    roots.seed_file("logs/clipboard-app.log", b"line1\nline2");
+
+    let log_path = app_log_file_path(&paths);
+    assert_eq!(log_path, roots.log_root.join("clipboard-app.log"));
+    assert_eq!(read_log_content_in(&paths).unwrap(), "line1\nline2");
+
+    clear_log_file_in(&paths).unwrap();
+    assert_eq!(fs::read_to_string(&log_path).unwrap(), "");
+    assert_eq!(read_log_content_in(&paths).unwrap(), "");
+
+    clear_log_file_in(&paths).unwrap();
+    assert_eq!(read_log_content_in(&paths).unwrap(), "");
 }

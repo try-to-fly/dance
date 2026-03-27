@@ -15,6 +15,7 @@ pub struct SavedImageInfo {
 }
 
 pub struct ContentProcessor {
+    paths: Arc<AppPaths>,
     imgs_dir: PathBuf,
 }
 
@@ -28,12 +29,16 @@ impl ContentProcessor {
         let imgs_dir = paths.image_assets_dir();
         std::fs::create_dir_all(&imgs_dir)?;
 
-        Ok(Self { imgs_dir })
+        Ok(Self { paths, imgs_dir })
     }
 
     #[cfg_attr(not(test), allow(dead_code))]
     pub fn imgs_dir(&self) -> &Path {
         &self.imgs_dir
+    }
+
+    pub(crate) fn resolve_relative_asset_path(&self, relative: &str) -> Result<PathBuf> {
+        self.paths.resolve_relative_asset_path(relative)
     }
 
     pub async fn process_image_with_dimensions(

@@ -34,12 +34,9 @@ impl ClipboardMonitor {
         })
     }
 
-    fn get_saved_file_size(file_path: &str) -> Option<u64> {
-        // 将相对路径转换为绝对路径
+    fn get_saved_file_size(&self, file_path: &str) -> Option<u64> {
         let absolute_path = if file_path.starts_with("imgs/") {
-            let config_dir = dirs::config_dir()?;
-            let app_dir = config_dir.join("clipboard-app");
-            app_dir.join(file_path)
+            self.processor.resolve_relative_asset_path(file_path).ok()?
         } else {
             std::path::PathBuf::from(file_path)
         };
@@ -357,7 +354,8 @@ impl ClipboardMonitor {
                         match processor.process_image(bytes).await {
                             Ok(file_path) => {
                                 // 获取实际保存的文件大小
-                                let actual_size = Self::get_saved_file_size(&file_path)
+                                let actual_size = self
+                                    .get_saved_file_size(&file_path)
                                     .unwrap_or(bytes.len() as u64);
 
                                 log::info!("[ClipboardMonitor] 图片降级处理成功: {}x{} -> {} ({}字节) | 来源: {}", 

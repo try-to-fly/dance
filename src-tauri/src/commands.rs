@@ -1,3 +1,4 @@
+use crate::app_paths::AppPaths;
 use crate::config::AppConfig;
 use crate::models::{ClipboardEntry, Statistics};
 use crate::state::AppState;
@@ -8,6 +9,7 @@ use anyhow::Result;
 use base64::{engine::general_purpose, Engine as _};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::path::PathBuf;
 use tauri::{State, Window};
 use tauri_plugin_aptabase::EventTracker;
 
@@ -1648,17 +1650,23 @@ pub async fn set_window_title(window: Window, title: String) -> Result<(), Strin
 
 // Log management commands
 #[tauri::command]
-pub async fn get_log_content() -> Result<String, String> {
-    use dirs;
+pub async fn get_log_content(state: State<'_, AppState>) -> Result<String, String> {
+    read_log_content_in(&state.paths)
+}
+
+#[tauri::command]
+pub async fn clear_logs(state: State<'_, AppState>) -> Result<(), String> {
+    clear_log_file_in(&state.paths)
+}
+
+pub(crate) fn app_log_file_path(paths: &AppPaths) -> PathBuf {
+    paths.log_dir().join("clipboard-app.log")
+}
+
+pub(crate) fn read_log_content_in(paths: &AppPaths) -> Result<String, String> {
     use std::fs;
 
-    // Tauri v2 LogDir location on macOS: ~/Library/Logs/{app_identifier}/
-    let log_file = dirs::home_dir()
-        .ok_or("无法获取用户目录")?
-        .join("Library")
-        .join("Logs")
-        .join("com.dance.app")
-        .join("dance.log");
+    let log_file = app_log_file_path(paths);
 
     if !log_file.exists() {
         return Ok(String::new());
@@ -1667,18 +1675,10 @@ pub async fn get_log_content() -> Result<String, String> {
     fs::read_to_string(&log_file).map_err(|e| format!("读取日志文件失败: {}", e))
 }
 
-#[tauri::command]
-pub async fn clear_logs() -> Result<(), String> {
-    use dirs;
+pub(crate) fn clear_log_file_in(paths: &AppPaths) -> Result<(), String> {
     use std::fs;
 
-    // Tauri v2 LogDir location on macOS: ~/Library/Logs/{app_identifier}/
-    let log_file = dirs::home_dir()
-        .ok_or("无法获取用户目录")?
-        .join("Library")
-        .join("Logs")
-        .join("com.dance.app")
-        .join("dance.log");
+    let log_file = app_log_file_path(paths);
 
     if log_file.exists() {
         fs::write(&log_file, "").map_err(|e| format!("清空日志文件失败: {}", e))?;
