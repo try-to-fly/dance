@@ -75,36 +75,38 @@ Explicitly excluded from the current roadmap.
 
 Which phases cover which requirements. Updated during roadmap creation.
 
-| Requirement | Phase | Status  |
-| ----------- | ----- | ------- |
-| CAPT-01     | TBD   | Pending |
-| CAPT-02     | TBD   | Pending |
-| CAPT-03     | TBD   | Pending |
-| CAPT-04     | TBD   | Pending |
-| DETE-01     | TBD   | Pending |
-| DETE-02     | TBD   | Pending |
-| DETE-03     | TBD   | Pending |
-| DETE-04     | TBD   | Pending |
-| PREV-01     | TBD   | Pending |
-| PREV-02     | TBD   | Pending |
-| PREV-03     | TBD   | Pending |
-| PREV-04     | TBD   | Pending |
-| PREV-05     | TBD   | Pending |
-| RETR-01     | TBD   | Pending |
-| RETR-02     | TBD   | Pending |
-| RETR-03     | TBD   | Pending |
-| RETR-04     | TBD   | Pending |
-| RETR-05     | TBD   | Pending |
-| RELY-01     | TBD   | Pending |
-| RELY-02     | TBD   | Pending |
+| Requirement | Phase   | Status  |
+| ----------- | ------- | ------- |
+| CAPT-01     | Phase 1 | Pending |
+| CAPT-02     | Phase 1 | Pending |
+| CAPT-03     | Phase 1 | Pending |
+| CAPT-04     | Phase 1 | Pending |
+| DETE-01     | Phase 2 | Pending |
+| DETE-02     | Phase 2 | Pending |
+| DETE-03     | Phase 2 | Pending |
+| DETE-04     | Phase 2 | Pending |
+| PREV-01     | Phase 3 | Pending |
+| PREV-02     | Phase 3 | Pending |
+| PREV-03     | Phase 3 | Pending |
+| PREV-04     | Phase 3 | Pending |
+| PREV-05     | Phase 3 | Pending |
+| RETR-01     | Phase 4 | Pending |
+| RETR-02     | Phase 4 | Pending |
+| RETR-03     | Phase 4 | Pending |
+| RETR-04     | Phase 4 | Pending |
+| RETR-05     | Phase 4 | Pending |
+| RELY-01     | Phase 5 | Pending |
+| RELY-02     | Phase 5 | Pending |
 
 **Coverage:**
 
 - v1 requirements: 20 total
-- Mapped to phases: 0
-- Unmapped: 20 ⚠️
+- Mapped exactly once: 20
+- Unmapped: 0
+- Duplicate mappings: 0
+- Coverage status: 100% ✓
 
 ---
 
 _Requirements defined: 2026-03-27_
-_Last updated: 2026-03-27 after initial definition_
+_Last updated: 2026-03-27 after roadmap creation_
