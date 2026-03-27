@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ClipboardEntry } from '../types/clipboard';
 
 const invokeMock = vi.fn();
+const writeTextMock = vi.fn();
 
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: (...args: unknown[]) => invokeMock(...args),
@@ -12,7 +13,7 @@ vi.mock('@tauri-apps/api/event', () => ({
 }));
 
 vi.mock('@tauri-apps/plugin-clipboard-manager', () => ({
-  writeText: vi.fn(),
+  writeText: (...args: unknown[]) => writeTextMock(...args),
 }));
 
 import { useClipboardStore } from './clipboardStore';
@@ -35,6 +36,7 @@ const baseEntry: ClipboardEntry = {
 describe('clipboardStore preview resolution', () => {
   beforeEach(() => {
     invokeMock.mockReset();
+    writeTextMock.mockReset();
     useClipboardStore.setState({
       entries: [],
       statistics: null,
@@ -92,5 +94,16 @@ describe('clipboardStore preview resolution', () => {
     useClipboardStore.getState().setSelectedType('image');
 
     expect(useClipboardStore.getState().selectedEntry).toBeNull();
+  });
+
+  it('copyToClipboard 统一走 backend copy_to_clipboard 合同', async () => {
+    invokeMock.mockResolvedValue(undefined);
+
+    await useClipboardStore.getState().copyToClipboard('copied from store');
+
+    expect(invokeMock).toHaveBeenCalledWith('copy_to_clipboard', {
+      content: 'copied from store',
+    });
+    expect(writeTextMock).not.toHaveBeenCalled();
   });
 });
