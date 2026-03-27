@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { JsonRenderer } from './JsonRenderer';
 
 const mockedJsonRendererDeps = vi.hoisted(() => ({
+  invoke: vi.fn().mockResolvedValue(undefined),
   writeText: vi.fn().mockResolvedValue(undefined),
   defineMonacoThemes: vi.fn(),
   monacoLoaderConfig: vi.fn(),
@@ -26,6 +27,14 @@ const mockedJsonRendererDeps = vi.hoisted(() => ({
       );
     }
   ),
+}));
+
+vi.mock('@tauri-apps/api/core', () => ({
+  invoke: mockedJsonRendererDeps.invoke,
+}));
+
+vi.mock('@tauri-apps/api/event', () => ({
+  listen: vi.fn(),
 }));
 
 vi.mock('react-i18next', () => ({
@@ -95,5 +104,16 @@ describe('JsonRenderer', () => {
     expect(screen.getByTestId('json-monaco-editor')).toHaveAttribute('data-language', 'json');
     expect(screen.getByTestId('json-monaco-editor')).toHaveAttribute('data-height', '100%');
     expect(mockedJsonRendererDeps.defineMonacoThemes).toHaveBeenCalledTimes(1);
+  });
+
+  it('复制按钮走 backend copy_to_clipboard 合同', () => {
+    render(<JsonRenderer content='{"enabled":true}' />);
+
+    fireEvent.click(screen.getByRole('button', { name: '复制' }));
+
+    expect(mockedJsonRendererDeps.invoke).toHaveBeenCalledWith('copy_to_clipboard', {
+      content: '{\n  "enabled": true\n}',
+    });
+    expect(mockedJsonRendererDeps.writeText).not.toHaveBeenCalled();
   });
 });

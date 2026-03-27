@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { UnifiedTextRenderer } from './UnifiedTextRenderer';
 
 const mockedMonaco = vi.hoisted(() => ({
+  invoke: vi.fn().mockResolvedValue(undefined),
   loaderConfig: vi.fn(),
   render: vi.fn(
     ({
@@ -33,6 +34,14 @@ const mockedMonaco = vi.hoisted(() => ({
   ),
   writeText: vi.fn().mockResolvedValue(undefined),
   defineMonacoThemes: vi.fn(),
+}));
+
+vi.mock('@tauri-apps/api/core', () => ({
+  invoke: mockedMonaco.invoke,
+}));
+
+vi.mock('@tauri-apps/api/event', () => ({
+  listen: vi.fn(),
 }));
 
 vi.mock('react-i18next', () => ({
@@ -121,6 +130,9 @@ describe('UnifiedTextRenderer', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '复制' }));
 
-    expect(mockedMonaco.writeText).toHaveBeenCalledWith('pnpm lint');
+    expect(mockedMonaco.invoke).toHaveBeenCalledWith('copy_to_clipboard', {
+      content: 'pnpm lint',
+    });
+    expect(mockedMonaco.writeText).not.toHaveBeenCalled();
   });
 });
