@@ -9,10 +9,10 @@
 
 ### Capture Reliability
 
-- [ ] **CAPT-01**: User can start and stop clipboard monitoring without hidden background listeners continuing after stop
-- [ ] **CAPT-02**: User sees each clipboard change recorded once without duplicate history entries caused by repeated listeners or self-generated copy flows
+- [x] **CAPT-01**: User can start and stop clipboard monitoring without hidden background listeners continuing after stop
+- [x] **CAPT-02**: User sees each clipboard change recorded once without duplicate history entries caused by repeated listeners or self-generated copy flows
 - [ ] **CAPT-03**: User can keep ignored, transient, concealed, or otherwise non-persistent clipboard events out of saved history
-- [ ] **CAPT-04**: User can rely on one consistent local storage lifecycle for history, cache, image assets, and related metadata
+- [x] **CAPT-04**: User can rely on one consistent local storage lifecycle for history, cache, image assets, and related metadata
 
 ### Detection
 
@@ -75,28 +75,28 @@ Explicitly excluded from the current roadmap.
 
 Which phases cover which requirements. Updated during roadmap creation.
 
-| Requirement | Phase   | Status  |
-| ----------- | ------- | ------- |
-| CAPT-01     | Phase 1 | Pending |
-| CAPT-02     | Phase 1 | Pending |
-| CAPT-03     | Phase 1 | Pending |
-| CAPT-04     | Phase 1 | Pending |
-| DETE-01     | Phase 2 | Pending |
-| DETE-02     | Phase 2 | Pending |
-| DETE-03     | Phase 2 | Pending |
-| DETE-04     | Phase 2 | Pending |
-| PREV-01     | Phase 3 | Pending |
-| PREV-02     | Phase 3 | Pending |
-| PREV-03     | Phase 3 | Pending |
-| PREV-04     | Phase 3 | Pending |
-| PREV-05     | Phase 3 | Pending |
-| RETR-01     | Phase 4 | Pending |
-| RETR-02     | Phase 4 | Pending |
-| RETR-03     | Phase 4 | Pending |
-| RETR-04     | Phase 4 | Pending |
-| RETR-05     | Phase 4 | Pending |
-| RELY-01     | Phase 5 | Pending |
-| RELY-02     | Phase 5 | Pending |
+| Requirement | Phase   | Status   |
+| ----------- | ------- | -------- |
+| CAPT-01     | Phase 1 | Complete |
+| CAPT-02     | Phase 1 | Complete |
+| CAPT-03     | Phase 1 | Pending  |
+| CAPT-04     | Phase 1 | Complete |
+| DETE-01     | Phase 2 | Pending  |
+| DETE-02     | Phase 2 | Pending  |
+| DETE-03     | Phase 2 | Pending  |
+| DETE-04     | Phase 2 | Pending  |
+| PREV-01     | Phase 3 | Pending  |
+| PREV-02     | Phase 3 | Pending  |
+| PREV-03     | Phase 3 | Pending  |
+| PREV-04     | Phase 3 | Pending  |
+| PREV-05     | Phase 3 | Pending  |
+| RETR-01     | Phase 4 | Pending  |
+| RETR-02     | Phase 4 | Pending  |
+| RETR-03     | Phase 4 | Pending  |
+| RETR-04     | Phase 4 | Pending  |
+| RETR-05     | Phase 4 | Pending  |
+| RELY-01     | Phase 5 | Pending  |
+| RELY-02     | Phase 5 | Pending  |
 
 **Coverage:**
 
