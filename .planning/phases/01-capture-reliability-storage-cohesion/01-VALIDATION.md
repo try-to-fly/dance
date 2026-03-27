@@ -2,60 +2,65 @@
 phase: 1
 slug: capture-reliability-storage-cohesion
 status: draft
-nyquist_compliant: false
-wave_0_complete: false
+nyquist_compliant: true
+wave_0_complete: true
 created: 2026-03-27
 ---
 
 # Phase 1 — Validation Strategy
 
-> Per-phase validation contract for feedback sampling during execution.
+> Per-phase executable validation contract. Execute the task-level command after each task, then execute the wave gate before moving to the next wave.
 
 ---
 
 ## Test Infrastructure
 
-| Property               | Value                                                                                                                                            |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Framework**          | Rust `cargo test` for capture lifecycle, policy, migration, and persistence logic; Vitest `4.1.2` for any frontend listener contract regressions |
-| **Config file**        | `vitest.config.ts`; Rust has no separate config file                                                                                             |
-| **Quick run command**  | `cd src-tauri && cargo test capture_ -- --nocapture`                                                                                             |
-| **Full suite command** | `pnpm test` and `cd src-tauri && cargo test`                                                                                                     |
-| **Estimated runtime**  | ~90 seconds after Wave 0 test scaffolding exists                                                                                                 |
+| Property               | Value                                                                                                                                                               |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Framework**          | Rust `cargo test` for scaffolding, app paths, runtime lifecycle, dedupe migration, and capture policy; Vitest `4.1.2` only when `clipboardStore.ts` routing changes |
+| **Config file**        | `vitest.config.ts`; Rust has no separate config file                                                                                                                |
+| **Quick run command**  | `cd src-tauri && cargo test --no-run`                                                                                                                               |
+| **Full suite command** | `pnpm test` and `cd src-tauri && cargo test`                                                                                                                        |
+| **Estimated runtime**  | ~90-120 seconds for targeted task commands; ~3-5 minutes for full phase gate                                                                                        |
 
 ---
 
 ## Sampling Rate
 
-- **After every task commit:** Run `cd src-tauri && cargo test capture_ -- --nocapture`
-- **After every plan wave:** Run `pnpm test` and `cd src-tauri && cargo test`
-- **Before `$gsd-verify-work`:** Full frontend and Rust suites must be green
-- **Max feedback latency:** 120 seconds
+- **After every task:** run that task’s exact `<verify><automated>` command from the matrix below.
+- **After every wave:** run the wave gate command for that wave before starting the next wave.
+- **Before `$gsd-verify-work`:** full frontend and Rust suites must be green.
+- **Max feedback latency:** 120 seconds for targeted commands.
 
 ---
 
-## Per-Task Verification Map
+## Task Verification Matrix
 
-| Task ID | Plan | Wave | Requirement | Test Type                   | Automated Command                                                                              | File Exists | Status     |
-| ------- | ---- | ---- | ----------- | --------------------------- | ---------------------------------------------------------------------------------------------- | ----------- | ---------- |
-| 1-01-01 | 01   | 1    | CAPT-01     | Rust integration            | `cd src-tauri && cargo test test_capture_runtime_stop_cancels_tasks -- --nocapture`            | ❌ W0       | ⬜ pending |
-| 1-02-01 | 02   | 1    | CAPT-02     | Rust integration            | `cd src-tauri && cargo test test_capture_runtime_single_worker_and_suppression -- --nocapture` | ❌ W0       | ⬜ pending |
-| 1-03-01 | 03   | 2    | CAPT-03     | Rust unit + manual smoke    | `cd src-tauri && cargo test test_capture_policy_marker_matrix -- --nocapture`                  | ❌ W0       | ⬜ pending |
-| 1-04-01 | 04   | 2    | CAPT-04     | Rust filesystem integration | `cd src-tauri && cargo test test_app_paths_migrate_legacy_roots -- --nocapture`                | ❌ W0       | ⬜ pending |
+| Task ID    | Plan    | Wave | Requirement(s)                       | Purpose                                                     | Automated Command                                                                                    | Status     |
+| ---------- | ------- | ---- | ------------------------------------ | ----------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- | ---------- |
+| `01-01-01` | `01-01` | 1    | `CAPT-01, CAPT-02, CAPT-03, CAPT-04` | 建立 `test_support.rs` 与测试模块注册                       | `cd src-tauri && cargo test --no-run`                                                                | ⬜ planned |
+| `01-01-02` | `01-01` | 1    | `CAPT-01, CAPT-02, CAPT-03, CAPT-04` | 生成 Phase 1 三类测试脚手架与固定测试名                     | `cd src-tauri && cargo test test_app_paths_temp_roots_are_isolated -- --nocapture`                   | ⬜ planned |
+| `01-02-01` | `01-02` | 2    | `CAPT-04`                            | 建立 `AppPaths` 权威层与注入式构造                          | `cd src-tauri && cargo test test_app_paths_temp_roots_are_isolated -- --nocapture`                   | ⬜ planned |
+| `01-02-02` | `01-02` | 2    | `CAPT-04`                            | 完成 legacy migration 与路径调用替换                        | `cd src-tauri && cargo test test_app_paths_migrate_legacy_roots -- --nocapture`                      | ⬜ planned |
+| `01-03-01` | `01-03` | 3    | `CAPT-01, CAPT-02`                   | 引入 `CaptureRuntime` 并接管 start/stop 生命周期            | `cd src-tauri && cargo test test_capture_runtime_stop_cancels_tasks -- --nocapture`                  | ⬜ planned |
+| `01-03-02` | `01-03` | 3    | `CAPT-02`                            | 做 brownfield dedupe migration、唯一索引、自写 suppression  | `cd src-tauri && cargo test test_capture_runtime_ -- --nocapture`                                    | ⬜ planned |
+| `01-04-01` | `01-04` | 4    | `CAPT-03`                            | 定义 marker-first policy 与策略矩阵                         | `cd src-tauri && cargo test test_capture_policy_marker_matrix -- --nocapture`                        | ⬜ planned |
+| `01-04-02` | `01-04` | 4    | `CAPT-03`                            | 接入 macOS marker adapter 并把 policy 放到 monitor 前置阶段 | `cd src-tauri && cargo test test_capture_policy_current_only_is_non_persistent_in_v1 -- --nocapture` | ⬜ planned |
 
-_Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky_
+_Status: ⬜ planned · ✅ green · ❌ red · ⚠️ flaky_
 
 ---
 
-## Wave 0 Requirements
+## Wave Gates
 
-- [ ] `src-tauri/src/test_support.rs` — temp-root injection helpers for `AppPaths`, `Database`, `ConfigManager`, `ContentProcessor`, and `AppState`
-- [ ] `src-tauri/src/capture_runtime_tests.rs` — lifecycle tests for start/stop/restart and duplicate worker prevention
-- [ ] `src-tauri/src/capture_policy_tests.rs` — marker-aware skip matrix and self-write suppression tests
-- [ ] `src-tauri/src/app_paths_tests.rs` — canonical path authority and legacy-root migration tests
-- [ ] `src/stores/clipboardStore.test.ts` — extend only if frontend event listener setup/cleanup or copy-routing contracts change
+| Wave | Plans   | Gate Command                                                                                                                                                        | Purpose                                                |
+| ---- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| 1    | `01-01` | `cd src-tauri && cargo test --no-run && cargo test test_app_paths_temp_roots_are_isolated -- --nocapture`                                                           | 确认 Phase 1 scaffolding 与 temp-root 隔离已可执行     |
+| 2    | `01-02` | `cd src-tauri && cargo test test_app_paths_temp_roots_are_isolated -- --nocapture && cargo test test_app_paths_migrate_legacy_roots -- --nocapture`                 | 确认 `AppPaths` 与 migration 合同已经稳定              |
+| 3    | `01-03` | `cd src-tauri && cargo test test_capture_runtime_ -- --nocapture`                                                                                                   | 确认 runtime 生命周期、去重迁移和 suppression 全部通过 |
+| 4    | `01-04` | `cd src-tauri && cargo test test_capture_policy_marker_matrix -- --nocapture && cargo test test_capture_policy_current_only_is_non_persistent_in_v1 -- --nocapture` | 确认 marker-first policy 已接入 monitor                |
 
-_If none: Existing infrastructure covers all phase requirements._
+如果 Wave 3 改动了 `src/stores/clipboardStore.ts`，在 Wave 3 gate 后追加执行 `pnpm test -- src/stores/clipboardStore.test.ts`。
 
 ---
 
@@ -70,9 +75,11 @@ _If none: Existing infrastructure covers all phase requirements._
 
 ## Validation Sign-Off
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies
+- [ ] All 8 planned tasks have a task-level automated command
 - [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all MISSING references
+- [ ] Wave gate commands match the actual plan order `01-01 -> 01-02 -> 01-03 -> 01-04`
+- [ ] `01-03` dedupe migration is covered before unique index creation
+- [ ] `CurrentOnly` and runtime suppression share the same `content_hash` key contract
 - [ ] No watch-mode flags
 - [ ] Feedback latency < 120s
 - [ ] `nyquist_compliant: true` set in frontmatter
