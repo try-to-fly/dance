@@ -351,6 +351,27 @@ impl ClipboardMonitor {
 
         Ok(())
     }
+
+    #[cfg(test)]
+    pub(crate) async fn process_text_capture_for_test<F>(
+        &self,
+        _last_observed_hash: &Arc<Mutex<Option<String>>>,
+        _suppression_registry: &Arc<Mutex<Vec<SuppressionEntry>>>,
+        _app_info: Option<&crate::utils::app_detector::AppInfo>,
+        _markers: &crate::capture::PasteboardMarkers,
+        _trimmed_text: &str,
+        _detector: F,
+    ) -> Result<crate::capture::CaptureDisposition>
+    where
+        F: FnOnce(
+            &str,
+        ) -> (
+            crate::clipboard::content_detector::ContentSubType,
+            Option<crate::clipboard::content_detector::ContentMetadata>,
+        ),
+    {
+        todo!("implemented in 01-05")
+    }
 }
 
 #[cfg(test)]
