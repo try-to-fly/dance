@@ -1,7 +1,9 @@
+use crate::app_paths::AppPaths;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use tokio::fs;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -95,8 +97,13 @@ pub struct ConfigManager {
 }
 
 impl ConfigManager {
+    #[cfg_attr(not(test), allow(dead_code))]
     pub async fn new() -> Result<Self> {
-        let config_path = Self::get_config_path()?;
+        Self::new_in(Arc::new(AppPaths::from_default_roots()?)).await
+    }
+
+    pub async fn new_in(paths: Arc<AppPaths>) -> Result<Self> {
+        let config_path = paths.config_file_path();
 
         // 确保配置目录存在
         if let Some(parent) = config_path.parent() {
@@ -134,6 +141,11 @@ impl ConfigManager {
         })
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn config_path(&self) -> &Path {
+        &self.config_path
+    }
+
     pub async fn update_config(&mut self, new_config: AppConfig) -> Result<()> {
         self.config = new_config.clone();
         Self::save_config(&self.config_path, &new_config).await?;
@@ -144,12 +156,6 @@ impl ConfigManager {
     pub async fn reload(&mut self) -> Result<()> {
         self.config = Self::load_config(&self.config_path).await?;
         Ok(())
-    }
-
-    fn get_config_path() -> Result<PathBuf> {
-        let config_dir =
-            dirs::config_dir().ok_or_else(|| anyhow::anyhow!("Unable to get config directory"))?;
-        Ok(config_dir.join("dance").join("config.json"))
     }
 
     async fn load_config(path: &PathBuf) -> Result<AppConfig> {

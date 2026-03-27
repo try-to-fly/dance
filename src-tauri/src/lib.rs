@@ -1,5 +1,6 @@
 #![allow(unexpected_cfgs)]
 
+mod app_paths;
 mod clipboard;
 mod commands;
 mod config;
@@ -31,8 +32,10 @@ mod capture_runtime_tests;
 #[cfg(test)]
 mod capture_policy_tests;
 
+use app_paths::AppPaths;
 use commands::*;
 use state::AppState;
+use std::sync::Arc;
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem, Submenu},
     AppHandle, Emitter, Manager, Window, WindowEvent,
@@ -309,9 +312,9 @@ pub fn run() {
                     .handle()
                     .plugin(tauri_plugin_aptabase::Builder::new(&aptabase_key).build());
 
-                let state = AppState::new().await?;
-
                 let app_handle = app.handle().clone();
+                let paths = Arc::new(AppPaths::from_app(&app_handle)?);
+                let state = AppState::new(paths).await?;
                 state.set_app_handle(app_handle.clone());
 
                 // Load config and register global shortcut on startup

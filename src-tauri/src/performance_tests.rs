@@ -1,40 +1,44 @@
 #[cfg(test)]
 mod performance_tests {
+    use crate::app_paths::AppPaths;
     use crate::clipboard::content_detector::ContentDetector;
+    use crate::clipboard::ContentProcessor;
     use crate::database::Database;
     use crate::models::{ClipboardEntry, ContentType};
     use crate::state::AppState;
-    use sqlx::SqlitePool;
+    use crate::test_support::{create_temp_app_roots, TestAppRoots};
     use std::sync::Arc;
     use std::time::{Duration, Instant};
-    use tempfile::TempDir;
     use tokio::task::JoinSet;
 
-    async fn create_perf_test_env() -> (Arc<AppState>, TempDir) {
-        let temp_dir = TempDir::new().unwrap();
-        let db_path = temp_dir.path().join("perf_test_clipboard.db");
-        let database_url = format!("sqlite:{}?mode=rwc", db_path.display());
-        let pool = SqlitePool::connect(&database_url).await.unwrap();
-        let db = Database::from_pool(pool);
-        db.init().await.unwrap();
+    async fn create_perf_test_env() -> (Arc<AppState>, TestAppRoots) {
+        let roots = create_temp_app_roots();
+        let paths = Arc::new(AppPaths::from_roots(
+            roots.config_root.clone(),
+            roots.data_root.clone(),
+            roots.cache_root.clone(),
+            roots.log_root.clone(),
+        ));
+        let db = Database::new_in(paths.clone()).await.unwrap();
 
         let (tx, rx) = tokio::sync::broadcast::channel(1000);
         let state = AppState {
+            paths: paths.clone(),
             db: Arc::new(db),
             monitor: Arc::new(tokio::sync::RwLock::new(None)),
             tx,
             _rx: Arc::new(tokio::sync::Mutex::new(rx)),
             app_handle: Arc::new(tokio::sync::Mutex::new(None)),
-            processor: Arc::new(crate::clipboard::ContentProcessor::new().unwrap()),
+            processor: Arc::new(ContentProcessor::new_in(paths.clone()).unwrap()),
             skip_next_change: Arc::new(tokio::sync::Mutex::new(false)),
             config_manager: Arc::new(tokio::sync::Mutex::new(
-                crate::config::ConfigManager::new().await.unwrap(),
+                crate::config::ConfigManager::new_in(paths).await.unwrap(),
             )),
             current_shortcut: Arc::new(tokio::sync::Mutex::new(None)),
             last_cleanup_date: Arc::new(tokio::sync::Mutex::new(None)),
         };
 
-        (Arc::new(state), temp_dir)
+        (Arc::new(state), roots)
     }
 
     #[tokio::test]

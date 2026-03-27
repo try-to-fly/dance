@@ -1,25 +1,32 @@
+use crate::app_paths::AppPaths;
 use anyhow::Result;
 use sqlx::{sqlite::SqlitePool, Pool, Sqlite};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 pub struct Database {
     pool: Pool<Sqlite>,
+    #[cfg_attr(not(test), allow(dead_code))]
+    db_path: PathBuf,
 }
 
 impl Database {
+    #[cfg_attr(not(test), allow(dead_code))]
     pub async fn new() -> Result<Self> {
-        let db_path = Self::get_db_path()?;
+        Self::new_in(Arc::new(AppPaths::from_default_roots()?)).await
+    }
 
-        // 确保目录存在
+    pub async fn new_in(paths: Arc<AppPaths>) -> Result<Self> {
+        let db_path = paths.history_db_path();
+
         if let Some(parent) = db_path.parent() {
             std::fs::create_dir_all(parent)?;
         }
 
         let database_url = format!("sqlite:{}?mode=rwc", db_path.display());
-
         let pool = SqlitePool::connect(&database_url).await?;
 
-        let db = Self { pool };
+        let db = Self { pool, db_path };
         db.init().await?;
 
         Ok(db)
@@ -29,16 +36,17 @@ impl Database {
         &self.pool
     }
 
-    #[cfg(test)]
-    pub fn from_pool(pool: Pool<Sqlite>) -> Self {
-        Self { pool }
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn db_path(&self) -> &Path {
+        &self.db_path
     }
 
-    fn get_db_path() -> Result<PathBuf> {
-        let config_dir = dirs::config_dir().ok_or_else(|| anyhow::anyhow!("无法获取配置目录"))?;
-
-        let app_dir = config_dir.join("dance");
-        Ok(app_dir.join("clipboard.db"))
+    #[cfg(test)]
+    pub fn from_pool(pool: Pool<Sqlite>) -> Self {
+        Self {
+            pool,
+            db_path: PathBuf::new(),
+        }
     }
 
     pub async fn init(&self) -> Result<()> {

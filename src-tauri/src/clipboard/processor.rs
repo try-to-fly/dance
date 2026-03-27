@@ -1,7 +1,9 @@
+use crate::app_paths::AppPaths;
 use anyhow::Result;
 use image::ImageFormat;
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -17,13 +19,21 @@ pub struct ContentProcessor {
 }
 
 impl ContentProcessor {
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn new() -> Result<Self> {
-        let config_dir = dirs::config_dir().ok_or_else(|| anyhow::anyhow!("无法获取配置目录"))?;
+        Self::new_in(Arc::new(AppPaths::from_default_roots()?))
+    }
 
-        let imgs_dir = config_dir.join("clipboard-app").join("imgs");
+    pub fn new_in(paths: Arc<AppPaths>) -> Result<Self> {
+        let imgs_dir = paths.image_assets_dir();
         std::fs::create_dir_all(&imgs_dir)?;
 
         Ok(Self { imgs_dir })
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn imgs_dir(&self) -> &Path {
+        &self.imgs_dir
     }
 
     pub async fn process_image_with_dimensions(

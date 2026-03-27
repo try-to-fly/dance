@@ -1,3 +1,4 @@
+use crate::app_paths::AppPaths;
 use crate::clipboard::{ClipboardMonitor, ContentProcessor};
 use crate::commands::{CacheStatistics, CleanupResult};
 use crate::config::{AppConfig, ConfigManager};
@@ -16,6 +17,7 @@ use tokio::sync::Mutex;
 use tokio::sync::{broadcast, RwLock};
 
 pub struct AppState {
+    pub paths: Arc<AppPaths>,
     pub db: Arc<Database>,
     pub monitor: Arc<RwLock<Option<ClipboardMonitor>>>,
     pub tx: broadcast::Sender<ClipboardEntry>,
@@ -29,13 +31,14 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub async fn new() -> Result<Self> {
-        let db = Arc::new(Database::new().await?);
+    pub async fn new(paths: Arc<AppPaths>) -> Result<Self> {
+        let db = Arc::new(Database::new_in(paths.clone()).await?);
         let (tx, rx) = broadcast::channel(100);
-        let processor = Arc::new(ContentProcessor::new()?);
-        let config_manager = Arc::new(Mutex::new(ConfigManager::new().await?));
+        let processor = Arc::new(ContentProcessor::new_in(paths.clone())?);
+        let config_manager = Arc::new(Mutex::new(ConfigManager::new_in(paths.clone()).await?));
 
         let instance = Self {
+            paths,
             db,
             monitor: Arc::new(RwLock::new(None)),
             tx: tx.clone(),
@@ -460,10 +463,7 @@ impl AppState {
 
         // 解析文件路径
         let absolute_path = if file_path.starts_with("imgs/") {
-            let config_dir = dirs::config_dir()
-                .ok_or_else(|| anyhow::anyhow!("Unable to get config directory"))?;
-            let app_dir = config_dir.join("clipboard-app");
-            app_dir.join(&file_path)
+            self.paths.resolve_relative_asset_path(&file_path)?
         } else {
             PathBuf::from(&file_path)
         };
@@ -815,15 +815,11 @@ impl AppState {
 
     // Helper methods
     fn get_db_path(&self) -> Result<PathBuf> {
-        let config_dir =
-            dirs::config_dir().ok_or_else(|| anyhow::anyhow!("Unable to get config directory"))?;
-        Ok(config_dir.join("clipboard-app").join("clipboard.db"))
+        Ok(self.paths.history_db_path())
     }
 
     fn get_images_path(&self) -> Result<PathBuf> {
-        let config_dir =
-            dirs::config_dir().ok_or_else(|| anyhow::anyhow!("Unable to get config directory"))?;
-        Ok(config_dir.join("clipboard-app").join("imgs"))
+        Ok(self.paths.image_assets_dir())
     }
 
     fn calculate_directory_size(&self, path: &PathBuf) -> Result<u64> {
