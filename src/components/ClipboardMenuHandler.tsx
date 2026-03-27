@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { listen } from '@tauri-apps/api/event';
-import { writeText, readText } from '@tauri-apps/plugin-clipboard-manager';
+import { readText } from '@tauri-apps/plugin-clipboard-manager';
+import { copyToClipboard } from '../stores/clipboardStore';
 
 export function ClipboardMenuHandler() {
   useEffect(() => {
@@ -11,7 +12,7 @@ export function ClipboardMenuHandler() {
           const selection = window.getSelection();
           if (selection && selection.toString()) {
             const selectedText = selection.toString();
-            await writeText(selectedText);
+            await copyToClipboard(selectedText);
             console.log('Menu copy:', selectedText.substring(0, 50));
           }
         } catch (error) {
@@ -58,7 +59,7 @@ export function ClipboardMenuHandler() {
           const selection = window.getSelection();
           if (selection && selection.toString()) {
             const selectedText = selection.toString();
-            await writeText(selectedText);
+            await copyToClipboard(selectedText);
 
             // 尝试删除选中的文本
             if (document.activeElement) {

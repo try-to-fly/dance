@@ -9,7 +9,6 @@ import {
   Statistics,
   UrlPreviewResolution,
 } from '../types/clipboard';
-import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 
 type UrlPreviewCategory = 'none' | 'image' | 'video' | 'audio' | 'text' | 'json';
 
@@ -255,6 +254,10 @@ const hasRenderableResolvedPreview = (resolved: ResolvedPreviewData) =>
   Boolean(resolved.imageUrl || resolved.audioUrl || resolved.videoUrl) ||
   resolved.textContent !== undefined ||
   hasResolvedJsonContent(resolved);
+
+export const copyToClipboard = async (content: string) => {
+  await invoke('copy_to_clipboard', { content });
+};
 
 const applyUrlPreviewFallback = async ({
   normalizedUrl,
@@ -528,7 +531,7 @@ export const useClipboardStore = create<ClipboardStore>((set, get) => ({
 
   copyToClipboard: async (content: string) => {
     try {
-      await writeText(content);
+      await copyToClipboard(content);
     } catch (error) {
       set({ error: String(error) });
     }
