@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: verifying
-stopped_at: Completed 01-05-PLAN.md
-last_updated: '2026-03-27T14:53:27.673Z'
-last_activity: 2026-03-27
+status: human_needed
+stopped_at: Completed 01-06-PLAN.md
+last_updated: '2026-03-27T15:33:39.288Z'
+last_activity: 2026-03-27 -- Phase 01 awaiting human verification
 progress:
   total_phases: 5
   completed_phases: 1
-  total_plans: 5
-  completed_plans: 5
+  total_plans: 6
+  completed_plans: 6
   percent: 100
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-27)
 
 **Core value:** 开发者复制任意常见内容后，应用都能稳定记录、准确识别，并以最合适的结构化方式展示出来。
-**Current focus:** Phase 01 — capture-reliability-storage-cohesion verification
+**Current focus:** Phase 01 — capture-reliability-storage-cohesion human verification
 
 ## Current Position
 
-Phase: 01 (capture-reliability-storage-cohesion) — VERIFYING
-Plan: 5 of 5
-Status: Phase complete — ready for verification
-Last activity: 2026-03-27
+Phase: 01 (capture-reliability-storage-cohesion) — HUMAN VERIFICATION
+Plan: 6 of 6
+Status: Awaiting human verification
+Last activity: 2026-03-27 -- Phase 01 awaiting human verification
 
 Progress: [██████████] 100%
 
@@ -60,6 +60,7 @@ Progress: [██████████] 100%
 | Phase 01 P03 | 21 min | 2 tasks | 13 files |
 | Phase 01 P04 | 8 min | 2 tasks | 8 files |
 | Phase 01-capture-reliability-storage-cohesion P05 | 20min | 2 tasks | 6 files |
+| Phase 01 P06 | 5 min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -85,6 +86,8 @@ Recent decisions affecting current work:
 - [Phase 01-capture-reliability-storage-cohesion]: CAPT-03 先读取 pasteboard marker 和 source metadata，再决定是否进入 ContentDetector::detect 或图片处理。
 - [Phase 01-capture-reliability-storage-cohesion]: CurrentOnly 在 Phase 1 只更新 observed-hash dedupe 状态，不发送到 runtime save loop。
 - [Phase 01-capture-reliability-storage-cohesion]: macOS 使用 NSPasteboard marker adapter；非 macOS 明确保持 no-op markers，不破坏现有采集。
+- [Phase 01]: 不把 AppPaths 直接塞进 ClipboardMonitor 状态 — 通过 ContentProcessor 复用 resolve_relative_asset_path()，维持现有 monitor 构造签名。
+- [Phase 01]: 日志文件名固定为 clipboard-app.log — 与 tauri_plugin_log 当前 file_name 配置保持一致。
 
 ### Pending Todos
 
@@ -98,6 +101,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-27T14:53:27.670Z
-Stopped at: Completed 01-05-PLAN.md
+Last session: 2026-03-27T15:33:39.285Z
+Stopped at: Completed 01-06-PLAN.md
 Resume file: None

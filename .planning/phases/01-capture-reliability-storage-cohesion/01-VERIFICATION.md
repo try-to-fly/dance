@@ -1,124 +1,91 @@
 ---
 phase: 01-capture-reliability-storage-cohesion
-verified: 2026-03-27T15:08:57Z
-status: gaps_found
-score: 3/4 must-haves verified
-gaps:
-  - truth: 'User can restart the app and still access history, cached previews, and image assets without path-related mismatches or missing data.'
-    status: partial
-    reason: 'AppPaths 已经接管配置、数据库、图片写入与大部分图片读取链路，但仍有生产代码绕过这套权威路径层：ClipboardMonitor 的图片文件大小回读仍按 legacy `dirs::config_dir()/clipboard-app/...` 拼绝对路径，日志读取/清理命令也仍硬编码 `~/Library/Logs/com.dance.app/dance.log`。CAPT-04 的单一存储生命周期因此没有完全闭环。'
-    artifacts:
-      - path: 'src-tauri/src/clipboard/monitor.rs'
-        issue: '`get_saved_file_size()` 对 `imgs/...` 仍走 legacy 根目录，没有复用 AppPaths。'
-      - path: 'src-tauri/src/commands.rs'
-        issue: '`get_log_content()` / `clear_logs()` 仍手写日志路径，没有消费 `AppPaths::log_dir()`。'
-    missing:
-      - '让图片文件大小回读复用 `AppPaths::resolve_relative_asset_path()`，或把 `AppPaths` 注入 ClipboardMonitor。'
-      - '让日志命令通过 `AppPaths` 解析 log root，并补一条 CAPT-04 回归测试覆盖日志路径。'
+verified: 2026-03-27T15:37:48Z
+status: human_needed
+score: 4/4 must-haves verified
 ---
 
 # Phase 1: Capture Reliability & Storage Cohesion Verification Report
 
 **Phase Goal:** Users can trust clipboard capture to start and stop cleanly, avoid unwanted entries, and keep local data under one coherent storage lifecycle.
-**Verified:** 2026-03-27T15:08:57Z
-**Status:** gaps_found
-**Re-verification:** No - initial verification
+**Verified:** 2026-03-27T15:37:48Z
+**Status:** human_needed
+**Re-verification:** Yes - after gap closure plan `01-06`
 
 ## Goal Achievement
 
 ### Observable Truths
 
-| #   | Truth                                                                                                                                 | Status     | Evidence                                                                                                                                                                                                                                                                                                                             |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 1   | User can start monitoring, stop monitoring, and confirm no new clipboard items are saved after monitoring is turned off.              | ✓ VERIFIED | `AppState::start_monitoring()` / `stop_monitoring()` 只创建一个 runtime 并在停止时 `take()` 后 await 停止；`CaptureRuntime::stop()` 会 cancel 并等待 monitor/save 任务结束；`cargo test test_capture_runtime_stop_cancels_tasks -- --nocapture` 与 `cargo test test_capture_runtime_restart_is_single_owner -- --nocapture` 均通过。 |
-| 2   | User sees each eligible clipboard change recorded once, even after repeated start/stop cycles or app-driven copy flows.               | ✓ VERIFIED | `persist_entry()` 对 `content_hash` 做 UPSERT，数据库初始化会先 merge brownfield duplicates 再创建唯一索引；后端 `copy_to_clipboard` 先注册 suppression key；前端共享 helper 统一调用该命令；Rust 与 Vitest 合同测试均通过。                                                                                                         |
-| 3   | User can keep ignored, transient, concealed, or other non-persistent clipboard events out of saved history.                           | ✓ VERIFIED | `decide_capture()` 先按 marker/source/self/excluded/size 做 `Skip` / `CurrentOnly` / `Persist` 判定；`ClipboardMonitor` 在 `ContentDetector::detect(...)` 之前完成 gating；`cargo test test_capture_policy_current_only_is_non_persistent_in_v1 -- --nocapture` 通过。                                                               |
-| 4   | User can restart the app and still access history, cached previews, and image assets without path-related mismatches or missing data. | ✗ FAILED   | `AppPaths` 与迁移测试、图片读取命令和状态层大体已接线，但仍有两个生产路径绕过权威路径层：`clipboard/monitor.rs` 的图片文件大小回读仍用 legacy `dirs::config_dir()/clipboard-app/...`，`commands.rs` 的日志读写仍手写 log 路径。CAPT-04 未完全闭环。                                                                                  |
+| #   | Truth                                                                                                                                 | Status     | Evidence                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------- | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | User can start monitoring, stop monitoring, and confirm no new clipboard items are saved after monitoring is turned off.              | ✓ VERIFIED | `AppState::start_monitoring()` / `stop_monitoring()` 仍保持单一 runtime owner；`CaptureRuntime::stop()` 会 cancel 并等待 monitor/save 任务结束；`cargo test test_capture_runtime_stop_cancels_tasks -- --nocapture` 与 `cargo test test_capture_runtime_restart_is_single_owner -- --nocapture` 的既有验证结果仍成立。                                                                                                                                           |
+| 2   | User sees each eligible clipboard change recorded once, even after repeated start/stop cycles or app-driven copy flows.               | ✓ VERIFIED | SQLite `content_hash` UPSERT、后端 suppression contract 和前端统一 copy route 没有在 gap closure 中被回退；既有 Rust/Vitest 合同测试仍覆盖这条链路。                                                                                                                                                                                                                                                                                                             |
+| 3   | User can keep ignored, transient, concealed, or other non-persistent clipboard events out of saved history.                           | ✓ VERIFIED | `decide_capture()`、macOS marker adapter 和 monitor 前置 gating 仍在位；`cargo test test_capture_policy_current_only_is_non_persistent_in_v1 -- --nocapture` 的既有验证结果仍成立。                                                                                                                                                                                                                                                                              |
+| 4   | User can restart the app and still access history, cached previews, and image assets without path-related mismatches or missing data. | ✓ VERIFIED | `ClipboardMonitor::get_saved_file_size()` 已改为通过 `ContentProcessor::resolve_relative_asset_path()` 解析 `imgs/...`；`get_log_content()` / `clear_logs()` 已委托 `AppPaths::log_dir()/clipboard-app.log`；`cargo test test_app_paths_log_commands_follow_log_dir -- --nocapture`、`cargo test test_app_paths_resolve_relative_asset_path_for_nested_imgs_assets -- --nocapture` 与 `cargo test test_app_paths_migrate_legacy_roots -- --nocapture` 全部通过。 |
 
-**Score:** 3/4 truths verified
+**Score:** 4/4 truths verified
 
 ### Required Artifacts
 
-| Artifact                                                                  | Expected                                        | Status     | Details                                                                                                             |
-| ------------------------------------------------------------------------- | ----------------------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------- |
-| `src-tauri/src/test_support.rs`                                           | temp-root、fixture seed 与测试隔离辅助          | ✓ VERIFIED | 60 行，提供 `TestAppRoots`、`create_temp_app_roots()`、`sqlite_url()`、`seed_file()`、`create_dir()`。              |
-| `src-tauri/src/app_paths_tests.rs`                                        | CAPT-04 路径与迁移测试                          | ✓ VERIFIED | 包含 temp-root 隔离、注入式 roots、legacy migration 幂等断言，且 `test_app_paths_migrate_legacy_roots` 可执行通过。 |
-| `src-tauri/src/capture_runtime_tests.rs`                                  | CAPT-01/CAPT-02 自动化验证                      | ✓ VERIFIED | 包含 stop cancel、single worker/suppression、restart single owner、brownfield dedupe migration 测试。               |
-| `src-tauri/src/capture_policy_tests.rs`                                   | CAPT-03 自动化验证                              | ✓ VERIFIED | 包含 marker matrix、CurrentOnly 不检测/不发送/不入库，以及非 macOS no-op marker 测试。                              |
-| `src-tauri/src/app_paths.rs`                                              | 存储权威与迁移逻辑                              | ⚠️ PARTIAL | 核心路径与迁移逻辑已实体落地，但 `log_dir()` 没有被生产日志命令消费，且 monitor 的图片 metadata 回读仍绕过它。      |
-| `src-tauri/src/capture/runtime.rs`                                        | CaptureRuntime 生命周期与 suppression registry  | ✓ VERIFIED | 有 cancel token、monitor/save 双任务、suppression registry、observed hash 和记忆、SQLite UPSERT 保存环。            |
-| `src-tauri/src/capture/policy.rs`                                         | marker-first capture policy                     | ✓ VERIFIED | 纯函数策略矩阵完整，规则与 Phase 01 计划一致。                                                                      |
-| `src-tauri/src/capture/macos_markers.rs`                                  | macOS pasteboard marker adapter                 | ✓ VERIFIED | macOS 读取 marker，非 macOS 回退 no-op adapter。                                                                    |
-| `src/stores/clipboardStore.ts`                                            | 共享 backend copy helper 与 store-level routing | ✓ VERIFIED | 导出 `copyToClipboard(content)` 并在 store action 中统一复用。                                                      |
-| `src/stores/clipboardStore.test.ts`                                       | store copy-routing contract tests               | ✓ VERIFIED | 明确断言调用 `invoke('copy_to_clipboard', { content })`，且不会调用 `writeText`。                                   |
-| `src/components/DetailView/ContentRenderers/JsonRenderer.test.tsx`        | renderer copy-routing contract tests            | ✓ VERIFIED | 明确断言 JSON 复制按钮走 backend contract。                                                                         |
-| `src/components/DetailView/ContentRenderers/UnifiedTextRenderer.test.tsx` | renderer copy-routing contract tests            | ✓ VERIFIED | 明确断言文本/命令复制按钮走 backend contract。                                                                      |
+| Artifact                                                                  | Expected                                | Status                 | Details                                                                                                                                            |
+| ------------------------------------------------------------------------- | --------------------------------------- | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src-tauri/src/test_support.rs`                                           | temp-root、fixture seed 与测试隔离辅助  | ✓ VERIFIED             | 继续为 CAPT-04 temp-root regression 提供隔离根目录与 seed helpers。                                                                                |
+| `src-tauri/src/app_paths_tests.rs`                                        | CAPT-04 路径与迁移测试                  | ✓ EXISTS + SUBSTANTIVE | 现含 temp-root roots、legacy migration、nested `imgs/...` 解析，以及 `clipboard-app.log` helper regression 测试。                                  |
+| `src-tauri/src/clipboard/processor.rs`                                    | 图片资产路径 authority bridge           | ✓ EXISTS + SUBSTANTIVE | `ContentProcessor` 保存 `Arc<AppPaths>`，并暴露 `resolve_relative_asset_path()` 给 monitor 复用。                                                  |
+| `src-tauri/src/clipboard/monitor.rs`                                      | 图片 metadata 回读接入 `AppPaths`       | ✓ EXISTS + SUBSTANTIVE | `get_saved_file_size(&self, ...)` 对 `imgs/...` 改走 `self.processor.resolve_relative_asset_path(...)`。                                           |
+| `src-tauri/src/commands.rs`                                               | 日志读取/清理接入 `AppPaths::log_dir()` | ✓ EXISTS + SUBSTANTIVE | `app_log_file_path()`、`read_log_content_in()`、`clear_log_file_in()` 已形成共享路径 helper，Tauri command 改为从 `State<'_, AppState>` 委托执行。 |
+| `src-tauri/src/capture_runtime_tests.rs`                                  | CAPT-01/CAPT-02 自动化验证              | ✓ VERIFIED             | stop cancel、single worker/suppression、restart single owner、brownfield dedupe migration 测试仍在位。                                             |
+| `src-tauri/src/capture_policy_tests.rs`                                   | CAPT-03 自动化验证                      | ✓ VERIFIED             | marker matrix、CurrentOnly 非持久化和非 macOS no-op marker 测试仍在位。                                                                            |
+| `src/stores/clipboardStore.test.ts`                                       | store copy-routing contract tests       | ✓ VERIFIED             | 共享 helper 合同未被 gap closure 回退。                                                                                                            |
+| `src/components/DetailView/ContentRenderers/JsonRenderer.test.tsx`        | renderer copy-routing contract tests    | ✓ VERIFIED             | JSON 复制继续走后端 contract。                                                                                                                     |
+| `src/components/DetailView/ContentRenderers/UnifiedTextRenderer.test.tsx` | renderer copy-routing contract tests    | ✓ VERIFIED             | 文本/命令复制继续走后端 contract。                                                                                                                 |
 
 ### Key Link Verification
 
-| From                                     | To                                                                   | Via                                    | Status    | Details                                                                                                                                                                    |
-| ---------------------------------------- | -------------------------------------------------------------------- | -------------------------------------- | --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src-tauri/src/lib.rs`                   | `src-tauri/src/test_support.rs`                                      | `cfg(test) module registration`        | WIRED     | `lib.rs` 注册了 `mod test_support;`。                                                                                                                                      |
-| `src-tauri/src/lib.rs`                   | `src-tauri/src/app_paths_tests.rs`                                   | `cfg(test) module registration`        | WIRED     | `lib.rs` 注册了 `mod app_paths_tests;`。                                                                                                                                   |
-| `src-tauri/src/lib.rs`                   | `src-tauri/src/capture_runtime_tests.rs`                             | `cfg(test) module registration`        | WIRED     | `lib.rs` 注册了 `mod capture_runtime_tests;`。                                                                                                                             |
-| `src-tauri/src/lib.rs`                   | `src-tauri/src/capture_policy_tests.rs`                              | `cfg(test) module registration`        | WIRED     | `lib.rs` 注册了 `mod capture_policy_tests;`。                                                                                                                              |
-| `src-tauri/src/app_paths.rs`             | `src-tauri/src/database/mod.rs`                                      | `history_db_path()`                    | WIRED     | `Database::new_in()` 读取 `paths.history_db_path()`。                                                                                                                      |
-| `src-tauri/src/app_paths.rs`             | `src-tauri/src/config/mod.rs`                                        | `config_file_path()`                   | WIRED     | `ConfigManager::new_in()` 读取 `paths.config_file_path()`。                                                                                                                |
-| `src-tauri/src/app_paths.rs`             | `src-tauri/src/clipboard/processor.rs`                               | `image_assets_dir()`                   | WIRED     | `ContentProcessor::new_in()` 读取 `paths.image_assets_dir()`。                                                                                                             |
-| `src-tauri/src/app_paths.rs`             | `src-tauri/src/commands.rs`                                          | `resolve_relative_asset_path()`        | WIRED     | `open_file_with_system()`、`get_image_url()`、图片打开相关命令都会解析 `imgs/...`。                                                                                        |
-| `src-tauri/src/state.rs`                 | `src-tauri/src/capture/runtime.rs`                                   | `start_monitoring()/stop_monitoring()` | WIRED     | 状态层在 `start_monitoring()` 中创建 runtime，在 `stop_monitoring()` 中 `take()` 并 await 停止。                                                                           |
-| `src-tauri/src/commands.rs`              | `src-tauri/src/capture/runtime.rs`                                   | `register_suppression_for_text()`      | WIRED     | `copy_to_clipboard` 命令先注册 suppression，再写系统剪贴板。                                                                                                               |
-| `src-tauri/src/capture/runtime.rs`       | `src-tauri/src/database/mod.rs`                                      | `UPSERT save loop`                     | WIRED     | save loop 调用 `persist_entry()`，对 `content_hash` 做 UPSERT。                                                                                                            |
-| `src/stores/clipboardStore.ts`           | `src/components/ClipboardMenuHandler.tsx`                            | `copyToClipboard()`                    | WIRED     | 菜单 copy/cut 事件都调用共享 helper。                                                                                                                                      |
-| `src/stores/clipboardStore.ts`           | `src/components/DetailView/ContentRenderers/JsonRenderer.tsx`        | `shared backend copy helper`           | WIRED     | JSON 复制按钮调用共享 helper。                                                                                                                                             |
-| `src/stores/clipboardStore.ts`           | `src/components/DetailView/ContentRenderers/UnifiedTextRenderer.tsx` | `shared backend copy helper`           | WIRED     | 文本/命令复制按钮调用共享 helper。                                                                                                                                         |
-| `src-tauri/src/capture/macos_markers.rs` | `src-tauri/src/capture/policy.rs`                                    | `PasteboardMarkers`                    | WIRED     | marker adapter 返回 `PasteboardMarkers`，策略函数直接消费。                                                                                                                |
-| `src-tauri/src/capture/policy.rs`        | `src-tauri/src/clipboard/monitor.rs`                                 | `decide_capture`                       | WIRED     | monitor 文本与图片链路都在检测前调用 `decide_capture(...)`。                                                                                                               |
-| `src-tauri/src/clipboard/monitor.rs`     | `src-tauri/src/capture/runtime.rs`                                   | `only Persist reaches save loop`       | WIRED     | monitor 只有 `Persist` 才 `tx.send(entry)`，save loop 再入库。                                                                                                             |
-| `src-tauri/src/app_paths.rs`             | `src-tauri/src/clipboard/monitor.rs`                                 | `image metadata path resolution`       | NOT_WIRED | `ClipboardMonitor::get_saved_file_size()` 仍用 `dirs::config_dir()/clipboard-app/...` 拼路径，没有复用 `AppPaths::image_assets_dir()` 或 `resolve_relative_asset_path()`。 |
-| `src-tauri/src/app_paths.rs`             | `src-tauri/src/commands.rs`                                          | `log_dir()`                            | NOT_WIRED | `get_log_content()` / `clear_logs()` 仍手写 `~/Library/Logs/com.dance.app/dance.log`，没有消费 `AppPaths::log_dir()`。                                                     |
-
-### Data-Flow Trace (Level 4)
-
-| Artifact                             | Data Variable                  | Source                                                                                                                             | Produces Real Data | Status      |
-| ------------------------------------ | ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------- | ------------------ | ----------- |
-| `src-tauri/src/capture/runtime.rs`   | `entry` / `stored_entry`       | `ClipboardMonitor` 通过 `broadcast::Sender<ClipboardEntry>` 推送条目，save loop 调用 `persist_entry()` 写 SQLite                   | Yes                | ✓ FLOWING   |
-| `src/stores/clipboardStore.ts`       | `content`                      | 组件与 store action 传入文本，helper 调用 `invoke('copy_to_clipboard', { content })`，后端命令再注册 suppression 并写系统剪贴板    | Yes                | ✓ FLOWING   |
-| `src-tauri/src/clipboard/monitor.rs` | `CaptureDisposition` / `entry` | `read_pasteboard_markers()` + 配置排除规则 + 剪贴板内容 -> `decide_capture()` -> 仅 `Persist` 进入 `tx.send(entry)`                | Yes                | ✓ FLOWING   |
-| `src-tauri/src/app_paths.rs`         | 路径解析结果                   | `AppHandle.path()` / temp roots 注入已驱动 DB、配置、图片目录与图片读取命令，但 monitor 图片 metadata 回读与日志命令仍绕过这套来源 | Partial            | ⚠️ BYPASSED |
+| From                                   | To                                     | Via                             | Status  | Details                                                                                                                                                |
+| -------------------------------------- | -------------------------------------- | ------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `src-tauri/src/app_paths.rs`           | `src-tauri/src/clipboard/processor.rs` | `image_assets_dir()`            | ✓ WIRED | `ContentProcessor::new_in(paths)` 继续以 `paths.image_assets_dir()` 构造图片目录。                                                                     |
+| `src-tauri/src/clipboard/processor.rs` | `src-tauri/src/clipboard/monitor.rs`   | `resolve_relative_asset_path()` | ✓ WIRED | `ClipboardMonitor::get_saved_file_size(&self, ...)` 对 `imgs/...` 调用 `self.processor.resolve_relative_asset_path(file_path)`。                       |
+| `src-tauri/src/app_paths.rs`           | `src-tauri/src/commands.rs`            | `log_dir()`                     | ✓ WIRED | `app_log_file_path(paths)` 返回 `paths.log_dir().join("clipboard-app.log")`，`get_log_content` / `clear_logs` 只委托该 helper。                        |
+| `src-tauri/src/commands.rs`            | `src-tauri/src/app_paths_tests.rs`     | log helper regression           | ✓ WIRED | `test_app_paths_log_commands_follow_log_dir` 直接调用 `app_log_file_path` / `read_log_content_in` / `clear_log_file_in`，验证 temp-root 日志路径合同。 |
+| `src-tauri/src/app_paths.rs`           | `src-tauri/src/app_paths_tests.rs`     | relative asset regression       | ✓ WIRED | `test_app_paths_resolve_relative_asset_path_for_nested_imgs_assets` 锁定 `imgs/nested/example.png` -> `data/imgs/nested/example.png`。                 |
+| `src-tauri/src/capture/policy.rs`      | `src-tauri/src/clipboard/monitor.rs`   | `decide_capture`                | ✓ WIRED | marker-first gating 继续发生在 `ContentDetector::detect(...)` 之前。                                                                                   |
+| `src-tauri/src/capture/runtime.rs`     | `src-tauri/src/database/mod.rs`        | UPSERT save loop                | ✓ WIRED | save loop 仍通过 `persist_entry()` 做 `content_hash` UPSERT。                                                                                          |
+| `src/stores/clipboardStore.ts`         | renderer copy contract tests           | shared backend copy helper      | ✓ WIRED | 前端 copy contract 在本次 gap closure 中未被更改。                                                                                                     |
 
 ### Behavioral Spot-Checks
 
-| Behavior                               | Command                                                                                                                                                                                   | Result                                                   | Status |
-| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- | ------ |
-| 停止监听后不再持久化新条目             | `cargo test test_capture_runtime_stop_cancels_tasks -- --nocapture`                                                                                                                       | 1 test passed, finished in 0.31s                         | ✓ PASS |
-| 重启监听仍只有一个 runtime owner       | `cargo test test_capture_runtime_restart_is_single_owner -- --nocapture`                                                                                                                  | 1 test passed, finished in 0.00s                         | ✓ PASS |
-| eligible 条目去重且 suppression 生效   | `cargo test test_capture_runtime_single_worker_and_suppression -- --nocapture`                                                                                                            | 1 test passed, finished in 0.29s                         | ✓ PASS |
-| CurrentOnly 事件不检测、不发送、不入库 | `cargo test test_capture_policy_current_only_is_non_persistent_in_v1 -- --nocapture`                                                                                                      | 1 test passed, finished in 0.15s                         | ✓ PASS |
-| legacy root 迁移幂等可执行             | `cargo test test_app_paths_migrate_legacy_roots -- --nocapture`                                                                                                                           | 1 test passed, finished in 0.01s                         | ✓ PASS |
-| 前端复制入口统一走 backend contract    | `pnpm test -- src/stores/clipboardStore.test.ts src/components/DetailView/ContentRenderers/JsonRenderer.test.tsx src/components/DetailView/ContentRenderers/UnifiedTextRenderer.test.tsx` | Vitest reported 7 files, 36 tests passed, duration 1.78s | ✓ PASS |
+| Behavior                               | Command                                                                                                                                                                                   | Result                                                    | Status |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- | ------ |
+| 停止监听后不再持久化新条目             | `cargo test test_capture_runtime_stop_cancels_tasks -- --nocapture`                                                                                                                       | 1 test passed                                             | ✓ PASS |
+| 重启监听仍只有一个 runtime owner       | `cargo test test_capture_runtime_restart_is_single_owner -- --nocapture`                                                                                                                  | 1 test passed                                             | ✓ PASS |
+| eligible 条目去重且 suppression 生效   | `cargo test test_capture_runtime_single_worker_and_suppression -- --nocapture`                                                                                                            | 1 test passed                                             | ✓ PASS |
+| CurrentOnly 事件不检测、不发送、不入库 | `cargo test test_capture_policy_current_only_is_non_persistent_in_v1 -- --nocapture`                                                                                                      | 1 test passed                                             | ✓ PASS |
+| legacy root 迁移幂等可执行             | `cargo test test_app_paths_migrate_legacy_roots -- --nocapture`                                                                                                                           | 1 test passed                                             | ✓ PASS |
+| nested `imgs/...` 相对路径解析固定     | `cargo test test_app_paths_resolve_relative_asset_path_for_nested_imgs_assets -- --nocapture`                                                                                             | 1 test passed                                             | ✓ PASS |
+| 日志命令只走 `AppPaths::log_dir()`     | `cargo test test_app_paths_log_commands_follow_log_dir -- --nocapture`                                                                                                                    | 1 test passed                                             | ✓ PASS |
+| gap closure 未破坏整体编译             | `cargo test --no-run`                                                                                                                                                                     | build/test binaries generated successfully                | ✓ PASS |
+| 前端复制入口统一走 backend contract    | `pnpm test -- src/stores/clipboardStore.test.ts src/components/DetailView/ContentRenderers/JsonRenderer.test.tsx src/components/DetailView/ContentRenderers/UnifiedTextRenderer.test.tsx` | 既有验证结果为 36 tests passed，本次 gap closure 未改前端 | ✓ PASS |
 
 ### Requirements Coverage
 
-| Requirement | Source Plan               | Description                                                                                                                           | Status      | Evidence                                                                                                                           |
-| ----------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | ----------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `CAPT-01`   | `01-01`, `01-03`          | User can start/stop monitoring without hidden listeners continuing after stop                                                         | ✓ SATISFIED | `AppState` 统一持有 runtime，`CaptureRuntime::stop()` 会 cancel 并 await 两个后台任务，Rust 行为测试通过。                         |
-| `CAPT-02`   | `01-01`, `01-03`, `01-04` | User sees each eligible clipboard change recorded once without duplicate entries from repeated listeners or self-generated copy flows | ✓ SATISFIED | SQLite `content_hash` UPSERT + unique index、后端 suppression contract、前端统一 copy route 与合同测试都已接线。                   |
-| `CAPT-03`   | `01-01`, `01-05`          | User can keep ignored, transient, concealed, or otherwise non-persistent clipboard events out of saved history                        | ✓ SATISFIED | marker-first `decide_capture()`、macOS marker adapter、monitor 前置 gating、CurrentOnly 非持久化测试均在位。                       |
-| `CAPT-04`   | `01-01`, `01-02`          | User can rely on one consistent local storage lifecycle for history, cache, image assets, and related metadata                        | ✗ BLOCKED   | `AppPaths` 与迁移测试已经覆盖主路径，但 `clipboard/monitor.rs` 与 `commands.rs` 仍保留硬编码路径绕过，导致统一路径权威未完全兑现。 |
+| Requirement | Source Plan               | Description                                                                                                                           | Status      | Evidence                                                                                                           |
+| ----------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------ |
+| `CAPT-01`   | `01-01`, `01-03`          | User can start/stop monitoring without hidden listeners continuing after stop                                                         | ✓ SATISFIED | `AppState` 统一持有 runtime，`CaptureRuntime::stop()` 会 cancel 并 await 两个后台任务，Rust 行为测试已通过。       |
+| `CAPT-02`   | `01-01`, `01-03`, `01-04` | User sees each eligible clipboard change recorded once without duplicate entries from repeated listeners or self-generated copy flows | ✓ SATISFIED | SQLite `content_hash` UPSERT、后端 suppression contract、前端统一 copy route 与合同测试均在位。                    |
+| `CAPT-03`   | `01-01`, `01-05`          | User can keep ignored, transient, concealed, or otherwise non-persistent clipboard events out of saved history                        | ✓ SATISFIED | marker-first `decide_capture()`、macOS marker adapter、monitor 前置 gating、CurrentOnly 非持久化测试均在位。       |
+| `CAPT-04`   | `01-01`, `01-02`, `01-06` | User can rely on one consistent local storage lifecycle for history, cache, image assets, and related metadata                        | ✓ SATISFIED | `get_saved_file_size()` 与日志命令都已改走 `AppPaths`，且新增 temp-root regression 覆盖 nested assets 与日志路径。 |
 
-**Requirement accounting:** `CAPT-01`、`CAPT-02`、`CAPT-03`、`CAPT-04` 全部出现在至少一个 PLAN frontmatter 中；`REQUIREMENTS.md` 对 Phase 1 的映射也只有这 4 个 ID，未发现 orphaned requirement。
+**Requirement accounting:** `CAPT-01`、`CAPT-02`、`CAPT-03`、`CAPT-04` 全部在至少一个 PLAN frontmatter 中出现，且当前代码与自动化证据都能回溯到对应 requirement。
 
 ### Anti-Patterns Found
 
-| File                                        | Line | Pattern                                                               | Severity   | Impact                                                                         |
-| ------------------------------------------- | ---- | --------------------------------------------------------------------- | ---------- | ------------------------------------------------------------------------------ |
-| `src-tauri/src/clipboard/monitor.rs`        | 37   | `imgs/...` 仍通过 `dirs::config_dir()/clipboard-app/...` 解析绝对路径 | 🛑 Blocker | 新 `AppPaths` 布局下，图片 metadata 回读没有复用权威路径层，存在路径失配风险。 |
-| `src-tauri/src/commands.rs`                 | 1651 | 日志读取/清理命令硬编码 `~/Library/Logs/com.dance.app/dance.log`      | ⚠️ Warning | 生产日志链路没有接入 `AppPaths::log_dir()`，存储生命周期仍有分叉。             |
-| `src-tauri/src/commands.rs`                 | 1703 | placeholder 级 `set_log_level()`                                      | ℹ️ Info    | 非 Phase 01 主线，但命令层仍存在未完成实现。                                   |
-| `src-tauri/src/utils/app_icon_extractor.rs` | 206  | placeholder Windows icon fallback                                     | ℹ️ Info    | 预先存在的跨平台占位逻辑，不阻塞 CAPT-01..04。                                 |
+| File                                        | Line  | Pattern                                   | Severity | Impact                                            |
+| ------------------------------------------- | ----- | ----------------------------------------- | -------- | ------------------------------------------------- |
+| `src-tauri/src/commands.rs`                 | 1690+ | `set_log_level()` 仍是 placeholder 级实现 | ℹ️ Info  | 非 Phase 01 主线，不影响 CAPT-01..04。            |
+| `src-tauri/src/utils/app_icon_extractor.rs` | 206   | placeholder Windows icon fallback         | ℹ️ Info  | 预先存在的跨平台占位逻辑，不阻塞当前 phase goal。 |
 
-### Human Verification Required
+## Human Verification Required
 
 ### 1. Real Clipboard Stop/Restart Smoke
 
@@ -132,13 +99,27 @@ gaps:
 **Expected:** 普通文本进入历史；被 marker 标记为非持久化的事件不会进入历史。  
 **Why human:** NSPasteboard marker 来自系统运行时，测试代码只能验证策略与接线，不能完全重放真实 OS 行为。
 
-### Gaps Summary
+### 3. Legacy Install Migration Smoke
 
-Phase 01 的核心可靠性链路已经基本成形：受控 `CaptureRuntime`、后端 owned suppression、marker-first policy、legacy migration 与前端 copy routing 都有实体实现，而且抽样行为测试全部通过。`CAPT-01`、`CAPT-02`、`CAPT-03` 可以判定为满足。
+**Test:** 在带有历史 `dance/` 或 `clipboard-app/` 数据根的真实本地安装上启动应用，确认历史、图片资产和日志查看器行为。  
+**Expected:** 历史仍可读取，已有图片资产可打开，日志查看器正常读取 `clipboard-app.log`，且不会因为旧根目录残留导致路径失配。  
+**Why human:** 自动化只验证了 temp-root 迁移合同；真实本地安装还涉及现存用户目录、历史资产规模和现有日志文件落盘行为。
 
-阻塞项集中在 `CAPT-04` 的最后一段闭环。`AppPaths` 已经成为数据库、配置、图片目录和多数图片读取命令的权威来源，但并没有真正覆盖全部存储相关读写路径。`ClipboardMonitor::get_saved_file_size()` 仍按 legacy `clipboard-app/imgs` 根目录回读图片大小，`get_log_content()` / `clear_logs()` 仍写死日志路径。这两个残留绕路意味着“本地数据只有一个 coherent storage lifecycle”还不成立，因此 phase goal 不能判定为完全达成。
+## Gaps Summary
+
+本轮 re-verification 没有再发现自动化层面的 blocker。`CAPT-04` 的两个 residual bypass 已经闭合：monitor 图片 metadata 回读不再手写 legacy 根目录，日志读取/清理也已收敛到 `AppPaths::log_dir()/clipboard-app.log`，对应 temp-root regression tests 也已落地并通过。结合 Phase 1 之前已经成立的 runtime、suppression、marker-first 与 copy-routing 证据，4 个 must-have truths 都能在代码和测试层面被验证。
+
+剩余工作只是真机 human smoke，因此当前状态是 `human_needed`，而不是 `gaps_found`。Phase 01 的代码缺口已经清零，但最终宣告“完全通过”仍需要用户在 macOS 真实剪贴板环境里走完两条 smoke。
+
+## Verification Metadata
+
+**Verification approach:** Goal-backward (derived from phase goal)  
+**Must-haves source:** Phase 01 PLAN frontmatter + ROADMAP phase goal  
+**Automated checks:** 9 passed, 0 failed  
+**Human checks required:** 3  
+**Total verification time:** 8 min
 
 ---
 
-_Verified: 2026-03-27T15:08:57Z_  
-_Verifier: Claude (gsd-verifier)_
+_Verified: 2026-03-27T15:37:48Z_  
+_Verifier: Codex (local re-verification after gap closure)_
