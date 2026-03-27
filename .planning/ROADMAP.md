@@ -34,7 +34,7 @@ This roadmap keeps the existing desktop client on its current Tauri + React + Ru
 
 Plans:
 
-- [ ] 01-01-PLAN.md — 建立 validation/test scaffolding、temp-root helper 与固定测试入口
+- [x] 01-01-PLAN.md — 建立 validation/test scaffolding、temp-root helper 与固定测试入口
 - [ ] 01-02-PLAN.md — 建立 AppPaths 存储权威并完成 legacy migration
 - [ ] 01-03-PLAN.md — 引入 lifecycle runtime、brownfield dedupe migration 与 backend suppression contract
 - [ ] 01-04-PLAN.md — 统一所有前端 copy 入口到 backend copy-routing 合同
@@ -101,7 +101,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5
 
 | Phase                                       | Plans Complete | Status      | Completed |
 | ------------------------------------------- | -------------- | ----------- | --------- |
-| 1. Capture Reliability & Storage Cohesion   | 0/5            | Not started | -         |
+| 1. Capture Reliability & Storage Cohesion   | 1/5            | In Progress | -         |
 | 2. Analysis Contracts & Versioned Detection | 0/TBD          | Not started | -         |
 | 3. Unified Developer Previews               | 0/TBD          | Not started | -         |
 | 4. Search Quality & Retrieval               | 0/TBD          | Not started | -         |
