@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 01-03-PLAN.md
-last_updated: '2026-03-27T14:09:12.712Z'
+stopped_at: Completed 01-04-PLAN.md
+last_updated: '2026-03-27T14:23:08.841Z'
 last_activity: 2026-03-27
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 5
-  completed_plans: 3
-  percent: 60
+  completed_plans: 4
+  percent: 80
 ---
 
 # Project State
@@ -26,25 +26,25 @@ See: .planning/PROJECT.md (updated 2026-03-27)
 ## Current Position
 
 Phase: 01 (capture-reliability-storage-cohesion) — EXECUTING
-Plan: 4 of 5
+Plan: 5 of 5
 Status: Ready to execute
 Last activity: 2026-03-27
 
-Progress: [██████░░░░] 60%
+Progress: [████████░░] 80%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 3
-- Average duration: 14 min
-- Total execution time: 0.7 hours
+- Total plans completed: 4
+- Average duration: 13 min
+- Total execution time: 0.8 hours
 
 **By Phase:**
 
 | Phase                                       | Plans | Total  | Avg/Plan |
 | ------------------------------------------- | ----- | ------ | -------- |
-| 1. Capture Reliability & Storage Cohesion   | 3     | 42 min | 14 min   |
+| 1. Capture Reliability & Storage Cohesion   | 4     | 50 min | 13 min   |
 | 2. Analysis Contracts & Versioned Detection | 0     | 0 min  | 0 min    |
 | 3. Unified Developer Previews               | 0     | 0 min  | 0 min    |
 | 4. Search Quality & Retrieval               | 0     | 0 min  | 0 min    |
@@ -52,12 +52,13 @@ Progress: [██████░░░░] 60%
 
 **Recent Trend:**
 
-- Last 5 plans: 01-01 (5 min), 01-02 (16 min), 01-03 (21 min)
+- Last 5 plans: 01-01 (5 min), 01-02 (16 min), 01-03 (21 min), 01-04 (8 min)
 - Trend: Stable
 
 | Phase 01 P01 | 5 | 2 tasks | 5 files |
 | Phase 01-capture-reliability-storage-cohesion P02 | 16 min | 2 tasks | 12 files |
 | Phase 01 P03 | 21 min | 2 tasks | 13 files |
+| Phase 01 P04 | 8 min | 2 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -77,6 +78,9 @@ Recent decisions affecting current work:
 - [Phase 01]: Use CaptureRuntime as the single owner for monitor and save workers so start/stop semantics are cancellation-aware and testable.
 - [Phase 01]: Merge brownfield duplicate content_hash rows inside Database::init() before adding a unique index so existing local databases upgrade safely.
 - [Phase 01]: Register backend suppression keys before copy_to_clipboard writes to the system clipboard so all UI copy entry points can share one SHA256-based self-write contract.
+- [Phase 01]: 把 frontend copy helper 收敛到 src/stores/clipboardStore.ts，由它统一调用 invoke('copy_to_clipboard', { content })。
+- [Phase 01]: 菜单、renderer 和 log viewer 都只复用共享 helper，不再各自直写系统剪贴板。
+- [Phase 01]: TDD 继续用 Vitest contract tests 锁定 copy-routing，确保回退时直接在执行阶段报红。
 
 ### Pending Todos
 
@@ -90,6 +94,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-27T14:09:12.710Z
-Stopped at: Completed 01-03-PLAN.md
+Last session: 2026-03-27T14:23:08.837Z
+Stopped at: Completed 01-04-PLAN.md
 Resume file: None
