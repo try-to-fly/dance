@@ -19,6 +19,18 @@ mod integration_tests;
 #[cfg(test)]
 mod performance_tests;
 
+#[cfg(test)]
+mod test_support;
+
+#[cfg(test)]
+mod app_paths_tests;
+
+#[cfg(test)]
+mod capture_runtime_tests;
+
+#[cfg(test)]
+mod capture_policy_tests;
+
 use commands::*;
 use state::AppState;
 use tauri::{
