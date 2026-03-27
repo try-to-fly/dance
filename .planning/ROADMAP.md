@@ -30,7 +30,14 @@ This roadmap keeps the existing desktop client on its current Tauri + React + Ru
 2. User sees each eligible clipboard change recorded once, even after repeated start/stop cycles or app-driven copy flows.
 3. User can keep ignored, transient, concealed, or other non-persistent clipboard events out of saved history.
 4. User can restart the app and still access history, cached previews, and image assets without path-related mismatches or missing data.
-   **Plans**: TBD
+   **Plans**: 4 plans
+
+Plans:
+
+- [ ] 01-01-PLAN.md — 建立 AppPaths 存储权威、temp-root 注入与显式遗留迁移
+- [ ] 01-02-PLAN.md — 引入 CaptureRuntime，修复 start/stop 生命周期并固定单 worker 去重
+- [ ] 01-03-PLAN.md — 把应用内复制和事件监听清理边界收回到 Rust 命令与显式 cleanup
+- [ ] 01-04-PLAN.md — 接入 marker-first capture policy 与 macOS pasteboard marker adapter
 
 ### Phase 2: Analysis Contracts & Versioned Detection
 
@@ -93,7 +100,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5
 
 | Phase                                       | Plans Complete | Status      | Completed |
 | ------------------------------------------- | -------------- | ----------- | --------- |
-| 1. Capture Reliability & Storage Cohesion   | 0/TBD          | Not started | -         |
+| 1. Capture Reliability & Storage Cohesion   | 0/4            | Not started | -         |
 | 2. Analysis Contracts & Versioned Detection | 0/TBD          | Not started | -         |
 | 3. Unified Developer Previews               | 0/TBD          | Not started | -         |
 | 4. Search Quality & Retrieval               | 0/TBD          | Not started | -         |
