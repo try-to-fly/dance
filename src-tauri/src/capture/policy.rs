@@ -18,10 +18,24 @@ pub struct PasteboardMarkers {
 
 #[allow(dead_code)]
 pub fn decide_capture(
-    _markers: &PasteboardMarkers,
-    _self_generated: bool,
-    _excluded_app: bool,
-    _text_size_valid: bool,
+    markers: &PasteboardMarkers,
+    self_generated: bool,
+    excluded_app: bool,
+    text_size_valid: bool,
 ) -> CaptureDisposition {
-    todo!("implemented in 01-05")
+    if self_generated
+        || markers.is_transient
+        || markers.is_concealed
+        || markers.is_remote
+        || excluded_app
+        || !text_size_valid
+    {
+        return CaptureDisposition::Skip;
+    }
+
+    if markers.is_auto_generated {
+        return CaptureDisposition::CurrentOnly;
+    }
+
+    CaptureDisposition::Persist
 }
