@@ -1,6 +1,8 @@
+use crate::app_paths::AppPaths;
 use anyhow::Result;
 use std::fs;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 #[cfg(target_os = "macos")]
 use cocoa::base::{id, nil};
@@ -14,10 +16,13 @@ pub struct AppIconExtractor {
 }
 
 impl AppIconExtractor {
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn new() -> Result<Self> {
-        let config_dir =
-            dirs::config_dir().ok_or_else(|| anyhow::anyhow!("Unable to get config directory"))?;
-        let icons_dir = config_dir.join("clipboard-app").join("icons");
+        Self::new_in(Arc::new(AppPaths::from_default_roots()?))
+    }
+
+    pub fn new_in(paths: Arc<AppPaths>) -> Result<Self> {
+        let icons_dir = paths.icon_cache_dir();
 
         // 确保图标目录存在
         if !icons_dir.exists() {

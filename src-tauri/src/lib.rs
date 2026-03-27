@@ -314,6 +314,7 @@ pub fn run() {
 
                 let app_handle = app.handle().clone();
                 let paths = Arc::new(AppPaths::from_app(&app_handle)?);
+                paths.migrate_legacy_roots()?;
                 let state = AppState::new(paths).await?;
                 state.set_app_handle(app_handle.clone());
 

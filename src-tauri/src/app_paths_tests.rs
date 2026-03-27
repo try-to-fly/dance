@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -7,6 +8,7 @@ use crate::clipboard::ContentProcessor;
 use crate::config::ConfigManager;
 use crate::database::Database;
 use crate::test_support::create_temp_app_roots;
+use serde_json::Value;
 
 #[test]
 fn test_app_paths_temp_roots_are_isolated() {
@@ -92,5 +94,86 @@ async fn test_app_paths_injected_roots_drive_core_modules() {
 }
 
 #[test]
-#[ignore = "implemented in 01-02"]
-fn test_app_paths_migrate_legacy_roots() {}
+fn test_app_paths_migrate_legacy_roots() {
+    let roots = create_temp_app_roots();
+    let paths = AppPaths::from_roots(
+        roots.config_root.clone(),
+        roots.data_root.clone(),
+        roots.cache_root.clone(),
+        roots.log_root.clone(),
+    )
+    .with_legacy_config_base_for_tests(roots.temp_dir.path().to_path_buf());
+
+    roots.seed_file("dance/config.json", br#"{"language":"legacy"}"#);
+    roots.seed_file("dance/clipboard.db", b"legacy-db");
+    roots.seed_file("clipboard-app/imgs/legacy-image.png", b"legacy-image");
+    roots.seed_file("clipboard-app/icons/legacy-icon.png", b"legacy-icon");
+
+    paths.migrate_legacy_roots().unwrap();
+
+    assert_eq!(
+        fs::read(paths.config_file_path()).unwrap(),
+        br#"{"language":"legacy"}"#
+    );
+    assert_eq!(fs::read(paths.history_db_path()).unwrap(), b"legacy-db");
+    assert_eq!(
+        fs::read(paths.image_assets_dir().join("legacy-image.png")).unwrap(),
+        b"legacy-image"
+    );
+    assert_eq!(
+        fs::read(paths.icon_cache_dir().join("legacy-icon.png")).unwrap(),
+        b"legacy-icon"
+    );
+
+    let marker: Value =
+        serde_json::from_slice(&fs::read(paths.migration_marker_path()).unwrap()).unwrap();
+    assert_eq!(marker["version"], "capt04-storage-roots");
+    assert!(marker["completed_at"].as_str().is_some());
+    let migrated_from = marker["migrated_from"].as_array().unwrap();
+    assert_eq!(migrated_from.len(), 2);
+
+    let second_roots = create_temp_app_roots();
+    let second_paths = AppPaths::from_roots(
+        second_roots.config_root.clone(),
+        second_roots.data_root.clone(),
+        second_roots.cache_root.clone(),
+        second_roots.log_root.clone(),
+    )
+    .with_legacy_config_base_for_tests(second_roots.temp_dir.path().to_path_buf());
+
+    second_roots.seed_file("dance/config.json", br#"{"language":"legacy"}"#);
+    second_roots.seed_file("dance/clipboard.db", b"legacy-db");
+    second_roots.seed_file(
+        "clipboard-app/imgs/conflict-image.png",
+        b"legacy-conflict-image",
+    );
+    second_roots.seed_file(
+        "clipboard-app/icons/conflict-icon.png",
+        b"legacy-conflict-icon",
+    );
+    second_roots.seed_file("config/config.json", br#"{"language":"current"}"#);
+    second_roots.seed_file("data/clipboard.db", b"current-db");
+    second_roots.seed_file("data/imgs/conflict-image.png", b"current-image");
+    second_roots.seed_file("cache/icons/conflict-icon.png", b"current-icon");
+
+    second_paths.migrate_legacy_roots().unwrap();
+    second_paths.migrate_legacy_roots().unwrap();
+
+    assert_eq!(
+        fs::read(second_paths.config_file_path()).unwrap(),
+        br#"{"language":"current"}"#
+    );
+    assert_eq!(
+        fs::read(second_paths.history_db_path()).unwrap(),
+        b"current-db"
+    );
+    assert_eq!(
+        fs::read(second_paths.image_assets_dir().join("conflict-image.png")).unwrap(),
+        b"current-image"
+    );
+    assert_eq!(
+        fs::read(second_paths.icon_cache_dir().join("conflict-icon.png")).unwrap(),
+        b"current-icon"
+    );
+    assert!(second_paths.migration_marker_path().is_file());
+}

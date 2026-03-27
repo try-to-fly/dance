@@ -258,7 +258,10 @@ pub async fn paste_image(
 }
 
 #[tauri::command]
-pub async fn open_file_with_system(file_path: String) -> Result<(), String> {
+pub async fn open_file_with_system(
+    file_path: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
     use std::path::PathBuf;
     use std::process::Command;
 
@@ -266,10 +269,10 @@ pub async fn open_file_with_system(file_path: String) -> Result<(), String> {
 
     // 如果是相对路径（如 imgs/xxx.png），转换为绝对路径
     let absolute_path = if file_path.starts_with("imgs/") {
-        let config_dir =
-            dirs::config_dir().ok_or_else(|| "Unable to get config directory".to_string())?;
-        let app_dir = config_dir.join("clipboard-app");
-        app_dir.join(&file_path)
+        state
+            .paths
+            .resolve_relative_asset_path(&file_path)
+            .map_err(|e| e.to_string())?
     } else {
         PathBuf::from(&file_path)
     };
@@ -302,7 +305,10 @@ pub async fn open_file_with_system(file_path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn get_image_url(file_path: String) -> Result<String, String> {
+pub async fn get_image_url(
+    file_path: String,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
     use base64::Engine;
     use std::fs;
     use std::path::PathBuf;
@@ -311,20 +317,21 @@ pub async fn get_image_url(file_path: String) -> Result<String, String> {
 
     // 如果是相对路径（如 imgs/xxx.png），转换为绝对路径
     let absolute_path = if file_path.starts_with("imgs/") {
-        let config_dir =
-            dirs::config_dir().ok_or_else(|| "Unable to get config directory".to_string())?;
-        let app_dir = config_dir.join("clipboard-app");
+        let resolved = state
+            .paths
+            .resolve_relative_asset_path(&file_path)
+            .map_err(|e| e.to_string())?;
 
-        // 确保 imgs 目录存在
-        let imgs_dir = app_dir.join("imgs");
-        if !imgs_dir.exists() {
-            log::info!("[get_image_url] 创建 imgs 目录: {:?}", imgs_dir);
-            if let Err(e) = fs::create_dir_all(&imgs_dir) {
-                return Err(format!("Failed to create imgs directory: {}", e));
+        if let Some(parent) = resolved.parent() {
+            if !parent.exists() {
+                log::info!("[get_image_url] 创建 imgs 目录: {:?}", parent);
+                if let Err(e) = fs::create_dir_all(parent) {
+                    return Err(format!("Failed to create imgs directory: {}", e));
+                }
             }
         }
 
-        app_dir.join(&file_path)
+        resolved
     } else {
         PathBuf::from(&file_path)
     };
@@ -398,13 +405,16 @@ pub async fn get_image_url(file_path: String) -> Result<String, String> {
 }
 
 #[tauri::command]
-pub async fn get_app_icon(bundle_id: String) -> Result<Option<String>, String> {
+pub async fn get_app_icon(
+    bundle_id: String,
+    state: State<'_, AppState>,
+) -> Result<Option<String>, String> {
     use base64::Engine;
     use std::fs;
 
     // println!("[get_app_icon] 请求应用图标: {}", bundle_id);
 
-    let extractor = AppIconExtractor::new().map_err(|e| e.to_string())?;
+    let extractor = AppIconExtractor::new_in(state.paths.clone()).map_err(|e| e.to_string())?;
 
     // 首先检查缓存
     if let Some(cached_path) = extractor.get_cached_icon_path(&bundle_id) {
@@ -455,6 +465,7 @@ pub async fn convert_and_scale_image(
     format: String,
     scale: f32,
     _skip_recording: bool,
+    state: State<'_, AppState>,
 ) -> Result<String, String> {
     use image::DynamicImage;
     use std::fs;
@@ -469,9 +480,10 @@ pub async fn convert_and_scale_image(
 
     // 转换为绝对路径
     let absolute_path = if file_path.starts_with("imgs/") {
-        let config_dir =
-            dirs::config_dir().ok_or_else(|| "Unable to get config directory".to_string())?;
-        config_dir.join("clipboard-app").join(&file_path)
+        state
+            .paths
+            .resolve_relative_asset_path(&file_path)
+            .map_err(|e| e.to_string())?
     } else {
         PathBuf::from(&file_path)
     };
