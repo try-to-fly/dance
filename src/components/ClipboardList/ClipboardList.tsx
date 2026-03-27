@@ -33,7 +33,14 @@ export const ClipboardList: React.FC = () => {
   }, [fetchHistory]);
 
   useEffect(() => {
-    if (entries.length > 0 && !selectedEntry) {
+    if (entries.length === 0) {
+      if (selectedEntry) {
+        setSelectedEntry(null);
+      }
+      return;
+    }
+
+    if (!selectedEntry || !entries.some((entry) => entry.id === selectedEntry.id)) {
       setSelectedEntry(entries[0]);
     }
   }, [entries, selectedEntry, setSelectedEntry]);

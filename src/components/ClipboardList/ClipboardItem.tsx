@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { format } from 'date-fns';
 import { useTranslation } from 'react-i18next';
 import {
+  Binary,
   Braces,
   ClipboardPaste,
   Clock3,
@@ -36,9 +37,10 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '../ui/dropdown-menu';
-import { ClipboardEntry, ContentMetadata } from '../../types/clipboard';
+import { ClipboardEntry } from '../../types/clipboard';
 import { useClipboardStore } from '../../stores/clipboardStore';
 import { cn } from '../../lib/utils';
+import { getFileName, parseContentMetadata } from '../../lib/preview/entryPresentation';
 
 interface ClipboardItemProps {
   entry: ClipboardEntry;
@@ -48,36 +50,12 @@ interface ClipboardItemProps {
   number?: number;
 }
 
-const formatFileSize = (bytes: number): string => {
-  if (bytes < 1024) return `${bytes}B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)}GB`;
-};
-
-const parseMetadata = (metadataString?: string | null): ContentMetadata | null => {
-  if (!metadataString) return null;
-  try {
-    return JSON.parse(metadataString) as ContentMetadata;
-  } catch {
-    return null;
-  }
-};
-
 const truncateMiddle = (value: string, start = 18, end = 12): string => {
   if (value.length <= start + end + 3) {
     return value;
   }
 
   return `${value.slice(0, start)}...${value.slice(-end)}`;
-};
-
-const getFileName = (filePath?: string | null): string | null => {
-  if (!filePath) {
-    return null;
-  }
-
-  return filePath.split('/').pop() || filePath;
 };
 
 export const ClipboardItem: React.FC<ClipboardItemProps> = ({
@@ -101,13 +79,11 @@ export const ClipboardItem: React.FC<ClipboardItemProps> = ({
   const contentType = entry.content_type.toLowerCase();
   const isImageEntry = contentType.includes('image');
   const isFileEntry = contentType.includes('file');
-  const metadata = parseMetadata(entry.metadata);
+  const metadata = parseContentMetadata(entry.metadata);
   const fileName = getFileName(entry.file_path);
   const textContent = entry.content_data ?? '';
-  const imageMetadata = metadata?.image_metadata;
   const colorFormats = metadata?.color_formats;
   const timestampFormats = metadata?.timestamp_formats;
-  const urlParts = metadata?.url_parts;
 
   useEffect(() => {
     if (isImageEntry && entry.file_path) {
@@ -162,6 +138,16 @@ export const ClipboardItem: React.FC<ClipboardItemProps> = ({
         return { Icon: Braces, label: t('clipboard:contentTypes.json') };
       case 'markdown':
         return { Icon: FileText, label: t('clipboard:contentTypes.markdown') };
+      case 'base64': {
+        const translated = t('clipboard:contentTypes.base64');
+        return {
+          Icon: Binary,
+          label:
+            translated === 'clipboard:contentTypes.base64' || translated === 'contentTypes.base64'
+              ? 'Base64'
+              : translated,
+        };
+      }
       case 'plain_text':
       default:
         return { Icon: FileText, label: t('clipboard:contentTypes.plainText') };
@@ -189,239 +175,25 @@ export const ClipboardItem: React.FC<ClipboardItemProps> = ({
   };
 
   const { label: typeLabel } = getTypeMeta();
-  const summaryTitle = (() => {
-    if (isImageEntry) {
-      return fileName || '图片内容';
-    }
-
-    if (isFileEntry) {
-      return fileName || '文件内容';
-    }
-
-    if (entry.content_subtype === 'color') {
-      return colorFormats?.hex || entry.content_data || '颜色';
-    }
-
-    if (entry.content_subtype === 'timestamp' && timestampFormats?.unix_ms) {
-      return formatFullDate(timestampFormats.unix_ms);
-    }
-
-    if (entry.content_subtype === 'url' && urlParts?.host) {
-      return urlParts.host;
-    }
-
-    if (textContent) {
-      return textContent.length > 52 ? `${textContent.slice(0, 52)}...` : textContent;
-    }
-
-    return typeLabel;
-  })();
-
-  const detailItems = (() => {
-    const items: Array<{ label: string; value: string; mono?: boolean }> = [];
-
-    if (isImageEntry) {
-      if (imageMetadata?.width && imageMetadata?.height) {
-        items.push({
-          label: '分辨率',
-          value: `${imageMetadata.width} × ${imageMetadata.height}`,
-          mono: true,
-        });
-      }
-
-      if (imageMetadata?.file_size) {
-        items.push({
-          label: '大小',
-          value: formatFileSize(imageMetadata.file_size),
-          mono: true,
-        });
-      }
-
-      if (imageMetadata?.format) {
-        items.push({
-          label: '格式',
-          value: imageMetadata.format.toUpperCase(),
-          mono: true,
-        });
-      }
-
-      if (items.length === 0 && fileName) {
-        items.push({
-          label: '文件',
-          value: fileName,
-        });
-      }
-
-      return items.slice(0, 3);
-    }
-
-    if (entry.content_subtype === 'color') {
-      if (colorFormats?.hex) {
-        items.push({ label: 'HEX', value: colorFormats.hex, mono: true });
-      }
-
-      if (colorFormats?.rgb) {
-        items.push({ label: 'RGB', value: colorFormats.rgb, mono: true });
-      }
-
-      if (colorFormats?.hsl) {
-        items.push({ label: 'HSL', value: colorFormats.hsl, mono: true });
-      }
-
-      if (items.length === 0 && entry.content_data) {
-        items.push({ label: '值', value: entry.content_data, mono: true });
-      }
-
-      return items.slice(0, 3);
-    }
-
-    if (entry.content_subtype === 'timestamp') {
-      if (timestampFormats?.unix_ms) {
-        items.push({
-          label: '时间',
-          value: formatFullDate(timestampFormats.unix_ms),
-          mono: true,
-        });
-      }
-
-      if (timestampFormats?.iso8601) {
-        items.push({
-          label: 'ISO',
-          value: truncateMiddle(timestampFormats.iso8601, 16, 12),
-          mono: true,
-        });
-      }
-
-      if (items.length === 0 && entry.content_data) {
-        items.push({
-          label: '原始',
-          value: truncateMiddle(entry.content_data, 18, 12),
-          mono: true,
-        });
-      }
-
-      return items.slice(0, 3);
-    }
-
-    if (entry.content_subtype === 'url') {
-      if (urlParts?.host) {
-        items.push({ label: '域名', value: urlParts.host });
-      }
-
-      if (urlParts?.protocol) {
-        items.push({
-          label: '协议',
-          value: urlParts.protocol.replace(':', '').toUpperCase(),
-          mono: true,
-        });
-      }
-
-      if (urlParts?.path) {
-        items.push({ label: '路径', value: truncateMiddle(urlParts.path, 12, 10), mono: true });
-      }
-    }
-
-    if (entry.content_subtype === 'email' && textContent.includes('@')) {
-      items.push({ label: '域名', value: textContent.split('@')[1], mono: true });
-    }
-
-    if (isFileEntry) {
-      if (fileName) {
-        items.push({ label: '文件', value: fileName });
-      }
-
-      if (entry.file_path) {
-        items.push({
-          label: '位置',
-          value: truncateMiddle(entry.file_path, 16, 12),
-          mono: true,
-        });
-      }
-    }
-
-    if (textContent) {
-      items.push({
-        label: '长度',
-        value: `${textContent.length} 字符`,
-        mono: true,
-      });
-    }
-
-    if (metadata?.detected_language) {
-      items.push({
-        label: '语言',
-        value: metadata.detected_language.toUpperCase(),
-        mono: true,
-      });
-    }
-
-    if (items.length === 0) {
-      items.push({
-        label: '内容',
-        value: typeLabel,
-      });
-    }
-
-    return items.slice(0, 3);
-  })();
-
-  const renderDetailOverlay = () => {
-    const showTitle =
-      isImageEntry ||
-      isFileEntry ||
-      ['url', 'email', 'timestamp', 'color'].includes(entry.content_subtype || '');
-
-    return (
-      <div
-        className={cn(
-          'pointer-events-none absolute inset-x-3 bottom-3 rounded-2xl border border-white/10 bg-background/88 p-3 shadow-[0_20px_40px_rgba(0,0,0,0.22)] backdrop-blur-md transition-all duration-200',
-          isSelected
-            ? 'translate-y-0 opacity-100'
-            : 'translate-y-2 opacity-0 group-hover:translate-y-0 group-hover:opacity-100'
-        )}
-      >
-        {showTitle && (
-          <div className="truncate text-xs font-semibold text-foreground">{summaryTitle}</div>
-        )}
-
-        <div className={cn('flex flex-wrap gap-1.5', showTitle && 'mt-2')}>
-          {detailItems.map((item) => (
-            <span
-              key={`${entry.id}-overlay-${item.label}`}
-              className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-border/60 bg-secondary/55 px-2 py-1 text-[11px] text-foreground/90"
-            >
-              <span className="shrink-0 text-[10px] uppercase tracking-wide text-muted-foreground">
-                {item.label}
-              </span>
-              <span className={cn('truncate', item.mono && 'font-mono text-[10px]')}>
-                {item.value}
-              </span>
-            </span>
-          ))}
-        </div>
-      </div>
-    );
-  };
 
   const renderPreview = () => {
     if (isImageEntry) {
       return (
-        <div className="relative min-h-[132px] overflow-hidden rounded-[18px] border border-border/60 bg-secondary/20">
-          <div className="flex h-[132px] items-center justify-center bg-[radial-gradient(circle_at_top,_rgba(45,212,191,0.18),_transparent_58%)] p-3">
+        <div className="overflow-hidden rounded-[18px] border border-border/60 bg-secondary/20">
+          <div className="flex max-h-[132px] items-center justify-center bg-[radial-gradient(circle_at_top,_rgba(45,212,191,0.18),_transparent_58%)] p-3">
             {imageUrl ? (
               <img
                 src={imageUrl}
                 alt={fileName || 'Clipboard image'}
-                className="h-full w-full rounded-[14px] object-contain transition-transform duration-300 group-hover:scale-[1.02]"
+                className="max-h-[108px] w-auto max-w-full rounded-[14px] object-contain transition-transform duration-300 group-hover:scale-[1.02]"
               />
             ) : (
-              <div className="flex h-full w-full items-center justify-center gap-2 rounded-[14px] border border-dashed border-border/60 bg-background/35 text-sm text-muted-foreground">
+              <div className="flex w-full items-center justify-center gap-2 rounded-[14px] border border-dashed border-border/60 bg-background/35 px-3 py-8 text-sm text-muted-foreground">
                 <FileImage className="h-5 w-5" />
                 <span>图片预览不可用</span>
               </div>
             )}
           </div>
-          {renderDetailOverlay()}
         </div>
       );
     }
@@ -430,12 +202,12 @@ export const ClipboardItem: React.FC<ClipboardItemProps> = ({
       const colorValue = colorFormats?.hex || entry.content_data || '#000000';
 
       return (
-        <div className="relative flex min-h-[132px] flex-col justify-between rounded-[18px] border border-border/60 bg-secondary/20 p-4">
+        <div className="flex max-h-[132px] flex-col gap-4 overflow-hidden rounded-[18px] border border-border/60 bg-secondary/20 p-4">
           <div
             className="h-16 w-full rounded-2xl border border-border/50 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]"
             style={{ backgroundColor: colorValue }}
           />
-          <div className="mt-4 flex items-end justify-between gap-3">
+          <div className="flex items-end justify-between gap-3">
             <span className="truncate font-mono text-base font-semibold text-foreground">
               {colorValue}
             </span>
@@ -445,14 +217,13 @@ export const ClipboardItem: React.FC<ClipboardItemProps> = ({
               </span>
             )}
           </div>
-          {renderDetailOverlay()}
         </div>
       );
     }
 
     if (entry.content_subtype === 'timestamp' && timestampFormats?.unix_ms) {
       return (
-        <div className="relative flex min-h-[132px] flex-col justify-between rounded-[18px] border border-border/60 bg-secondary/20 p-4">
+        <div className="flex max-h-[132px] flex-col overflow-hidden rounded-[18px] border border-border/60 bg-secondary/20 p-4">
           <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
             <Clock3 className="h-3.5 w-3.5" />
             <span>时间解析</span>
@@ -465,7 +236,6 @@ export const ClipboardItem: React.FC<ClipboardItemProps> = ({
               {entry.content_data}
             </div>
           )}
-          {renderDetailOverlay()}
         </div>
       );
     }
@@ -474,10 +244,11 @@ export const ClipboardItem: React.FC<ClipboardItemProps> = ({
     const previewContent = textContent || fileName || '(无内容)';
 
     return (
-      <div className="relative flex min-h-[132px] flex-col rounded-[18px] border border-border/60 bg-secondary/20 p-4">
+      <div className="flex max-h-[132px] flex-col overflow-hidden rounded-[18px] border border-border/60 bg-secondary/20 p-4">
         <div
           className={cn(
-            'line-clamp-6 whitespace-pre-wrap break-all pr-12 text-sm leading-6 text-foreground/95',
+            'whitespace-pre-wrap break-all pr-12 text-sm leading-6 text-foreground/95',
+            isFileEntry ? 'line-clamp-3' : 'line-clamp-4',
             isStructuredText && 'font-mono text-[13px] leading-5'
           )}
         >
@@ -485,11 +256,10 @@ export const ClipboardItem: React.FC<ClipboardItemProps> = ({
         </div>
 
         {isFileEntry && entry.file_path && (
-          <div className="mt-auto pt-3 font-mono text-[11px] text-muted-foreground">
+          <div className="mt-3 font-mono text-[11px] text-muted-foreground">
             {truncateMiddle(entry.file_path, 28, 18)}
           </div>
         )}
-        {renderDetailOverlay()}
       </div>
     );
   };

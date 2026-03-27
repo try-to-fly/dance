@@ -39,6 +39,7 @@
       "timestamp": "타임스탬프",
       "json": "JSON 데이터",
       "markdown": "Markdown",
+      "base64": "Base64",
       "text": "텍스트",
       "image": "이미지",
       "file": "파일"

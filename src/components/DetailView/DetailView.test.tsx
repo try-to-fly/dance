@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useClipboardStore } from '../../stores/clipboardStore';
-import { ClipboardEntry } from '../../types/clipboard';
+import { ClipboardEntry, ResolvedPreviewData } from '../../types/clipboard';
 import { DetailView } from './DetailView';
 
 const mockedComponents = vi.hoisted(() => ({
@@ -63,10 +63,14 @@ vi.mock('react-i18next', () => ({
         'detail.copyCount': '复制次数',
         'detail.loading': '加载中',
         'detail.unknown': '未知',
+        'detail.actions.copyDecoded': '复制解码内容',
+        'detail.actions.openFile': '打开文件',
         'detail.contentTypes.command': '命令',
         'detail.contentTypes.json': 'JSON',
+        'detail.contentTypes.base64': 'Base64编码',
         'detail.contentTypes.image': '图片',
         'detail.contentTypes.file': '文件',
+        'renderers.url.open': '打开链接',
         'clipboard:actions.favorite': '收藏',
         'clipboard:actions.unfavorite': '取消收藏',
         copy: '复制',
@@ -152,21 +156,20 @@ describe('DetailView', () => {
 
     render(<DetailView />);
 
-    expect(screen.getByTestId('renderer-unified')).toHaveTextContent('command:npm run dev');
+    expect(screen.getAllByTestId('renderer-unified')[0]).toHaveTextContent('command:npm run dev');
     expect(document.getElementById('detail-view-type-badge')).toHaveTextContent('命令');
     expect(document.getElementById('detail-view-title')).toHaveTextContent('npm run dev');
     expect(document.getElementById('detail-view-metadata')).toHaveClass('flex', 'flex-wrap');
     expect(document.getElementById('detail-view-metadata')?.children).toHaveLength(3);
-    expect(screen.getByText('来源')).toBeInTheDocument();
-    expect(screen.getByText('时间')).toBeInTheDocument();
-    expect(screen.getByText('复制次数')).toBeInTheDocument();
-    expect(screen.getByText('Terminal')).toBeInTheDocument();
-    expect(screen.getByText(formatTimestamp(baseEntry.created_at, true))).toBeInTheDocument();
-    expect(screen.getByText('12')).toBeInTheDocument();
+    expect(screen.getAllByText('Terminal').length).toBeGreaterThanOrEqual(1);
+    expect(
+      screen.getAllByText(formatTimestamp(baseEntry.created_at, true)).length
+    ).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('12').length).toBeGreaterThanOrEqual(1);
     expect(screen.queryByText('类型')).not.toBeInTheDocument();
   });
 
-  it('根据内容子类型切换到 JSON 渲染器', () => {
+  it('根据内容子类型切换到 JSON 渲染器，并在 raw-only 场景下隐藏备用视图', () => {
     mockedUseClipboardStore.mockReturnValue(
       createStoreState({
         ...baseEntry,
@@ -178,7 +181,26 @@ describe('DetailView', () => {
     render(<DetailView />);
 
     expect(screen.getByTestId('renderer-json')).toHaveTextContent('{"hello":"world"}');
-    expect(screen.queryByTestId('renderer-unified')).not.toBeInTheDocument();
+    expect(screen.queryAllByTestId('renderer-unified')).toHaveLength(0);
+  });
+
+  it('Base64 条目在新预览模型落地前保留可读的文本兜底', () => {
+    mockedUseClipboardStore.mockReturnValue(
+      createStoreState({
+        ...baseEntry,
+        content_subtype: 'base64',
+        content_data: 'eyJ0eXBlIjoianNvbiJ9',
+      })
+    );
+
+    render(<DetailView />);
+
+    expect(document.getElementById('detail-view-type-badge')).toHaveTextContent('Base64编码');
+    expect(
+      screen
+        .getAllByTestId('renderer-unified')
+        .some((node) => node.textContent?.includes('plain_text:eyJ0eXBlIjoianNvbiJ9'))
+    ).toBe(true);
   });
 
   it('为图片条目异步加载预览内容和元数据', async () => {
@@ -216,5 +238,61 @@ describe('DetailView', () => {
         file_size: 4096,
       })
     );
+  });
+
+  it('切换条目时不会短暂复用上一条的解析结果', async () => {
+    const firstEntry: ClipboardEntry = {
+      ...baseEntry,
+      id: 'entry-url',
+      content_hash: 'hash-url',
+      content_subtype: 'url',
+      content_data: 'https://example.com/a.png',
+    };
+    const secondEntry: ClipboardEntry = {
+      ...baseEntry,
+      id: 'entry-command',
+      content_hash: 'hash-command',
+      content_subtype: 'command',
+      content_data: 'echo second',
+    };
+
+    let currentEntry = firstEntry;
+    let resolveSecondEntry: ((value: ResolvedPreviewData) => void) | undefined;
+    const resolveEntryPreview = vi.fn(async (entry: ClipboardEntry) => {
+      if (entry.id === firstEntry.id) {
+        return {
+          imageUrl: 'https://example.com/a.png',
+          url: { previewKind: 'image' },
+        };
+      }
+
+      return new Promise<ResolvedPreviewData>((resolve) => {
+        resolveSecondEntry = resolve;
+      });
+    });
+
+    mockedUseClipboardStore.mockImplementation(
+      () =>
+        ({
+          ...createStoreState(currentEntry),
+          resolveEntryPreview,
+        }) as ReturnType<typeof createStoreState> & {
+          resolveEntryPreview: typeof resolveEntryPreview;
+        }
+    );
+
+    const { rerender } = render(<DetailView />);
+
+    await waitFor(() => {
+      expect(screen.getByAltText('preview')).toHaveAttribute('src', 'https://example.com/a.png');
+    });
+
+    currentEntry = secondEntry;
+    rerender(<DetailView />);
+
+    expect(screen.queryByAltText('preview')).not.toBeInTheDocument();
+    expect(screen.getAllByTestId('renderer-unified')[0]).toHaveTextContent('command:echo second');
+
+    resolveSecondEntry?.({});
   });
 });

@@ -23,6 +23,7 @@
     "timestamp": "时间戳",
     "json": "JSON数据",
     "markdown": "Markdown",
+    "base64": "Base64编码",
     "image": "图片",
     "file": "文件"
   },

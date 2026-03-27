@@ -48,6 +48,16 @@ impl ClipboardMonitor {
         std::fs::metadata(absolute_path).ok().map(|meta| meta.len())
     }
 
+    fn should_skip_data_url_recording(text: &str, source_bundle_id: Option<&str>) -> bool {
+        let is_base64_image_data_url = text.starts_with("data:image/") && text.contains(";base64,");
+        if !is_base64_image_data_url {
+            return false;
+        }
+
+        // 仅在来源是本应用时跳过，避免把用户真实复制的 data URL 全部丢弃。
+        matches!(source_bundle_id, Some("com.dance.app"))
+    }
+
     pub async fn start_monitoring(&self) {
         log::info!("[ClipboardMonitor] 启动剪贴板监控");
 
@@ -106,11 +116,11 @@ impl ClipboardMonitor {
                     trimmed_text.len()
                 );
 
-                // 检查是否是base64图片URL（避免循环记录）
-                let is_base64_image =
-                    trimmed_text.starts_with("data:image/") && trimmed_text.contains(";base64,");
-                if is_base64_image {
-                    log::debug!("[ClipboardMonitor] 跳过base64图片URL，避免循环记录");
+                if Self::should_skip_data_url_recording(
+                    trimmed_text,
+                    app_info.as_ref().and_then(|info| info.bundle_id.as_deref()),
+                ) {
+                    log::debug!("[ClipboardMonitor] 跳过本应用产生的base64图片URL，避免循环记录");
                     return Ok(());
                 }
 
@@ -353,5 +363,34 @@ impl ClipboardMonitor {
         let mut hasher = Sha256::new();
         hasher.update(data);
         format!("{:x}", hasher.finalize())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ClipboardMonitor;
+
+    #[test]
+    fn test_should_skip_data_url_recording_for_self_app_only() {
+        let value = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAUA";
+        assert!(ClipboardMonitor::should_skip_data_url_recording(
+            value,
+            Some("com.dance.app")
+        ));
+        assert!(!ClipboardMonitor::should_skip_data_url_recording(
+            value,
+            Some("com.other.app")
+        ));
+        assert!(!ClipboardMonitor::should_skip_data_url_recording(
+            value, None
+        ));
+    }
+
+    #[test]
+    fn test_should_not_skip_non_data_url() {
+        assert!(!ClipboardMonitor::should_skip_data_url_recording(
+            "https://example.com/a.png",
+            Some("com.dance.app")
+        ));
     }
 }

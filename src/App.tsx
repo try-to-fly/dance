@@ -1,42 +1,52 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Suspense, lazy, useEffect, useState } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { listen } from '@tauri-apps/api/event';
 import { useTranslation } from 'react-i18next';
 import { invoke } from '@tauri-apps/api/core';
-import { BarChart3, Pause, Play, Trash2, View } from 'lucide-react';
+import { View } from 'lucide-react';
 import { getSystemLanguage } from './i18n/config';
 import { ThemeProvider } from './components/theme-provider';
 import { SettingsButton } from './components/settings-button';
-import { PreferencesModal } from './components/Preferences/PreferencesModal';
 import { MainLayout } from './components/Layout/MainLayout';
 import { SearchBar } from './components/SearchBar/SearchBar';
 import { ClipboardList } from './components/ClipboardList/ClipboardList';
-import { DetailView } from './components/DetailView/DetailView';
 import { MenuEventHandler } from './components/MenuEventHandler/MenuEventHandler';
-import { UpdateChecker } from './components/UpdateChecker/UpdateChecker';
 import { ClipboardMenuHandler } from './components/ClipboardMenuHandler';
 import { useClipboardStore } from './stores/clipboardStore';
 import { useConfigStore } from './stores/configStore';
 import { analytics, ANALYTICS_EVENTS } from './services/analytics';
-import { Button } from './components/ui/button';
-import { StatisticsModal } from './components/Statistics/StatisticsModal';
 import { TypeFilter } from './components/TypeFilter/TypeFilter';
 import { cn } from './lib/utils';
+import type { Statistics } from './types/clipboard';
 
 const queryClient = new QueryClient();
+const PreferencesModal = lazy(() =>
+  import('./components/Preferences/PreferencesModal').then((mod) => ({
+    default: mod.PreferencesModal,
+  }))
+);
+const StatisticsModal = lazy(() =>
+  import('./components/Statistics/StatisticsModal').then((mod) => ({
+    default: mod.StatisticsModal,
+  }))
+);
+const DetailView = lazy(() =>
+  import('./components/DetailView/DetailView').then((mod) => ({
+    default: mod.DetailView,
+  }))
+);
+const UpdateChecker = lazy(() =>
+  import('./components/UpdateChecker/UpdateChecker').then((mod) => ({
+    default: mod.UpdateChecker,
+  }))
+);
 
 function AppContent() {
   const { t, i18n } = useTranslation(['common', 'clipboard']);
-  const {
-    entries,
-    isMonitoring,
-    startMonitoring,
-    stopMonitoring,
-    clearHistory,
-    fetchStatistics,
-    setupEventListener,
-  } = useClipboardStore();
+  const { startMonitoring, setupEventListener } = useClipboardStore();
   const { loadConfig } = useConfigStore();
   const [showStatistics, setShowStatistics] = useState(false);
+  const [modalStatistics, setModalStatistics] = useState<Statistics | null>(null);
 
   const updateWindowTitle = async (language: string) => {
     try {
@@ -80,33 +90,24 @@ function AppContent() {
     };
   }, [i18n]);
 
-  const favoriteCount = useMemo(
-    () => entries.filter((entry) => entry.is_favorite).length,
-    [entries]
-  );
-  const sourceCount = useMemo(
-    () => new Set(entries.map((entry) => entry.source_app).filter(Boolean)).size,
-    [entries]
-  );
+  useEffect(() => {
+    let cleanup: (() => void) | undefined;
 
-  const handleToggleMonitoring = async () => {
-    if (isMonitoring) {
-      await stopMonitoring();
-    } else {
-      await startMonitoring();
-    }
-  };
+    void (async () => {
+      const unlistenStats = await listen<Statistics>('show_statistics', (event) => {
+        setModalStatistics(event.payload);
+        setShowStatistics(true);
+      });
 
-  const handleShowStatistics = async () => {
-    await fetchStatistics();
-    setShowStatistics(true);
-  };
+      cleanup = () => {
+        unlistenStats();
+      };
+    })();
 
-  const handleClearHistory = async () => {
-    if (window.confirm(t('clipboard:actions.clearConfirmMessage'))) {
-      await clearHistory();
-    }
-  };
+    return () => {
+      cleanup?.();
+    };
+  }, []);
 
   const toolbarButtonClass =
     'h-9 w-9 rounded-xl border-border/70 bg-background/75 text-foreground shadow-[0_8px_24px_rgba(15,23,42,0.08)] backdrop-blur-xl hover:bg-accent';
@@ -114,10 +115,25 @@ function AppContent() {
   return (
     <MainLayout>
       <MenuEventHandler />
-      <UpdateChecker />
+      <Suspense fallback={null}>
+        <UpdateChecker />
+      </Suspense>
       <ClipboardMenuHandler />
-      <PreferencesModal />
-      <StatisticsModal isOpen={showStatistics} onClose={() => setShowStatistics(false)} />
+      <Suspense fallback={null}>
+        <PreferencesModal />
+      </Suspense>
+      {showStatistics ? (
+        <Suspense fallback={null}>
+          <StatisticsModal
+            isOpen={showStatistics}
+            onClose={() => {
+              setShowStatistics(false);
+              setModalStatistics(null);
+            }}
+            statistics={modalStatistics}
+          />
+        </Suspense>
+      ) : null}
 
       <div className="min-h-screen p-2.5 ">
         <a
@@ -128,91 +144,22 @@ function AppContent() {
         </a>
 
         <div className="flex h-[calc(100vh-20px)] flex-col gap-3 overflow-hidden rounded-[24px] border border-border/70 bg-[linear-gradient(180deg,rgba(255,255,255,0.84),rgba(255,255,255,0.62))] p-3 shadow-[0_24px_80px_rgba(15,23,42,0.14)] backdrop-blur-2xl dark:bg-[linear-gradient(180deg,rgba(10,20,23,0.94),rgba(10,20,23,0.82))] min-[720px]:h-[calc(100vh-24px)] min-[1200px]:gap-4 min-[1200px]:rounded-[28px] min-[1200px]:p-4 md:p-5">
-          <div className="flex flex-col gap-2.5 rounded-[20px] border border-border/70 bg-background/55 px-3 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.45)] backdrop-blur-xl min-[1200px]:gap-3 min-[1200px]:rounded-[24px] min-[1200px]:py-3">
-            <div className="flex flex-wrap items-center gap-2.5">
-              <div className="flex min-w-0 items-center gap-3">
-                <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-primary/20 bg-primary/10 text-primary min-[1200px]:h-10 min-[1200px]:w-10 min-[1200px]:rounded-2xl">
-                  <View className="h-4 w-4" />
-                </div>
-                <div className="min-w-0">
-                  <div className="text-[10px] font-semibold uppercase tracking-[0.28em] text-primary/80 min-[1200px]:text-[11px] min-[1200px]:tracking-[0.32em]">
-                    Dance
-                  </div>
-                  <div className="truncate text-sm font-semibold text-foreground">
-                    {t('appTitle')}
-                  </div>
-                </div>
+          <div className="rounded-[20px] border border-border/70 bg-background/55 px-2.5 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.45)] backdrop-blur-xl min-[1200px]:rounded-[24px] min-[1200px]:px-3 min-[1200px]:py-2.5">
+            <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2.5 min-[1200px]:gap-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-primary/20 bg-primary/10 text-primary min-[1200px]:h-10 min-[1200px]:w-10 min-[1200px]:rounded-2xl">
+                <View className="h-4 w-4" />
               </div>
 
-              <div className="ml-auto flex flex-wrap items-center gap-1.5 min-[1200px]:gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={handleShowStatistics}
-                  aria-label={t('clipboard:actions.viewStatistics')}
-                  className={toolbarButtonClass}
-                >
-                  <BarChart3 className="h-4 w-4" />
-                </Button>
+              <div className="mx-auto flex min-w-0 w-full max-w-[760px] items-center gap-2">
+                <SearchBar compact className="min-w-0 flex-1" />
+                <TypeFilter compact className="w-[148px] shrink-0 min-[1200px]:w-[168px]" />
+              </div>
 
-                <Button
-                  type="button"
-                  variant={isMonitoring ? 'secondary' : 'default'}
-                  onClick={handleToggleMonitoring}
-                  className="h-9 rounded-xl border border-border/70 px-3 shadow-[0_8px_24px_rgba(15,23,42,0.08)] min-[1200px]:h-10 min-[1200px]:rounded-2xl min-[1200px]:px-4"
-                >
-                  {isMonitoring ? (
-                    <Pause className="mr-2 h-4 w-4" />
-                  ) : (
-                    <Play className="mr-2 h-4 w-4" />
-                  )}
-                  {isMonitoring
-                    ? t('clipboard:actions.stopMonitoring')
-                    : t('clipboard:actions.startMonitoring')}
-                </Button>
-
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={handleClearHistory}
-                  aria-label={t('clipboard:actions.clearHistory')}
-                  className={toolbarButtonClass}
-                >
-                  <Trash2 className="h-4 w-4" />
-                </Button>
-
+              <div className="flex items-center justify-end">
                 <SettingsButton
                   variant="outline"
                   buttonClassName={cn(toolbarButtonClass, 'text-muted-foreground')}
                 />
-              </div>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2.5 border-t border-border/60 pt-2.5 min-[1200px]:pt-3">
-              <div className="flex min-w-0 items-center gap-2.5">
-                <h2 className="truncate text-base font-semibold tracking-tight text-foreground min-[1200px]:text-lg">
-                  查看剪切板历史
-                </h2>
-
-                <div className="hidden items-center gap-1.5 text-[11px] text-muted-foreground min-[860px]:flex min-[1200px]:gap-2 min-[1200px]:text-xs">
-                  <span className="inline-flex items-center gap-1.5 rounded-full border border-border/70 bg-background/70 px-2.5 py-1">
-                    <span className="font-semibold text-foreground">{entries.length}</span>
-                    {t('all')}
-                  </span>
-                  <span className="inline-flex items-center gap-1.5 rounded-full border border-border/70 bg-background/70 px-2.5 py-1">
-                    <span className="font-semibold text-foreground">{favoriteCount}</span>
-                    {t('clipboard:actions.favorite')}
-                  </span>
-                  <span className="hidden items-center gap-1.5 rounded-full border border-border/70 bg-background/70 px-2.5 py-1 min-[1060px]:inline-flex">
-                    <span className="font-semibold text-foreground">{sourceCount}</span>
-                    {t('from')}
-                  </span>
-                </div>
-              </div>
-
-              <div className="ml-auto flex min-w-0 flex-1 items-center gap-2 min-[840px]:max-w-[560px]">
-                <SearchBar compact className="min-w-0 flex-1" />
-                <TypeFilter compact className="w-[168px] shrink-0" />
               </div>
             </div>
           </div>
@@ -228,7 +175,15 @@ function AppContent() {
             </aside>
 
             <section className="min-h-0 overflow-hidden">
-              <DetailView />
+              <Suspense
+                fallback={
+                  <div className="flex h-full min-h-[280px] items-center justify-center rounded-[22px] border border-border/70 bg-card/88">
+                    <span className="text-sm text-muted-foreground">{t('detail.loading')}</span>
+                  </div>
+                }
+              >
+                <DetailView />
+              </Suspense>
             </section>
           </div>
         </div>

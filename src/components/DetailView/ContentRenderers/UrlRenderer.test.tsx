@@ -45,10 +45,50 @@ describe('UrlRenderer', () => {
     mockedUseClipboardStore.mockReturnValue(createStoreState());
   });
 
+  it('普通网页 URL 在无法识别目标内容时回退为 URL 信息卡', () => {
+    render(<UrlRenderer content="example.com/docs/path" />);
+
+    expect(screen.getByText('URL链接')).toBeInTheDocument();
+    expect(screen.queryByText('图片预览')).not.toBeInTheDocument();
+    expect(screen.queryByText('视频预览')).not.toBeInTheDocument();
+    expect(screen.queryByText('音频预览')).not.toBeInTheDocument();
+    expect(document.querySelector('img')).toBeNull();
+    expect(document.querySelector('video')).toBeNull();
+    expect(document.querySelector('audio')).toBeNull();
+  });
+
+  it('无法规范化为 URL 的内容回退到纯文本渲染', () => {
+    render(<UrlRenderer content="this is not a valid url" />);
+
+    expect(screen.getByTestId('unified-text-renderer')).toHaveTextContent(
+      'plain_text:this is not a valid url'
+    );
+  });
+
   it('为裸域名媒体预览使用规范化后的绝对 URL', () => {
     render(<UrlRenderer content="example.com/image.png" />);
 
     expect(screen.getByAltText('预览')).toHaveAttribute('src', 'https://example.com/image.png');
+  });
+
+  it('视频 URL 以播放器作为主预览入口', () => {
+    render(<UrlRenderer content="example.com/preview.mp4" />);
+
+    expect(screen.getByText('视频预览')).toBeInTheDocument();
+    expect(document.querySelector('video')).toHaveAttribute(
+      'src',
+      'https://example.com/preview.mp4'
+    );
+  });
+
+  it('音频 URL 以播放器作为主预览入口', () => {
+    render(<UrlRenderer content="example.com/preview.mp3" />);
+
+    expect(screen.getByText('音频预览')).toBeInTheDocument();
+    expect(document.querySelector('audio')).toHaveAttribute(
+      'src',
+      'https://example.com/preview.mp3'
+    );
   });
 
   it('在切换 URL 条目后忽略过期的文本抓取结果', async () => {

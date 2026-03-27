@@ -39,6 +39,7 @@
       "timestamp": "Horodatage",
       "json": "Données JSON",
       "markdown": "Markdown",
+      "base64": "Base64",
       "text": "Texte",
       "image": "Image",
       "file": "Fichier"

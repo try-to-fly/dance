@@ -39,6 +39,7 @@
       "timestamp": "Zeitstempel",
       "json": "JSON-Daten",
       "markdown": "Markdown",
+      "base64": "Base64",
       "text": "Text",
       "image": "Bild",
       "file": "Datei"

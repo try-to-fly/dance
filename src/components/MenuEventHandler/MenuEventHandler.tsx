@@ -1,23 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { listen } from '@tauri-apps/api/event';
-import { StatisticsModal } from '../Statistics/StatisticsModal';
-import { PreferencesModal } from '../Preferences/PreferencesModal';
 import { useConfigStore } from '../../stores/configStore';
-import type { Statistics } from '../../types/clipboard';
 
 export const MenuEventHandler: React.FC = () => {
-  const [showStatistics, setShowStatistics] = useState(false);
-  const [statistics, setStatistics] = useState<Statistics | null>(null);
   const { setShowPreferences } = useConfigStore();
 
   useEffect(() => {
     const setupListeners = async () => {
-      // Listen for statistics display event
-      const unlistenStats = await listen('show_statistics', (event) => {
-        setStatistics(event.payload as Statistics);
-        setShowStatistics(true);
-      });
-
       // Listen for monitoring toggle updates
       const unlistenMonitoring = await listen('monitoring_toggled', (event) => {
         const isMonitoringNow = event.payload as boolean;
@@ -43,7 +32,6 @@ export const MenuEventHandler: React.FC = () => {
       });
 
       return () => {
-        unlistenStats();
         unlistenMonitoring();
         unlistenHistory();
         unlistenPreferences();
@@ -54,16 +42,5 @@ export const MenuEventHandler: React.FC = () => {
     setupListeners();
   }, []);
 
-  return (
-    <>
-      {showStatistics && statistics && (
-        <StatisticsModal
-          isOpen={showStatistics}
-          onClose={() => setShowStatistics(false)}
-          statistics={statistics}
-        />
-      )}
-      <PreferencesModal />
-    </>
-  );
+  return null;
 };

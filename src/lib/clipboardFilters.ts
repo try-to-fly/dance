@@ -1,6 +1,7 @@
 import type { LucideIcon } from 'lucide-react';
 import {
   AppWindow,
+  Binary,
   Braces,
   Clock3,
   Code2,
@@ -35,6 +36,7 @@ export const clipboardFilterOptions: ClipboardFilterOption[] = [
   { value: 'text:timestamp', labelKey: 'clipboard:contentTypes.timestamp', Icon: Clock3 },
   { value: 'text:json', labelKey: 'clipboard:contentTypes.json', Icon: Braces },
   { value: 'text:markdown', labelKey: 'clipboard:contentTypes.markdown', Icon: FileIcon },
+  { value: 'text:base64', labelKey: 'clipboard:contentTypes.base64', Icon: Binary },
   { value: 'image', labelKey: 'clipboard:contentTypes.image', Icon: ImageIcon },
   { value: 'file', labelKey: 'clipboard:contentTypes.file', Icon: FolderClosed },
 ];

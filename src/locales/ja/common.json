@@ -39,6 +39,7 @@
       "timestamp": "タイムスタンプ",
       "json": "JSONデータ",
       "markdown": "Markdown",
+      "base64": "Base64",
       "text": "テキスト",
       "image": "画像",
       "file": "ファイル"

@@ -7,6 +7,7 @@ use crate::utils::app_list::{AppListManager, InstalledApp};
 use anyhow::Result;
 use base64::{engine::general_purpose, Engine as _};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use tauri::{State, Window};
 use tauri_plugin_aptabase::EventTracker;
 
@@ -24,6 +25,98 @@ pub struct CleanupResult {
     pub entries_removed: u32,
     pub images_removed: u32,
     pub size_freed_bytes: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum PreviewKind {
+    PlainText,
+    Code,
+    Markdown,
+    Json,
+    Image,
+    Audio,
+    Video,
+    UrlCard,
+    FileCard,
+    Base64Text,
+    Base64Binary,
+    Unsupported,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum DecodedKind {
+    Text,
+    Json,
+    Image,
+    Audio,
+    Video,
+    Binary,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct MediaInspection {
+    pub source: String,
+    pub source_kind: String,
+    pub kind: Option<String>,
+    pub mime: Option<String>,
+    pub format: Option<String>,
+    pub duration: Option<String>,
+    pub bitrate: Option<String>,
+    pub codec: Option<String>,
+    pub width: Option<u32>,
+    pub height: Option<u32>,
+    pub fps: Option<String>,
+    pub sample_rate: Option<String>,
+    pub size_bytes: Option<u64>,
+    pub ffprobe_used: bool,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct Base64DecodedPreview {
+    pub decoded_kind: Option<DecodedKind>,
+    pub mime: Option<String>,
+    pub text_preview: Option<String>,
+    pub data_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ResolvedPreviewData {
+    pub source_kind: String,
+    pub mime: Option<String>,
+    pub file_name: Option<String>,
+    pub extension: Option<String>,
+    pub size_bytes: Option<u64>,
+    pub text_content: Option<String>,
+    pub json_content: Option<Value>,
+    pub image_url: Option<String>,
+    pub audio_url: Option<String>,
+    pub video_url: Option<String>,
+    pub media: Option<MediaInspection>,
+    pub base64: Option<Base64DecodedPreview>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UrlPreviewResolution {
+    pub final_url: String,
+    pub status: Option<u16>,
+    pub content_type: Option<String>,
+    pub content_length: Option<u64>,
+    pub preview_kind: PreviewKind,
+    pub resolved: ResolvedPreviewData,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Base64PreviewResolution {
+    pub preview_kind: PreviewKind,
+    pub decoded_kind: DecodedKind,
+    pub resolved: ResolvedPreviewData,
+    pub filename_suggestion: Option<String>,
+    pub error: Option<String>,
 }
 
 #[tauri::command]
@@ -500,6 +593,669 @@ pub async fn copy_converted_image(
     result.map_err(|e| e.to_string())
 }
 
+const URL_PREVIEW_MAX_BYTES: usize = 256 * 1024;
+const BASE64_TEXT_PREVIEW_MAX_CHARS: usize = 8192;
+const BASE64_DATA_URL_MAX_BYTES: usize = 2 * 1024 * 1024;
+
+struct ParsedBase64Input {
+    mime: Option<String>,
+    payload: String,
+}
+
+fn normalize_mime(input: &str) -> String {
+    input
+        .split(';')
+        .next()
+        .unwrap_or(input)
+        .trim()
+        .to_lowercase()
+}
+
+fn extension_from_mime(mime: &str) -> Option<String> {
+    let ext = match normalize_mime(mime).as_str() {
+        "image/png" => "png",
+        "image/jpeg" => "jpg",
+        "image/gif" => "gif",
+        "image/webp" => "webp",
+        "image/svg+xml" => "svg",
+        "audio/mpeg" => "mp3",
+        "audio/wav" => "wav",
+        "audio/ogg" => "ogg",
+        "audio/flac" => "flac",
+        "audio/mp4" => "m4a",
+        "video/mp4" => "mp4",
+        "video/webm" => "webm",
+        "video/quicktime" => "mov",
+        "application/json" => "json",
+        "text/plain" => "txt",
+        "text/markdown" => "md",
+        "application/pdf" => "pdf",
+        "application/octet-stream" => "bin",
+        _ => return None,
+    };
+    Some(ext.to_string())
+}
+
+fn preview_kind_from_mime(mime: &str) -> PreviewKind {
+    let mime = normalize_mime(mime);
+    if mime.starts_with("image/") {
+        return PreviewKind::Image;
+    }
+    if mime.starts_with("video/") {
+        return PreviewKind::Video;
+    }
+    if mime.starts_with("audio/") {
+        return PreviewKind::Audio;
+    }
+    if mime == "application/json" || mime.ends_with("+json") {
+        return PreviewKind::Json;
+    }
+    if mime == "text/markdown" {
+        return PreviewKind::Markdown;
+    }
+    if mime.starts_with("text/html")
+        || mime.starts_with("text/css")
+        || mime.starts_with("application/javascript")
+        || mime.starts_with("text/javascript")
+        || mime.starts_with("application/xml")
+        || mime.starts_with("text/xml")
+    {
+        return PreviewKind::Code;
+    }
+    if mime.starts_with("text/") {
+        return PreviewKind::PlainText;
+    }
+    if mime == "application/pdf" {
+        return PreviewKind::FileCard;
+    }
+    PreviewKind::UrlCard
+}
+
+fn preview_kind_from_url_path(url: &url::Url) -> PreviewKind {
+    let path = url.path().to_lowercase();
+    if path.ends_with(".png")
+        || path.ends_with(".jpg")
+        || path.ends_with(".jpeg")
+        || path.ends_with(".gif")
+        || path.ends_with(".webp")
+        || path.ends_with(".svg")
+    {
+        return PreviewKind::Image;
+    }
+    if path.ends_with(".mp4")
+        || path.ends_with(".webm")
+        || path.ends_with(".mov")
+        || path.ends_with(".mkv")
+    {
+        return PreviewKind::Video;
+    }
+    if path.ends_with(".mp3")
+        || path.ends_with(".wav")
+        || path.ends_with(".ogg")
+        || path.ends_with(".m4a")
+        || path.ends_with(".flac")
+    {
+        return PreviewKind::Audio;
+    }
+    if path.ends_with(".json") {
+        return PreviewKind::Json;
+    }
+    if path.ends_with(".md") || path.ends_with(".markdown") {
+        return PreviewKind::Markdown;
+    }
+    if path.ends_with(".js")
+        || path.ends_with(".ts")
+        || path.ends_with(".tsx")
+        || path.ends_with(".jsx")
+        || path.ends_with(".css")
+        || path.ends_with(".html")
+        || path.ends_with(".xml")
+    {
+        return PreviewKind::Code;
+    }
+    PreviewKind::UrlCard
+}
+
+fn parse_base64_input(input: &str) -> Result<ParsedBase64Input, String> {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return Err("Input is empty".to_string());
+    }
+
+    if !trimmed.starts_with("data:") {
+        let payload: String = trimmed.chars().filter(|c| !c.is_whitespace()).collect();
+        if payload.is_empty() {
+            return Err("Base64 payload is empty".to_string());
+        }
+        return Ok(ParsedBase64Input {
+            mime: None,
+            payload,
+        });
+    }
+
+    let comma_idx = trimmed
+        .find(',')
+        .ok_or_else(|| "Invalid data URL: missing comma".to_string())?;
+    let header = &trimmed[..comma_idx];
+    let payload_raw = &trimmed[comma_idx + 1..];
+    if !header.to_ascii_lowercase().contains(";base64") {
+        return Err("Only base64 data URLs are supported".to_string());
+    }
+
+    let mime = header.strip_prefix("data:").and_then(|h| {
+        let first = h.split(';').next().unwrap_or("").trim();
+        if first.is_empty() {
+            None
+        } else {
+            Some(normalize_mime(first))
+        }
+    });
+    let payload: String = payload_raw.chars().filter(|c| !c.is_whitespace()).collect();
+    if payload.is_empty() {
+        return Err("Base64 payload is empty".to_string());
+    }
+
+    Ok(ParsedBase64Input { mime, payload })
+}
+
+fn decode_base64_payload(payload: &str) -> Result<Vec<u8>, String> {
+    general_purpose::STANDARD
+        .decode(payload)
+        .or_else(|_| general_purpose::STANDARD_NO_PAD.decode(payload))
+        .or_else(|_| general_purpose::URL_SAFE.decode(payload))
+        .map_err(|e| format!("Failed to decode base64: {}", e))
+}
+
+fn truncate_by_chars(value: &str, max_chars: usize) -> String {
+    if value.chars().count() <= max_chars {
+        return value.to_string();
+    }
+    value.chars().take(max_chars).collect()
+}
+
+fn parse_json_if_possible(text: &str) -> Option<Value> {
+    serde_json::from_str::<Value>(text).ok()
+}
+
+async fn read_response_text_limited(
+    response: &mut reqwest::Response,
+    max_bytes: usize,
+) -> Result<(String, bool), String> {
+    let mut buffer = Vec::new();
+    let mut truncated = false;
+
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|e| format!("Failed to read response body: {}", e))?
+    {
+        let remaining = max_bytes.saturating_sub(buffer.len());
+        if remaining == 0 {
+            truncated = true;
+            break;
+        }
+
+        if chunk.len() > remaining {
+            buffer.extend_from_slice(&chunk[..remaining]);
+            truncated = true;
+            break;
+        }
+
+        buffer.extend_from_slice(&chunk);
+    }
+
+    Ok((String::from_utf8_lossy(&buffer).to_string(), truncated))
+}
+
+fn printable_ratio(text: &str) -> f32 {
+    if text.is_empty() {
+        return 0.0;
+    }
+    let printable = text
+        .chars()
+        .filter(|c| !c.is_control() || c.is_whitespace())
+        .count();
+    printable as f32 / text.chars().count() as f32
+}
+
+fn detect_decoded_kind(
+    bytes: &[u8],
+    mime_hint: Option<&str>,
+) -> (DecodedKind, PreviewKind, Option<String>) {
+    let mut mime = mime_hint.map(normalize_mime);
+    if mime.is_none() {
+        mime = infer::get(bytes).map(|kind| kind.mime_type().to_string());
+    }
+
+    if let Some(ref known_mime) = mime {
+        let preview_kind = preview_kind_from_mime(known_mime);
+        match preview_kind {
+            PreviewKind::Image => return (DecodedKind::Image, PreviewKind::Image, mime),
+            PreviewKind::Audio => return (DecodedKind::Audio, PreviewKind::Audio, mime),
+            PreviewKind::Video => return (DecodedKind::Video, PreviewKind::Video, mime),
+            PreviewKind::Json => return (DecodedKind::Json, PreviewKind::Json, mime),
+            PreviewKind::Code => return (DecodedKind::Text, PreviewKind::Code, mime),
+            PreviewKind::Markdown => return (DecodedKind::Text, PreviewKind::Markdown, mime),
+            PreviewKind::PlainText => return (DecodedKind::Text, PreviewKind::Base64Text, mime),
+            _ => {}
+        }
+    }
+
+    if let Ok(text) = std::str::from_utf8(bytes) {
+        if parse_json_if_possible(text).is_some() {
+            return (
+                DecodedKind::Json,
+                PreviewKind::Json,
+                mime.or(Some("application/json".into())),
+            );
+        }
+        if printable_ratio(text) > 0.85 {
+            return (
+                DecodedKind::Text,
+                PreviewKind::Base64Text,
+                mime.or(Some("text/plain".into())),
+            );
+        }
+    }
+
+    (
+        DecodedKind::Binary,
+        PreviewKind::Base64Binary,
+        mime.or(Some("application/octet-stream".into())),
+    )
+}
+
+fn to_u32_value(value: Option<&Value>) -> Option<u32> {
+    if let Some(v) = value {
+        if let Some(num) = v.as_u64() {
+            return u32::try_from(num).ok();
+        }
+        if let Some(text) = v.as_str() {
+            return text.parse::<u32>().ok();
+        }
+    }
+    None
+}
+
+fn source_kind_from_input(source: &str) -> String {
+    let trimmed = source.trim();
+    if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
+        return "remote".to_string();
+    }
+    if trimmed.starts_with("data:") {
+        return "data_url".to_string();
+    }
+    "local".to_string()
+}
+
+async fn inspect_media_source_internal(
+    source: &str,
+    mime_hint: Option<&str>,
+    size_hint: Option<u64>,
+) -> MediaInspection {
+    let mut inspection = MediaInspection {
+        source: source.to_string(),
+        source_kind: source_kind_from_input(source),
+        mime: mime_hint.map(normalize_mime),
+        size_bytes: size_hint,
+        ..Default::default()
+    };
+
+    if source.starts_with("data:") {
+        match parse_base64_input(source).and_then(|parsed| {
+            let decoded = decode_base64_payload(&parsed.payload)?;
+            Ok((parsed, decoded))
+        }) {
+            Ok((parsed, decoded)) => {
+                inspection.mime = parsed
+                    .mime
+                    .clone()
+                    .or_else(|| infer::get(&decoded).map(|kind| kind.mime_type().to_string()));
+                inspection.size_bytes = Some(decoded.len() as u64);
+                if let Some(ref mime) = inspection.mime {
+                    inspection.kind = match preview_kind_from_mime(mime) {
+                        PreviewKind::Image => Some("image".to_string()),
+                        PreviewKind::Audio => Some("audio".to_string()),
+                        PreviewKind::Video => Some("video".to_string()),
+                        _ => None,
+                    };
+                    inspection.format = extension_from_mime(mime);
+                }
+                if inspection.kind.as_deref() == Some("image") {
+                    if let Ok(img) = image::load_from_memory(&decoded) {
+                        inspection.width = Some(img.width());
+                        inspection.height = Some(img.height());
+                    }
+                }
+            }
+            Err(err) => {
+                inspection.error = Some(err);
+            }
+        }
+        return inspection;
+    }
+
+    if inspection.source_kind == "local" {
+        let local_path = std::path::PathBuf::from(source);
+        if let Ok(meta) = std::fs::metadata(&local_path) {
+            inspection.size_bytes = Some(meta.len());
+        }
+        if inspection.mime.is_none() {
+            if let Ok(bytes) = std::fs::read(&local_path) {
+                inspection.mime = infer::get(&bytes).map(|k| k.mime_type().to_string());
+            }
+        }
+    }
+
+    if let Some(ref mime) = inspection.mime {
+        inspection.kind = match preview_kind_from_mime(mime) {
+            PreviewKind::Image => Some("image".to_string()),
+            PreviewKind::Audio => Some("audio".to_string()),
+            PreviewKind::Video => Some("video".to_string()),
+            _ => inspection.kind.clone(),
+        };
+        inspection.format = extension_from_mime(mime).or_else(|| inspection.format.clone());
+    }
+
+    match extract_media_metadata(source.to_string()).await {
+        Ok(metadata) => {
+            inspection.ffprobe_used = true;
+            inspection.duration = metadata
+                .get("duration")
+                .and_then(Value::as_str)
+                .map(ToString::to_string);
+            inspection.bitrate = metadata
+                .get("bitrate")
+                .and_then(Value::as_str)
+                .map(ToString::to_string);
+            inspection.codec = metadata
+                .get("codec")
+                .and_then(Value::as_str)
+                .map(ToString::to_string);
+            inspection.fps = metadata
+                .get("fps")
+                .and_then(Value::as_str)
+                .map(ToString::to_string);
+            inspection.sample_rate = metadata.get("sample_rate").and_then(|v| {
+                v.as_str()
+                    .map(ToString::to_string)
+                    .or_else(|| v.as_u64().map(|n| n.to_string()))
+            });
+            inspection.width = to_u32_value(metadata.get("width"));
+            inspection.height = to_u32_value(metadata.get("height"));
+
+            if inspection.kind.is_none() {
+                if inspection.width.is_some() && inspection.height.is_some() {
+                    inspection.kind = Some("video".to_string());
+                } else if inspection.sample_rate.is_some() {
+                    inspection.kind = Some("audio".to_string());
+                }
+            }
+        }
+        Err(err) => {
+            inspection.error = Some(err);
+        }
+    }
+
+    if inspection.kind.as_deref() == Some("image")
+        && inspection.width.is_none()
+        && inspection.source_kind == "local"
+    {
+        if let Ok(img) = image::open(source) {
+            inspection.width = Some(img.width());
+            inspection.height = Some(img.height());
+        }
+    }
+
+    inspection
+}
+
+#[tauri::command]
+pub async fn resolve_url_preview(url: String) -> Result<UrlPreviewResolution, String> {
+    use std::time::Duration;
+
+    let parsed_url = url::Url::parse(url.trim())
+        .map_err(|_| "Only absolute HTTP(S) URLs are supported".to_string())?;
+    if !matches!(parsed_url.scheme(), "http" | "https") || parsed_url.host_str().is_none() {
+        return Err("Only absolute HTTP(S) URLs are supported".to_string());
+    }
+
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .user_agent("Dance/preview-resolver")
+        .build()
+        .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
+
+    let mut resolution = UrlPreviewResolution {
+        final_url: parsed_url.to_string(),
+        status: None,
+        content_type: None,
+        content_length: None,
+        preview_kind: PreviewKind::UrlCard,
+        resolved: ResolvedPreviewData {
+            source_kind: "remote".to_string(),
+            ..Default::default()
+        },
+        error: None,
+    };
+
+    let mut response = match client.get(parsed_url.clone()).send().await {
+        Ok(resp) => resp,
+        Err(err) => return Err(format!("Network request failed: {}", err)),
+    };
+
+    let final_url = response.url().clone();
+    let status = response.status();
+    let content_type = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .map(normalize_mime);
+    let content_length = response.content_length();
+
+    let fallback_kind = preview_kind_from_url_path(&final_url);
+    let preview_kind = content_type
+        .as_deref()
+        .map(preview_kind_from_mime)
+        .filter(|kind| *kind != PreviewKind::UrlCard)
+        .unwrap_or(fallback_kind);
+
+    resolution.final_url = final_url.to_string();
+    resolution.status = Some(status.as_u16());
+    resolution.content_type = content_type.clone();
+    resolution.content_length = content_length;
+    resolution.preview_kind = preview_kind.clone();
+
+    resolution.resolved.mime = content_type.clone();
+    resolution.resolved.size_bytes = content_length;
+    resolution.resolved.extension = content_type
+        .as_deref()
+        .and_then(extension_from_mime)
+        .or_else(|| {
+            let path = final_url.path();
+            std::path::Path::new(path)
+                .extension()
+                .and_then(|v| v.to_str())
+                .map(|v| v.to_lowercase())
+        });
+    resolution.resolved.file_name = final_url
+        .path_segments()
+        .and_then(|mut seg| seg.next_back())
+        .filter(|name| !name.is_empty())
+        .map(ToString::to_string);
+
+    if !status.is_success() {
+        return Err(format!("HTTP error: {}", status));
+    }
+
+    match preview_kind {
+        PreviewKind::Image => {
+            resolution.resolved.image_url = Some(final_url.to_string());
+            resolution.resolved.media = Some(
+                inspect_media_source_internal(
+                    final_url.as_str(),
+                    content_type.as_deref(),
+                    content_length,
+                )
+                .await,
+            );
+        }
+        PreviewKind::Audio => {
+            resolution.resolved.audio_url = Some(final_url.to_string());
+            resolution.resolved.media = Some(
+                inspect_media_source_internal(
+                    final_url.as_str(),
+                    content_type.as_deref(),
+                    content_length,
+                )
+                .await,
+            );
+        }
+        PreviewKind::Video => {
+            resolution.resolved.video_url = Some(final_url.to_string());
+            resolution.resolved.media = Some(
+                inspect_media_source_internal(
+                    final_url.as_str(),
+                    content_type.as_deref(),
+                    content_length,
+                )
+                .await,
+            );
+        }
+        PreviewKind::Json | PreviewKind::Markdown | PreviewKind::PlainText | PreviewKind::Code => {
+            let (text, truncated) =
+                read_response_text_limited(&mut response, URL_PREVIEW_MAX_BYTES).await?;
+            resolution.resolved.text_content = Some(text.clone());
+            if preview_kind == PreviewKind::Json {
+                resolution.resolved.json_content = parse_json_if_possible(&text);
+            }
+            if truncated {
+                resolution.error = Some(format!(
+                    "Content truncated to {} bytes for preview",
+                    URL_PREVIEW_MAX_BYTES
+                ));
+            }
+        }
+        _ => {}
+    }
+
+    Ok(resolution)
+}
+
+#[tauri::command]
+pub async fn decode_base64_preview(input: String) -> Result<Base64PreviewResolution, String> {
+    let parsed = parse_base64_input(&input)?;
+    let decoded_bytes = decode_base64_payload(&parsed.payload)?;
+    let (detected_decoded_kind, detected_preview_kind, detected_mime) =
+        detect_decoded_kind(&decoded_bytes, parsed.mime.as_deref());
+    let mut decoded_kind = detected_decoded_kind.clone();
+    let mut preview_kind = detected_preview_kind;
+    let mime = detected_mime.or(parsed.mime.clone());
+    let extension = mime.as_deref().and_then(extension_from_mime);
+
+    let mut resolved = ResolvedPreviewData {
+        source_kind: "decoded".to_string(),
+        mime: mime.clone(),
+        extension: extension.clone(),
+        size_bytes: Some(decoded_bytes.len() as u64),
+        ..Default::default()
+    };
+
+    let mut base64_preview = Base64DecodedPreview {
+        mime: mime.clone(),
+        ..Default::default()
+    };
+
+    let mut error = None;
+    match detected_decoded_kind {
+        DecodedKind::Json => {
+            let text = String::from_utf8_lossy(&decoded_bytes).to_string();
+            resolved.json_content = parse_json_if_possible(&text);
+            resolved.text_content = Some(truncate_by_chars(&text, URL_PREVIEW_MAX_BYTES));
+            base64_preview.text_preview =
+                Some(truncate_by_chars(&text, BASE64_TEXT_PREVIEW_MAX_CHARS));
+        }
+        DecodedKind::Text => {
+            let text = String::from_utf8_lossy(&decoded_bytes).to_string();
+            resolved.text_content = Some(truncate_by_chars(&text, URL_PREVIEW_MAX_BYTES));
+            base64_preview.text_preview =
+                Some(truncate_by_chars(&text, BASE64_TEXT_PREVIEW_MAX_CHARS));
+        }
+        DecodedKind::Image => {
+            if let Some(ref m) = mime {
+                if decoded_bytes.len() <= BASE64_DATA_URL_MAX_BYTES {
+                    let data_url = format!("data:{};base64,{}", m, parsed.payload);
+                    resolved.image_url = Some(data_url.clone());
+                    base64_preview.data_url = Some(data_url);
+                    resolved.media = Some(
+                        inspect_media_source_internal(
+                            &format!("data:{};base64,{}", m, parsed.payload),
+                            Some(m),
+                            Some(decoded_bytes.len() as u64),
+                        )
+                        .await,
+                    );
+                } else {
+                    error = Some("Decoded media is too large to inline as data URL".to_string());
+                    decoded_kind = DecodedKind::Binary;
+                    preview_kind = PreviewKind::Base64Binary;
+                }
+            }
+        }
+        DecodedKind::Audio => {
+            if let Some(ref m) = mime {
+                if decoded_bytes.len() <= BASE64_DATA_URL_MAX_BYTES {
+                    let data_url = format!("data:{};base64,{}", m, parsed.payload);
+                    resolved.audio_url = Some(data_url.clone());
+                    base64_preview.data_url = Some(data_url);
+                } else {
+                    error = Some("Decoded media is too large to inline as data URL".to_string());
+                    decoded_kind = DecodedKind::Binary;
+                    preview_kind = PreviewKind::Base64Binary;
+                }
+            }
+        }
+        DecodedKind::Video => {
+            if let Some(ref m) = mime {
+                if decoded_bytes.len() <= BASE64_DATA_URL_MAX_BYTES {
+                    let data_url = format!("data:{};base64,{}", m, parsed.payload);
+                    resolved.video_url = Some(data_url.clone());
+                    base64_preview.data_url = Some(data_url);
+                } else {
+                    error = Some("Decoded media is too large to inline as data URL".to_string());
+                    decoded_kind = DecodedKind::Binary;
+                    preview_kind = PreviewKind::Base64Binary;
+                }
+            }
+        }
+        DecodedKind::Binary | DecodedKind::Unknown => {}
+    }
+
+    base64_preview.decoded_kind = Some(decoded_kind.clone());
+    resolved.base64 = Some(base64_preview);
+    let filename_suggestion = extension
+        .as_deref()
+        .map(|ext| format!("decoded.{}", ext))
+        .or_else(|| Some("decoded.bin".to_string()));
+
+    Ok(Base64PreviewResolution {
+        preview_kind,
+        decoded_kind,
+        resolved,
+        filename_suggestion,
+        error,
+    })
+}
+
+#[tauri::command]
+pub async fn inspect_media_source(source: String) -> Result<MediaInspection, String> {
+    let source_trimmed = source.trim();
+    if source_trimmed.is_empty() {
+        return Err("Source is empty".to_string());
+    }
+    Ok(inspect_media_source_internal(source_trimmed, None, None).await)
+}
+
 #[tauri::command]
 pub async fn fetch_url_content(url: String) -> Result<String, String> {
     use std::time::Duration;
@@ -522,19 +1278,20 @@ pub async fn fetch_url_content(url: String) -> Result<String, String> {
 
     // 发起HTTP请求
     match client.get(parsed_url).send().await {
-        Ok(response) => {
+        Ok(mut response) => {
             if response.status().is_success() {
-                match response.text().await {
-                    Ok(content) => {
+                match read_response_text_limited(&mut response, URL_PREVIEW_MAX_BYTES).await {
+                    Ok((content, truncated)) => {
                         log::info!(
-                            "[fetch_url_content] 成功获取内容，长度: {} 字符",
-                            content.len()
+                            "[fetch_url_content] 成功获取内容，长度: {} 字符，截断: {}",
+                            content.len(),
+                            truncated
                         );
                         Ok(content)
                     }
                     Err(e) => {
                         log::error!("[fetch_url_content] 读取响应内容失败: {}", e);
-                        Err(format!("Failed to read response content: {}", e))
+                        Err(e)
                     }
                 }
             } else {
@@ -940,4 +1697,98 @@ pub async fn get_current_log_level() -> Result<String, String> {
     // This is a simplified implementation
     // In practice, you'd need to store the current level somewhere
     Ok("info".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_base64_input_with_data_url() {
+        let input = "data:text/plain;base64,SGVsbG8=";
+        let parsed = parse_base64_input(input).expect("data url should parse");
+        assert_eq!(parsed.mime, Some("text/plain".to_string()));
+        assert_eq!(parsed.payload, "SGVsbG8=");
+    }
+
+    #[test]
+    fn test_parse_base64_input_with_plain_base64() {
+        let input = " SGVsbG8= ";
+        let parsed = parse_base64_input(input).expect("base64 should parse");
+        assert_eq!(parsed.mime, None);
+        assert_eq!(parsed.payload, "SGVsbG8=");
+    }
+
+    #[test]
+    fn test_detect_decoded_kind_json() {
+        let bytes = br#"{"name":"dance","ok":true}"#;
+        let (decoded_kind, preview_kind, mime) =
+            detect_decoded_kind(bytes, Some("application/json"));
+        assert_eq!(decoded_kind, DecodedKind::Json);
+        assert_eq!(preview_kind, PreviewKind::Json);
+        assert_eq!(mime, Some("application/json".to_string()));
+    }
+
+    #[test]
+    fn test_detect_decoded_kind_image() {
+        let png_header = vec![0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+        let (decoded_kind, preview_kind, _) = detect_decoded_kind(&png_header, Some("image/png"));
+        assert_eq!(decoded_kind, DecodedKind::Image);
+        assert_eq!(preview_kind, PreviewKind::Image);
+    }
+
+    #[test]
+    fn test_preview_kind_from_mime() {
+        assert_eq!(
+            preview_kind_from_mime("application/json"),
+            PreviewKind::Json
+        );
+        assert_eq!(
+            preview_kind_from_mime("text/markdown"),
+            PreviewKind::Markdown
+        );
+        assert_eq!(preview_kind_from_mime("image/webp"), PreviewKind::Image);
+        assert_eq!(preview_kind_from_mime("audio/mpeg"), PreviewKind::Audio);
+        assert_eq!(preview_kind_from_mime("video/mp4"), PreviewKind::Video);
+    }
+
+    #[test]
+    fn test_parse_json_if_possible_keeps_scalar_values() {
+        assert_eq!(parse_json_if_possible("0"), Some(Value::from(0)));
+        assert_eq!(parse_json_if_possible("false"), Some(Value::from(false)));
+        assert_eq!(parse_json_if_possible("null"), Some(Value::Null));
+    }
+
+    #[tokio::test]
+    async fn test_decode_base64_preview_downgrades_large_media_to_binary() {
+        let mut bytes = vec![0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+        bytes.resize(BASE64_DATA_URL_MAX_BYTES + 1, 0);
+        let encoded = general_purpose::STANDARD.encode(bytes);
+        let input = format!("data:image/png;base64,{}", encoded);
+
+        let result = decode_base64_preview(input)
+            .await
+            .expect("base64 preview should decode");
+
+        assert_eq!(result.decoded_kind, DecodedKind::Binary);
+        assert_eq!(result.preview_kind, PreviewKind::Base64Binary);
+        assert_eq!(
+            result.error.as_deref(),
+            Some("Decoded media is too large to inline as data URL")
+        );
+        assert_eq!(
+            result
+                .resolved
+                .base64
+                .as_ref()
+                .and_then(|preview| preview.decoded_kind.as_ref()),
+            Some(&DecodedKind::Binary)
+        );
+        assert!(result
+            .resolved
+            .base64
+            .as_ref()
+            .and_then(|preview| preview.data_url.as_ref())
+            .is_none());
+    }
 }
