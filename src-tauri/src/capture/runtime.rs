@@ -108,8 +108,7 @@ impl CaptureRuntime {
     }
 
     pub async fn remember_observed_hash(&self, content_hash: String) {
-        let mut last = self.last_observed_hash.lock().await;
-        *last = Some(content_hash);
+        remember_observed_hash(&self.last_observed_hash, content_hash).await;
     }
 
     #[cfg_attr(not(test), allow(dead_code))]
@@ -139,6 +138,14 @@ impl CaptureRuntime {
             .iter()
             .any(|entry| entry.content_hash == content_hash)
     }
+}
+
+pub async fn remember_observed_hash(
+    last_observed_hash: &Arc<Mutex<Option<String>>>,
+    content_hash: String,
+) {
+    let mut last = last_observed_hash.lock().await;
+    *last = Some(content_hash);
 }
 
 pub async fn consume_suppression_key(

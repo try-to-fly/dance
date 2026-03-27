@@ -4,12 +4,16 @@ use std::sync::Arc;
 use tokio::sync::broadcast;
 use tokio::sync::Mutex;
 
-use crate::capture::{calculate_content_hash, consume_suppression_key, SuppressionEntry};
-use crate::clipboard::content_detector::ContentDetector;
+use crate::capture::macos_markers::read_pasteboard_markers;
+use crate::capture::{
+    calculate_content_hash, consume_suppression_key, decide_capture, remember_observed_hash,
+    CaptureDisposition, PasteboardMarkers, SuppressionEntry,
+};
+use crate::clipboard::content_detector::{ContentDetector, ContentMetadata, ContentSubType};
 use crate::clipboard::processor::ContentProcessor;
 use crate::config::ConfigManager;
 use crate::models::{ClipboardEntry, ContentType};
-use crate::utils::app_detector::get_active_app_info;
+use crate::utils::app_detector::{get_active_app_info, AppInfo};
 
 pub struct ClipboardMonitor {
     tx: broadcast::Sender<ClipboardEntry>,
@@ -43,14 +47,159 @@ impl ClipboardMonitor {
         std::fs::metadata(absolute_path).ok().map(|meta| meta.len())
     }
 
-    fn should_skip_data_url_recording(text: &str, source_bundle_id: Option<&str>) -> bool {
-        let is_base64_image_data_url = text.starts_with("data:image/") && text.contains(";base64,");
-        if !is_base64_image_data_url {
-            return false;
+    fn resolve_source_bundle_id<'a>(
+        markers: &'a PasteboardMarkers,
+        app_info: Option<&'a AppInfo>,
+    ) -> Option<&'a str> {
+        markers
+            .source_bundle_id
+            .as_deref()
+            .or_else(|| app_info.and_then(|info| info.bundle_id.as_deref()))
+    }
+
+    fn is_self_generated(source_bundle_id: Option<&str>) -> bool {
+        matches!(source_bundle_id, Some("com.dance.app"))
+    }
+
+    async fn should_emit_hash(
+        last_observed_hash: &Arc<Mutex<Option<String>>>,
+        content_hash: &str,
+    ) -> bool {
+        let is_duplicate = {
+            let last = last_observed_hash.lock().await;
+            last.as_deref() == Some(content_hash)
+        };
+
+        if is_duplicate {
+            false
+        } else {
+            remember_observed_hash(last_observed_hash, content_hash.to_string()).await;
+            true
+        }
+    }
+
+    async fn text_capture_disposition(
+        &self,
+        markers: &PasteboardMarkers,
+        app_info: Option<&AppInfo>,
+        trimmed_text: &str,
+    ) -> CaptureDisposition {
+        let source_bundle_id = Self::resolve_source_bundle_id(markers, app_info);
+        let config_guard = self.config_manager.lock().await;
+        let excluded_app = source_bundle_id
+            .map(|bundle_id| config_guard.is_app_excluded(bundle_id))
+            .unwrap_or(false);
+        let text_size_valid = config_guard.is_text_size_valid(trimmed_text);
+
+        decide_capture(
+            markers,
+            Self::is_self_generated(source_bundle_id),
+            excluded_app,
+            text_size_valid,
+        )
+    }
+
+    async fn image_capture_disposition(
+        &self,
+        markers: &PasteboardMarkers,
+        app_info: Option<&AppInfo>,
+    ) -> CaptureDisposition {
+        let source_bundle_id = Self::resolve_source_bundle_id(markers, app_info);
+        let config_guard = self.config_manager.lock().await;
+        let excluded_app = source_bundle_id
+            .map(|bundle_id| config_guard.is_app_excluded(bundle_id))
+            .unwrap_or(false);
+
+        decide_capture(
+            markers,
+            Self::is_self_generated(source_bundle_id),
+            excluded_app,
+            true,
+        )
+    }
+
+    fn capture_disposition_label(disposition: CaptureDisposition) -> &'static str {
+        match disposition {
+            CaptureDisposition::Persist => "persist",
+            CaptureDisposition::CurrentOnly => "current_only",
+            CaptureDisposition::Skip => "skip",
+        }
+    }
+
+    async fn process_text_capture_with_detector<F>(
+        &self,
+        last_observed_hash: &Arc<Mutex<Option<String>>>,
+        suppression_registry: &Arc<Mutex<Vec<SuppressionEntry>>>,
+        app_info: Option<&AppInfo>,
+        markers: &PasteboardMarkers,
+        trimmed_text: &str,
+        detector: F,
+    ) -> Result<Option<CaptureDisposition>>
+    where
+        F: FnOnce(&str) -> (ContentSubType, Option<ContentMetadata>),
+    {
+        let hash = calculate_content_hash(trimmed_text.as_bytes());
+        log::debug!("[ClipboardMonitor] 计算内容Hash: {}", &hash[..8]);
+
+        if consume_suppression_key(suppression_registry, &hash).await {
+            remember_observed_hash(last_observed_hash, hash).await;
+            log::debug!("[ClipboardMonitor] 命中 suppression key，跳过本次文本持久化");
+            return Ok(Some(CaptureDisposition::Skip));
         }
 
-        // 仅在来源是本应用时跳过，避免把用户真实复制的 data URL 全部丢弃。
-        matches!(source_bundle_id, Some("com.dance.app"))
+        let disposition = self
+            .text_capture_disposition(markers, app_info, trimmed_text)
+            .await;
+        if disposition != CaptureDisposition::Persist {
+            remember_observed_hash(last_observed_hash, hash).await;
+            log::debug!(
+                "[ClipboardMonitor] 文本命中 capture policy: {}",
+                Self::capture_disposition_label(disposition)
+            );
+            return Ok(Some(disposition));
+        }
+
+        if !Self::should_emit_hash(last_observed_hash, &hash).await {
+            log::debug!("[ClipboardMonitor] 重复内容Hash，跳过处理");
+            return Ok(None);
+        }
+
+        let (subtype, metadata) = detector(trimmed_text);
+        log::debug!("[ClipboardMonitor] 内容检测结果: {:?}", subtype);
+
+        let metadata_json = metadata.and_then(|value| serde_json::to_string(&value).ok());
+        let mut entry = ClipboardEntry::new(
+            ContentType::Text,
+            Some(trimmed_text.to_string()),
+            hash,
+            app_info.map(|info| info.name.clone()),
+            None,
+        );
+
+        let subtype_str = serde_json::to_value(&subtype)
+            .ok()
+            .and_then(|value| value.as_str().map(|value| value.to_string()))
+            .unwrap_or_else(|| "plain_text".to_string());
+        entry.content_subtype = Some(subtype_str);
+        entry.metadata = metadata_json;
+        entry.app_bundle_id = Self::resolve_source_bundle_id(markers, app_info)
+            .map(|bundle_id| bundle_id.to_string());
+
+        log::info!(
+            "[ClipboardMonitor] 发现新文本内容: {} | 来源: {} | 类型: {:?}",
+            if trimmed_text.chars().count() > 50 {
+                format!("{}...", trimmed_text.chars().take(50).collect::<String>())
+            } else {
+                trimmed_text.to_string()
+            },
+            app_info
+                .map(|info| info.name.as_str())
+                .unwrap_or("未知应用"),
+            subtype
+        );
+
+        let _ = self.tx.send(entry);
+        Ok(Some(CaptureDisposition::Persist))
     }
 
     pub async fn poll_once(
@@ -58,25 +207,25 @@ impl ClipboardMonitor {
         last_observed_hash: &Arc<Mutex<Option<String>>>,
         suppression_registry: &Arc<Mutex<Vec<SuppressionEntry>>>,
     ) -> Result<()> {
-        Self::check_clipboard(
+        self.check_clipboard(
             last_observed_hash,
             suppression_registry,
             &self.tx,
             &self.processor,
-            &self.config_manager,
         )
         .await
     }
 
     async fn check_clipboard(
+        &self,
         last_observed_hash: &Arc<Mutex<Option<String>>>,
         suppression_registry: &Arc<Mutex<Vec<SuppressionEntry>>>,
         tx: &broadcast::Sender<ClipboardEntry>,
         processor: &Arc<ContentProcessor>,
-        config_manager: &Arc<Mutex<ConfigManager>>,
     ) -> Result<()> {
         // 获取当前活跃应用信息
         let app_info = get_active_app_info();
+        let markers = read_pasteboard_markers();
 
         // 检查文本内容 - 使用独立的剪切板实例，避免长时间锁定
         let text_result = tokio::task::spawn_blocking(|| match arboard::Clipboard::new() {
@@ -95,100 +244,18 @@ impl ClipboardMonitor {
                     trimmed_text.len()
                 );
 
-                if Self::should_skip_data_url_recording(
-                    trimmed_text,
-                    app_info.as_ref().and_then(|info| info.bundle_id.as_deref()),
-                ) {
-                    log::debug!("[ClipboardMonitor] 跳过本应用产生的base64图片URL，避免循环记录");
-                    return Ok(());
-                }
-
-                let hash = calculate_content_hash(trimmed_text.as_bytes());
-                log::debug!("[ClipboardMonitor] 计算内容Hash: {}", &hash[..8]);
-
-                if consume_suppression_key(suppression_registry, &hash).await {
-                    let mut last = last_observed_hash.lock().await;
-                    *last = Some(hash);
-                    log::debug!("[ClipboardMonitor] 命中 suppression key，跳过本次文本持久化");
-                    return Ok(());
-                }
-
-                let should_send = {
-                    let mut last = last_observed_hash.lock().await;
-                    if last.as_ref() != Some(&hash) {
-                        *last = Some(hash.clone());
-                        log::debug!("[ClipboardMonitor] 新内容Hash，准备处理");
-                        true
-                    } else {
-                        log::debug!("[ClipboardMonitor] 重复内容Hash，跳过处理");
-                        false
-                    }
-                };
-
-                if should_send {
-                    // 检查是否是被排除的应用
-                    if let Some(ref app_info) = app_info {
-                        if let Some(bundle_id) = &app_info.bundle_id {
-                            let config_guard = config_manager.lock().await;
-                            if config_guard.is_app_excluded(bundle_id) {
-                                log::debug!(
-                                    "[ClipboardMonitor] 应用 {} 在排除列表中，跳过",
-                                    app_info.name
-                                );
-                                return Ok(());
-                            }
-
-                            // 检查文本大小限制
-                            if !config_guard.is_text_size_valid(trimmed_text) {
-                                log::warn!(
-                                    "[ClipboardMonitor] 文本大小超限 ({}字符)，跳过",
-                                    trimmed_text.len()
-                                );
-                                return Ok(());
-                            }
-                        }
-                    }
-
-                    // 检测内容子类型
-                    let (subtype, metadata) = ContentDetector::detect(trimmed_text);
-                    log::debug!("[ClipboardMonitor] 内容检测结果: {:?}", subtype);
-
-                    // 将metadata转换为JSON字符串
-                    let metadata_json = metadata.and_then(|m| serde_json::to_string(&m).ok());
-
-                    let mut entry = ClipboardEntry::new(
-                        ContentType::Text,
-                        Some(trimmed_text.to_string()),
-                        hash,
-                        app_info.as_ref().map(|info| info.name.clone()),
-                        None,
-                    );
-
-                    // 设置子类型、元数据和bundle ID
-                    // 使用serde_json::to_value获取正确的snake_case字符串
-                    let subtype_str = serde_json::to_value(&subtype)
-                        .ok()
-                        .and_then(|v| v.as_str().map(|s| s.to_string()))
-                        .unwrap_or_else(|| "plain_text".to_string());
-                    entry.content_subtype = Some(subtype_str);
-                    entry.metadata = metadata_json;
-                    entry.app_bundle_id = app_info.as_ref().and_then(|info| info.bundle_id.clone());
-
-                    log::info!(
-                        "[ClipboardMonitor] 发现新文本内容: {} | 来源: {} | 类型: {:?}",
-                        if trimmed_text.chars().count() > 50 {
-                            format!("{}...", trimmed_text.chars().take(50).collect::<String>())
-                        } else {
-                            trimmed_text.to_string()
-                        },
-                        app_info
-                            .as_ref()
-                            .map(|info| info.name.as_str())
-                            .unwrap_or("未知应用"),
-                        subtype
-                    );
-
-                    let _ = tx.send(entry);
+                if self
+                    .process_text_capture_with_detector(
+                        last_observed_hash,
+                        suppression_registry,
+                        app_info.as_ref(),
+                        &markers,
+                        trimmed_text,
+                        ContentDetector::detect,
+                    )
+                    .await?
+                    .is_some()
+                {
                     return Ok(());
                 }
             }
@@ -219,39 +286,26 @@ impl ClipboardMonitor {
             log::debug!("[ClipboardMonitor] 计算图片Hash: {}", &hash[..8]);
 
             if consume_suppression_key(suppression_registry, &hash).await {
-                let mut last = last_observed_hash.lock().await;
-                *last = Some(hash);
+                remember_observed_hash(last_observed_hash, hash).await;
                 log::debug!("[ClipboardMonitor] 命中 suppression key，跳过本次图片持久化");
                 return Ok(());
             }
 
-            let should_send = {
-                let mut last = last_observed_hash.lock().await;
-                if last.as_ref() != Some(&hash) {
-                    *last = Some(hash.clone());
-                    log::debug!("[ClipboardMonitor] 新图片Hash，准备处理");
-                    true
-                } else {
-                    log::debug!("[ClipboardMonitor] 重复图片Hash，跳过处理");
-                    false
-                }
-            };
+            let disposition = self
+                .image_capture_disposition(&markers, app_info.as_ref())
+                .await;
+            if disposition != CaptureDisposition::Persist {
+                remember_observed_hash(last_observed_hash, hash).await;
+                log::debug!(
+                    "[ClipboardMonitor] 图片命中 capture policy: {}",
+                    Self::capture_disposition_label(disposition)
+                );
+                return Ok(());
+            }
+
+            let should_send = Self::should_emit_hash(last_observed_hash, &hash).await;
 
             if should_send {
-                // 检查是否是被排除的应用
-                if let Some(ref app_info) = app_info {
-                    if let Some(bundle_id) = &app_info.bundle_id {
-                        let config_guard = config_manager.lock().await;
-                        if config_guard.is_app_excluded(bundle_id) {
-                            log::debug!(
-                                "[ClipboardMonitor] 图片来源应用 {} 在排除列表中，跳过",
-                                app_info.name
-                            );
-                            return Ok(());
-                        }
-                    }
-                }
-
                 // 使用宽高信息处理图片
                 match processor
                     .process_image_with_dimensions(bytes, width as u32, height as u32)
@@ -288,7 +342,8 @@ impl ClipboardMonitor {
                             Some(image_info.file_path),
                         );
                         entry.app_bundle_id =
-                            app_info.as_ref().and_then(|info| info.bundle_id.clone());
+                            Self::resolve_source_bundle_id(&markers, app_info.as_ref())
+                                .map(|bundle_id| bundle_id.to_string());
                         entry.metadata = Some(image_metadata.to_string());
 
                         let _ = tx.send(entry);
@@ -330,7 +385,8 @@ impl ClipboardMonitor {
                                     Some(file_path),
                                 );
                                 entry.app_bundle_id =
-                                    app_info.as_ref().and_then(|info| info.bundle_id.clone());
+                                    Self::resolve_source_bundle_id(&markers, app_info.as_ref())
+                                        .map(|bundle_id| bundle_id.to_string());
                                 entry.metadata = Some(image_metadata.to_string());
 
                                 let _ = tx.send(entry);
@@ -347,6 +403,8 @@ impl ClipboardMonitor {
                 }
                 return Ok(());
             }
+
+            log::debug!("[ClipboardMonitor] 重复图片Hash，跳过处理");
         }
 
         Ok(())
@@ -355,12 +413,12 @@ impl ClipboardMonitor {
     #[cfg(test)]
     pub(crate) async fn process_text_capture_for_test<F>(
         &self,
-        _last_observed_hash: &Arc<Mutex<Option<String>>>,
-        _suppression_registry: &Arc<Mutex<Vec<SuppressionEntry>>>,
-        _app_info: Option<&crate::utils::app_detector::AppInfo>,
-        _markers: &crate::capture::PasteboardMarkers,
-        _trimmed_text: &str,
-        _detector: F,
+        last_observed_hash: &Arc<Mutex<Option<String>>>,
+        suppression_registry: &Arc<Mutex<Vec<SuppressionEntry>>>,
+        app_info: Option<&crate::utils::app_detector::AppInfo>,
+        markers: &crate::capture::PasteboardMarkers,
+        trimmed_text: &str,
+        detector: F,
     ) -> Result<crate::capture::CaptureDisposition>
     where
         F: FnOnce(
@@ -370,35 +428,47 @@ impl ClipboardMonitor {
             Option<crate::clipboard::content_detector::ContentMetadata>,
         ),
     {
-        todo!("implemented in 01-05")
+        Ok(self
+            .process_text_capture_with_detector(
+                last_observed_hash,
+                suppression_registry,
+                app_info,
+                markers,
+                trimmed_text,
+                detector,
+            )
+            .await?
+            .unwrap_or(CaptureDisposition::Persist))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::ClipboardMonitor;
+    use crate::capture::PasteboardMarkers;
+    use crate::utils::app_detector::AppInfo;
 
     #[test]
-    fn test_should_skip_data_url_recording_for_self_app_only() {
-        let value = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAUA";
-        assert!(ClipboardMonitor::should_skip_data_url_recording(
-            value,
-            Some("com.dance.app")
-        ));
-        assert!(!ClipboardMonitor::should_skip_data_url_recording(
-            value,
-            Some("com.other.app")
-        ));
-        assert!(!ClipboardMonitor::should_skip_data_url_recording(
-            value, None
-        ));
+    fn test_resolve_source_bundle_id_prefers_markers() {
+        let markers = PasteboardMarkers {
+            source_bundle_id: Some("com.marker.source".to_string()),
+            ..PasteboardMarkers::default()
+        };
+        let app_info = AppInfo {
+            name: "Test App".to_string(),
+            bundle_id: Some("com.active.app".to_string()),
+        };
+
+        assert_eq!(
+            ClipboardMonitor::resolve_source_bundle_id(&markers, Some(&app_info)),
+            Some("com.marker.source")
+        );
     }
 
     #[test]
-    fn test_should_not_skip_non_data_url() {
-        assert!(!ClipboardMonitor::should_skip_data_url_recording(
-            "https://example.com/a.png",
-            Some("com.dance.app")
-        ));
+    fn test_is_self_generated_uses_bundle_id() {
+        assert!(ClipboardMonitor::is_self_generated(Some("com.dance.app")));
+        assert!(!ClipboardMonitor::is_self_generated(Some("com.other.app")));
+        assert!(!ClipboardMonitor::is_self_generated(None));
     }
 }

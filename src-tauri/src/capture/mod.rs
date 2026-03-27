@@ -5,5 +5,6 @@ pub mod runtime;
 #[allow(unused_imports)]
 pub use policy::{decide_capture, CaptureDisposition, PasteboardMarkers};
 pub use runtime::{
-    calculate_content_hash, consume_suppression_key, CaptureRuntime, SuppressionEntry,
+    calculate_content_hash, consume_suppression_key, remember_observed_hash, CaptureRuntime,
+    SuppressionEntry,
 };
