@@ -24,7 +24,7 @@ mod integration_tests {
         let state = AppState {
             paths: paths.clone(),
             db: Arc::new(db),
-            monitor: Arc::new(tokio::sync::RwLock::new(None)),
+            capture_runtime: Arc::new(tokio::sync::RwLock::new(None)),
             tx,
             _rx: Arc::new(tokio::sync::Mutex::new(rx)),
             app_handle: Arc::new(tokio::sync::Mutex::new(None)),

@@ -1,6 +1,7 @@
 #![allow(unexpected_cfgs)]
 
 mod app_paths;
+mod capture;
 mod clipboard;
 mod commands;
 mod config;

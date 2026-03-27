@@ -20,7 +20,7 @@ mod tests {
         let state = AppState {
             paths: paths.clone(),
             db: Arc::new(db),
-            monitor: Arc::new(tokio::sync::RwLock::new(None)),
+            capture_runtime: Arc::new(tokio::sync::RwLock::new(None)),
             tx: tokio::sync::broadcast::channel(100).0,
             _rx: Arc::new(tokio::sync::Mutex::new(
                 tokio::sync::broadcast::channel(100).1,

@@ -1,4 +1,5 @@
 use crate::app_paths::AppPaths;
+use crate::capture::CaptureRuntime;
 use crate::clipboard::{ClipboardMonitor, ContentProcessor};
 use crate::commands::{CacheStatistics, CleanupResult};
 use crate::config::{AppConfig, ConfigManager};
@@ -10,7 +11,7 @@ use chrono::Utc;
 use sqlx::Row;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tauri::{AppHandle, Emitter};
+use tauri::AppHandle;
 use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
 use tokio::sync::Mutex;
@@ -19,7 +20,7 @@ use tokio::sync::{broadcast, RwLock};
 pub struct AppState {
     pub paths: Arc<AppPaths>,
     pub db: Arc<Database>,
-    pub monitor: Arc<RwLock<Option<ClipboardMonitor>>>,
+    pub capture_runtime: Arc<RwLock<Option<CaptureRuntime>>>,
     pub tx: broadcast::Sender<ClipboardEntry>,
     pub _rx: Arc<Mutex<broadcast::Receiver<ClipboardEntry>>>,
     pub app_handle: Arc<Mutex<Option<AppHandle>>>,
@@ -40,7 +41,7 @@ impl AppState {
         let instance = Self {
             paths,
             db,
-            monitor: Arc::new(RwLock::new(None)),
+            capture_runtime: Arc::new(RwLock::new(None)),
             tx: tx.clone(),
             _rx: Arc::new(Mutex::new(rx)),
             app_handle: Arc::new(Mutex::new(None)),
@@ -66,134 +67,42 @@ impl AppState {
     }
 
     pub async fn start_monitoring(&self) -> Result<()> {
-        let mut monitor_guard = self.monitor.write().await;
+        let mut runtime_guard = self.capture_runtime.write().await;
 
-        if monitor_guard.is_none() {
+        if runtime_guard.is_none() {
             let monitor = ClipboardMonitor::new(
                 self.tx.clone(),
                 Arc::clone(&self.processor),
                 Arc::clone(&self.config_manager),
             )?;
-            monitor.start_monitoring().await;
-            *monitor_guard = Some(monitor);
-
-            // 启动数据库保存任务
-            self.start_database_save_task().await;
+            let runtime = CaptureRuntime::spawn(
+                monitor,
+                self.tx.clone(),
+                Arc::clone(&self.db),
+                Arc::clone(&self.app_handle),
+            );
+            *runtime_guard = Some(runtime);
         }
 
         Ok(())
     }
 
     pub async fn stop_monitoring(&self) -> Result<()> {
-        let mut monitor_guard = self.monitor.write().await;
-        *monitor_guard = None;
+        let runtime = {
+            let mut runtime_guard = self.capture_runtime.write().await;
+            runtime_guard.take()
+        };
+
+        if let Some(runtime) = runtime {
+            runtime.stop().await;
+        }
+
         Ok(())
     }
 
     pub async fn is_monitoring(&self) -> bool {
-        let monitor_guard = self.monitor.read().await;
-        monitor_guard.is_some()
-    }
-
-    async fn start_database_save_task(&self) {
-        let db = Arc::clone(&self.db);
-        let mut rx = self.tx.subscribe();
-        let app_handle = Arc::clone(&self.app_handle);
-
-        tokio::spawn(async move {
-            log::info!("[DatabaseTask] 启动数据库保存任务");
-            while let Ok(entry) = rx.recv().await {
-                log::debug!(
-                    "[DatabaseTask] 收到新条目: {} ({:?})",
-                    &entry.content_hash[..8],
-                    entry.content_type
-                );
-
-                // 检查是否已存在相同内容
-                let existing = sqlx::query(
-                    "SELECT id, copy_count FROM clipboard_entries WHERE content_hash = ?",
-                )
-                .bind(&entry.content_hash)
-                .fetch_optional(db.pool())
-                .await;
-
-                let mut updated_entry = entry.clone();
-
-                match existing {
-                    Ok(Some(row)) => {
-                        // 更新复制次数
-                        let id: String = row.get("id");
-                        let count: i32 = row.get("copy_count");
-                        let new_count = count + 1;
-
-                        log::debug!(
-                            "[DatabaseTask] 找到重复内容，更新复制次数: {} -> {}",
-                            count,
-                            new_count
-                        );
-
-                        match sqlx::query(
-                            "UPDATE clipboard_entries SET copy_count = ?, created_at = ? WHERE id = ?"
-                        )
-                        .bind(new_count)
-                        .bind(entry.created_at)
-                        .bind(&id)
-                        .execute(db.pool())
-                        .await {
-                            Ok(_) => log::debug!("[DatabaseTask] 成功更新重复条目复制次数"),
-                            Err(e) => log::error!("[DatabaseTask] 更新复制次数失败: {}", e),
-                        }
-
-                        // 更新条目信息以便发送正确的数据到前端
-                        updated_entry.id = id;
-                        updated_entry.copy_count = new_count;
-                    }
-                    Ok(None) => {
-                        // 插入新记录 - 新记录的copy_count应该是1
-                        updated_entry.copy_count = 1;
-
-                        log::debug!("[DatabaseTask] 插入新条目到数据库");
-
-                        match sqlx::query(
-                            r#"
-                            INSERT INTO clipboard_entries 
-                            (id, content_hash, content_type, content_data, source_app, 
-                             created_at, copy_count, file_path, is_favorite, content_subtype, metadata, app_bundle_id)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                            "#,
-                        )
-                        .bind(&entry.id)
-                        .bind(&entry.content_hash)
-                        .bind(&entry.content_type)
-                        .bind(&entry.content_data)
-                        .bind(&entry.source_app)
-                        .bind(entry.created_at)
-                        .bind(1) // 新记录的copy_count设为1
-                        .bind(&entry.file_path)
-                        .bind(entry.is_favorite as i32)
-                        .bind(&entry.content_subtype)
-                        .bind(&entry.metadata)
-                        .bind(&entry.app_bundle_id)
-                        .execute(db.pool())
-                        .await {
-                            Ok(_) => log::info!("[DatabaseTask] 成功保存新条目到数据库"),
-                            Err(e) => log::error!("[DatabaseTask] 保存新条目失败: {}", e),
-                        }
-                    }
-                    Err(e) => log::error!("[DatabaseTask] 数据库查询错误: {}", e),
-                }
-
-                // 发送更新后的条目到前端
-                if let Some(handle) = app_handle.lock().await.as_ref() {
-                    match handle.emit("clipboard-update", &updated_entry) {
-                        Ok(_) => log::trace!("[DatabaseTask] 成功发送更新事件到前端"),
-                        Err(e) => log::error!("[DatabaseTask] 发送更新事件失败: {}", e),
-                    }
-                } else {
-                    log::warn!("[DatabaseTask] 无法获取应用句柄，跳过前端更新");
-                }
-            }
-        });
+        let runtime_guard = self.capture_runtime.read().await;
+        runtime_guard.is_some()
     }
 
     pub async fn get_clipboard_history(

@@ -1,11 +1,10 @@
 use anyhow::Result;
 use serde_json;
-use sha2::{Digest, Sha256};
 use std::sync::Arc;
-use std::time::Duration;
-use tokio::sync::{broadcast, Mutex};
-use tokio::time::sleep;
+use tokio::sync::broadcast;
+use tokio::sync::Mutex;
 
+use crate::capture::calculate_content_hash;
 use crate::clipboard::content_detector::ContentDetector;
 use crate::clipboard::processor::ContentProcessor;
 use crate::config::ConfigManager;
@@ -13,7 +12,6 @@ use crate::models::{ClipboardEntry, ContentType};
 use crate::utils::app_detector::get_active_app_info;
 
 pub struct ClipboardMonitor {
-    last_hash: Arc<Mutex<Option<String>>>,
     tx: broadcast::Sender<ClipboardEntry>,
     processor: Arc<ContentProcessor>,
     config_manager: Arc<Mutex<ConfigManager>>,
@@ -25,10 +23,7 @@ impl ClipboardMonitor {
         processor: Arc<ContentProcessor>,
         config_manager: Arc<Mutex<ConfigManager>>,
     ) -> Result<Self> {
-        let last_hash = Arc::new(Mutex::new(None));
-
         Ok(Self {
-            last_hash,
             tx,
             processor,
             config_manager,
@@ -58,40 +53,18 @@ impl ClipboardMonitor {
         matches!(source_bundle_id, Some("com.dance.app"))
     }
 
-    pub async fn start_monitoring(&self) {
-        log::info!("[ClipboardMonitor] 启动剪贴板监控");
-
-        let last_hash = Arc::clone(&self.last_hash);
-        let tx = self.tx.clone();
-        let processor = Arc::clone(&self.processor);
-        let config_manager = Arc::clone(&self.config_manager);
-
-        tokio::spawn(async move {
-            loop {
-                // 获取当前应用信息，用于记录剪贴板内容来源
-                let app_info = get_active_app_info();
-                if let Some(ref info) = app_info {
-                    log::trace!(
-                        "[ClipboardMonitor] 当前活跃应用: {} ({})",
-                        info.name,
-                        info.bundle_id.as_deref().unwrap_or("unknown")
-                    );
-                } else {
-                    log::trace!("[ClipboardMonitor] 无法获取当前活跃应用信息");
-                }
-
-                if let Err(e) =
-                    Self::check_clipboard(&last_hash, &tx, &processor, &config_manager).await
-                {
-                    log::error!("剪切板检查错误: {}", e);
-                }
-                sleep(Duration::from_millis(500)).await;
-            }
-        });
+    pub async fn poll_once(&self, last_observed_hash: &Arc<Mutex<Option<String>>>) -> Result<()> {
+        Self::check_clipboard(
+            last_observed_hash,
+            &self.tx,
+            &self.processor,
+            &self.config_manager,
+        )
+        .await
     }
 
     async fn check_clipboard(
-        last_hash: &Arc<Mutex<Option<String>>>,
+        last_observed_hash: &Arc<Mutex<Option<String>>>,
         tx: &broadcast::Sender<ClipboardEntry>,
         processor: &Arc<ContentProcessor>,
         config_manager: &Arc<Mutex<ConfigManager>>,
@@ -124,11 +97,11 @@ impl ClipboardMonitor {
                     return Ok(());
                 }
 
-                let hash = Self::calculate_hash(trimmed_text.as_bytes());
+                let hash = calculate_content_hash(trimmed_text.as_bytes());
                 log::debug!("[ClipboardMonitor] 计算内容Hash: {}", &hash[..8]);
 
                 let should_send = {
-                    let mut last = last_hash.lock().await;
+                    let mut last = last_observed_hash.lock().await;
                     if last.as_ref() != Some(&hash) {
                         *last = Some(hash.clone());
                         log::debug!("[ClipboardMonitor] 新内容Hash，准备处理");
@@ -229,11 +202,11 @@ impl ClipboardMonitor {
                 bytes.len()
             );
 
-            let hash = Self::calculate_hash(bytes);
+            let hash = calculate_content_hash(bytes);
             log::debug!("[ClipboardMonitor] 计算图片Hash: {}", &hash[..8]);
 
             let should_send = {
-                let mut last = last_hash.lock().await;
+                let mut last = last_observed_hash.lock().await;
                 if last.as_ref() != Some(&hash) {
                     *last = Some(hash.clone());
                     log::debug!("[ClipboardMonitor] 新图片Hash，准备处理");
@@ -357,12 +330,6 @@ impl ClipboardMonitor {
         }
 
         Ok(())
-    }
-
-    fn calculate_hash(data: &[u8]) -> String {
-        let mut hasher = Sha256::new();
-        hasher.update(data);
-        format!("{:x}", hasher.finalize())
     }
 }
 
