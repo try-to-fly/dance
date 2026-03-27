@@ -1,6 +1,6 @@
 use crate::app_paths::AppPaths;
 use anyhow::Result;
-use sqlx::{sqlite::SqlitePool, Pool, Sqlite};
+use sqlx::{sqlite::SqlitePool, Pool, Sqlite, Transaction};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -8,6 +8,21 @@ pub struct Database {
     pool: Pool<Sqlite>,
     #[cfg_attr(not(test), allow(dead_code))]
     db_path: PathBuf,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+struct ExistingClipboardEntry {
+    id: String,
+    content_type: String,
+    content_data: Option<String>,
+    source_app: Option<String>,
+    created_at: i64,
+    copy_count: i32,
+    file_path: Option<String>,
+    is_favorite: bool,
+    content_subtype: Option<String>,
+    metadata: Option<String>,
+    app_bundle_id: Option<String>,
 }
 
 impl Database {
@@ -84,6 +99,16 @@ impl Database {
         // 执行数据库迁移
         self.migrate().await?;
 
+        let mut tx = self.pool.begin().await?;
+        self.merge_existing_content_hash_duplicates(&mut tx).await?;
+        tx.commit().await?;
+
+        sqlx::query(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_clipboard_entries_content_hash_unique ON clipboard_entries(content_hash)",
+        )
+        .execute(&self.pool)
+        .await?;
+
         Ok(())
     }
 
@@ -118,6 +143,126 @@ impl Database {
 
         Ok(())
     }
+
+    async fn merge_existing_content_hash_duplicates(
+        &self,
+        tx: &mut Transaction<'_, Sqlite>,
+    ) -> Result<()> {
+        let duplicate_hashes = sqlx::query_scalar::<_, String>(
+            r#"
+            SELECT content_hash
+            FROM clipboard_entries
+            GROUP BY content_hash
+            HAVING COUNT(*) > 1
+            "#,
+        )
+        .fetch_all(&mut **tx)
+        .await?;
+
+        for content_hash in duplicate_hashes {
+            let rows = sqlx::query_as::<_, ExistingClipboardEntry>(
+                r#"
+                SELECT
+                    id,
+                    content_type,
+                    content_data,
+                    source_app,
+                    created_at,
+                    copy_count,
+                    file_path,
+                    is_favorite,
+                    content_subtype,
+                    metadata,
+                    app_bundle_id
+                FROM clipboard_entries
+                WHERE content_hash = ?
+                ORDER BY created_at DESC, id DESC
+                "#,
+            )
+            .bind(&content_hash)
+            .fetch_all(&mut **tx)
+            .await?;
+
+            let Some(survivor) = rows.first().cloned() else {
+                continue;
+            };
+
+            if rows.len() < 2 {
+                continue;
+            }
+
+            let copy_count = rows.iter().map(|row| row.copy_count).sum::<i32>();
+            let is_favorite = rows.iter().any(|row| row.is_favorite);
+            let content_data = preferred_value(survivor.content_data.clone(), &rows, |row| {
+                row.content_data.clone()
+            });
+            let source_app = preferred_value(survivor.source_app.clone(), &rows, |row| {
+                row.source_app.clone()
+            });
+            let content_subtype = preferred_value(survivor.content_subtype.clone(), &rows, |row| {
+                row.content_subtype.clone()
+            });
+            let metadata =
+                preferred_value(survivor.metadata.clone(), &rows, |row| row.metadata.clone());
+            let app_bundle_id = preferred_value(survivor.app_bundle_id.clone(), &rows, |row| {
+                row.app_bundle_id.clone()
+            });
+            let file_path = preferred_value(survivor.file_path.clone(), &rows, |row| {
+                row.file_path.clone()
+            });
+
+            sqlx::query(
+                r#"
+                UPDATE clipboard_entries
+                SET
+                    content_type = ?,
+                    content_data = ?,
+                    source_app = ?,
+                    created_at = ?,
+                    copy_count = ?,
+                    file_path = ?,
+                    is_favorite = ?,
+                    content_subtype = ?,
+                    metadata = ?,
+                    app_bundle_id = ?
+                WHERE id = ?
+                "#,
+            )
+            .bind(&survivor.content_type)
+            .bind(&content_data)
+            .bind(&source_app)
+            .bind(survivor.created_at)
+            .bind(copy_count)
+            .bind(&file_path)
+            .bind(is_favorite as i32)
+            .bind(&content_subtype)
+            .bind(&metadata)
+            .bind(&app_bundle_id)
+            .bind(&survivor.id)
+            .execute(&mut **tx)
+            .await?;
+
+            sqlx::query("DELETE FROM clipboard_entries WHERE content_hash = ? AND id != ?")
+                .bind(&content_hash)
+                .bind(&survivor.id)
+                .execute(&mut **tx)
+                .await?;
+        }
+
+        Ok(())
+    }
+}
+
+fn preferred_value<T, F>(
+    survivor_value: Option<T>,
+    ordered_rows: &[ExistingClipboardEntry],
+    selector: F,
+) -> Option<T>
+where
+    T: Clone,
+    F: Fn(&ExistingClipboardEntry) -> Option<T>,
+{
+    survivor_value.or_else(|| ordered_rows.iter().skip(1).find_map(selector))
 }
 
 #[cfg(test)]

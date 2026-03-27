@@ -1,5 +1,5 @@
 use crate::app_paths::AppPaths;
-use crate::capture::CaptureRuntime;
+use crate::capture::{calculate_content_hash, CaptureRuntime};
 use crate::clipboard::{ClipboardMonitor, ContentProcessor};
 use crate::commands::{CacheStatistics, CleanupResult};
 use crate::config::{AppConfig, ConfigManager};
@@ -222,6 +222,19 @@ impl AppState {
         })
         .await??;
         Ok(())
+    }
+
+    pub async fn register_suppression_for_text(&self, content: &str, ttl_ms: i64) -> String {
+        let content_hash = calculate_content_hash(content.as_bytes());
+
+        let runtime_guard = self.capture_runtime.read().await;
+        if let Some(runtime) = runtime_guard.as_ref() {
+            runtime
+                .register_suppression_key(content_hash.clone(), ttl_ms)
+                .await;
+        }
+
+        content_hash
     }
 
     pub async fn copy_image_to_clipboard(&self, _file_path: String) -> Result<()> {

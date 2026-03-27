@@ -220,6 +220,7 @@ pub async fn copy_to_clipboard(
     state: State<'_, AppState>,
     content: String,
 ) -> Result<(), String> {
+    state.register_suppression_for_text(&content, 1500).await;
     let result = state
         .copy_to_clipboard(content)
         .await

@@ -4,7 +4,7 @@ use std::sync::Arc;
 use tokio::sync::broadcast;
 use tokio::sync::Mutex;
 
-use crate::capture::calculate_content_hash;
+use crate::capture::{calculate_content_hash, consume_suppression_key, SuppressionEntry};
 use crate::clipboard::content_detector::ContentDetector;
 use crate::clipboard::processor::ContentProcessor;
 use crate::config::ConfigManager;
@@ -53,9 +53,14 @@ impl ClipboardMonitor {
         matches!(source_bundle_id, Some("com.dance.app"))
     }
 
-    pub async fn poll_once(&self, last_observed_hash: &Arc<Mutex<Option<String>>>) -> Result<()> {
+    pub async fn poll_once(
+        &self,
+        last_observed_hash: &Arc<Mutex<Option<String>>>,
+        suppression_registry: &Arc<Mutex<Vec<SuppressionEntry>>>,
+    ) -> Result<()> {
         Self::check_clipboard(
             last_observed_hash,
+            suppression_registry,
             &self.tx,
             &self.processor,
             &self.config_manager,
@@ -65,6 +70,7 @@ impl ClipboardMonitor {
 
     async fn check_clipboard(
         last_observed_hash: &Arc<Mutex<Option<String>>>,
+        suppression_registry: &Arc<Mutex<Vec<SuppressionEntry>>>,
         tx: &broadcast::Sender<ClipboardEntry>,
         processor: &Arc<ContentProcessor>,
         config_manager: &Arc<Mutex<ConfigManager>>,
@@ -99,6 +105,13 @@ impl ClipboardMonitor {
 
                 let hash = calculate_content_hash(trimmed_text.as_bytes());
                 log::debug!("[ClipboardMonitor] 计算内容Hash: {}", &hash[..8]);
+
+                if consume_suppression_key(suppression_registry, &hash).await {
+                    let mut last = last_observed_hash.lock().await;
+                    *last = Some(hash);
+                    log::debug!("[ClipboardMonitor] 命中 suppression key，跳过本次文本持久化");
+                    return Ok(());
+                }
 
                 let should_send = {
                     let mut last = last_observed_hash.lock().await;
@@ -204,6 +217,13 @@ impl ClipboardMonitor {
 
             let hash = calculate_content_hash(bytes);
             log::debug!("[ClipboardMonitor] 计算图片Hash: {}", &hash[..8]);
+
+            if consume_suppression_key(suppression_registry, &hash).await {
+                let mut last = last_observed_hash.lock().await;
+                *last = Some(hash);
+                log::debug!("[ClipboardMonitor] 命中 suppression key，跳过本次图片持久化");
+                return Ok(());
+            }
 
             let should_send = {
                 let mut last = last_observed_hash.lock().await;

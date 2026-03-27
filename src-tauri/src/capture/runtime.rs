@@ -1,8 +1,8 @@
 use crate::clipboard::ClipboardMonitor;
 use crate::database::Database;
 use crate::models::ClipboardEntry;
+use chrono::Utc;
 use sha2::{Digest, Sha256};
-use sqlx::Row;
 use std::sync::Arc;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter};
@@ -11,12 +11,18 @@ use tokio::task::JoinHandle;
 use tokio::time::MissedTickBehavior;
 use tokio_util::sync::CancellationToken;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SuppressionEntry {
+    pub content_hash: String,
+    pub expires_at_ms: i64,
+}
+
 pub struct CaptureRuntime {
     cancel: CancellationToken,
     monitor_task: JoinHandle<()>,
     save_task: JoinHandle<()>,
-    #[allow(dead_code)]
     last_observed_hash: Arc<Mutex<Option<String>>>,
+    suppression_registry: Arc<Mutex<Vec<SuppressionEntry>>>,
 }
 
 impl CaptureRuntime {
@@ -28,9 +34,11 @@ impl CaptureRuntime {
     ) -> Self {
         let cancel = CancellationToken::new();
         let last_observed_hash = Arc::new(Mutex::new(None));
+        let suppression_registry = Arc::new(Mutex::new(Vec::new()));
         let monitor_cancel = cancel.child_token();
         let save_cancel = cancel.child_token();
         let observed_hash_for_monitor = Arc::clone(&last_observed_hash);
+        let suppression_registry_for_monitor = Arc::clone(&suppression_registry);
         let mut rx = tx.subscribe();
 
         let monitor_task = tokio::spawn(async move {
@@ -41,7 +49,13 @@ impl CaptureRuntime {
                 tokio::select! {
                     _ = monitor_cancel.cancelled() => break,
                     _ = interval.tick() => {
-                        if let Err(error) = monitor.poll_once(&observed_hash_for_monitor).await {
+                        if let Err(error) = monitor
+                            .poll_once(
+                                &observed_hash_for_monitor,
+                                &suppression_registry_for_monitor,
+                            )
+                            .await
+                        {
                             log::error!("[CaptureRuntime] 剪贴板轮询失败: {}", error);
                         }
                     }
@@ -57,17 +71,14 @@ impl CaptureRuntime {
                     _ = save_cancel.cancelled() => break,
                     recv_result = rx.recv() => {
                         match recv_result {
-                            Ok(entry) => {
-                                let updated_entry =
-                                    persist_entry(&db, entry).await.unwrap_or_else(|error| {
-                                        log::error!("[CaptureRuntime] 保存剪贴板条目失败: {}", error);
-                                        None
-                                    });
-
-                                if let Some(entry) = updated_entry {
-                                    emit_clipboard_update(&app_handle, &entry).await;
+                            Ok(entry) => match persist_entry(&db, entry).await {
+                                Ok(stored_entry) => {
+                                    emit_clipboard_update(&app_handle, &stored_entry).await;
                                 }
-                            }
+                                Err(error) => {
+                                    log::error!("[CaptureRuntime] 保存剪贴板条目失败: {}", error);
+                                }
+                            },
                             Err(broadcast::error::RecvError::Lagged(skipped)) => {
                                 log::warn!(
                                     "[CaptureRuntime] 数据保存任务丢失了 {} 条广播消息",
@@ -86,6 +97,7 @@ impl CaptureRuntime {
             monitor_task,
             save_task,
             last_observed_hash,
+            suppression_registry,
         }
     }
 
@@ -95,76 +107,114 @@ impl CaptureRuntime {
         let _ = self.save_task.await;
     }
 
-    #[allow(dead_code)]
     pub async fn remember_observed_hash(&self, content_hash: String) {
         let mut last = self.last_observed_hash.lock().await;
         *last = Some(content_hash);
     }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub async fn observed_hash(&self) -> Option<String> {
+        self.last_observed_hash.lock().await.clone()
+    }
+
+    pub async fn register_suppression_key(&self, content_hash: String, ttl_ms: i64) {
+        self.remember_observed_hash(content_hash.clone()).await;
+
+        let now_ms = now_timestamp_ms();
+        let mut registry = self.suppression_registry.lock().await;
+        purge_expired_suppression_entries(&mut registry, now_ms);
+        registry.retain(|entry| entry.content_hash != content_hash);
+        registry.push(SuppressionEntry {
+            content_hash,
+            expires_at_ms: now_ms + ttl_ms,
+        });
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub async fn has_suppression_key(&self, content_hash: &str) -> bool {
+        let now_ms = now_timestamp_ms();
+        let mut registry = self.suppression_registry.lock().await;
+        purge_expired_suppression_entries(&mut registry, now_ms);
+        registry
+            .iter()
+            .any(|entry| entry.content_hash == content_hash)
+    }
 }
 
-async fn persist_entry(
-    db: &Database,
-    entry: ClipboardEntry,
-) -> anyhow::Result<Option<ClipboardEntry>> {
+pub async fn consume_suppression_key(
+    suppression_registry: &Arc<Mutex<Vec<SuppressionEntry>>>,
+    content_hash: &str,
+) -> bool {
+    let now_ms = now_timestamp_ms();
+    let mut registry = suppression_registry.lock().await;
+    purge_expired_suppression_entries(&mut registry, now_ms);
+
+    if let Some(index) = registry
+        .iter()
+        .position(|entry| entry.content_hash == content_hash)
+    {
+        registry.remove(index);
+        true
+    } else {
+        false
+    }
+}
+
+fn purge_expired_suppression_entries(registry: &mut Vec<SuppressionEntry>, now_ms: i64) {
+    registry.retain(|entry| entry.expires_at_ms > now_ms);
+}
+
+fn now_timestamp_ms() -> i64 {
+    Utc::now().timestamp_millis()
+}
+
+async fn persist_entry(db: &Database, entry: ClipboardEntry) -> anyhow::Result<ClipboardEntry> {
     log::debug!(
         "[CaptureRuntime] 收到新条目: {} ({})",
-        &entry.content_hash[..8],
+        short_hash(&entry.content_hash),
         entry.content_type
     );
 
-    let existing =
-        sqlx::query("SELECT id, copy_count FROM clipboard_entries WHERE content_hash = ?")
-            .bind(&entry.content_hash)
-            .fetch_optional(db.pool())
-            .await?;
+    sqlx::query(
+        r#"
+        INSERT INTO clipboard_entries
+        (id, content_hash, content_type, content_data, source_app,
+         created_at, copy_count, file_path, is_favorite, content_subtype, metadata, app_bundle_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(content_hash) DO UPDATE SET
+            content_data = COALESCE(excluded.content_data, clipboard_entries.content_data),
+            copy_count = clipboard_entries.copy_count + 1,
+            created_at = excluded.created_at,
+            source_app = COALESCE(excluded.source_app, clipboard_entries.source_app),
+            content_subtype = COALESCE(excluded.content_subtype, clipboard_entries.content_subtype),
+            metadata = COALESCE(excluded.metadata, clipboard_entries.metadata),
+            app_bundle_id = COALESCE(excluded.app_bundle_id, clipboard_entries.app_bundle_id),
+            file_path = COALESCE(excluded.file_path, clipboard_entries.file_path)
+        "#,
+    )
+    .bind(&entry.id)
+    .bind(&entry.content_hash)
+    .bind(&entry.content_type)
+    .bind(&entry.content_data)
+    .bind(&entry.source_app)
+    .bind(entry.created_at)
+    .bind(entry.copy_count)
+    .bind(&entry.file_path)
+    .bind(entry.is_favorite as i32)
+    .bind(&entry.content_subtype)
+    .bind(&entry.metadata)
+    .bind(&entry.app_bundle_id)
+    .execute(db.pool())
+    .await?;
 
-    let mut updated_entry = entry.clone();
+    let stored_entry = sqlx::query_as::<_, ClipboardEntry>(
+        "SELECT * FROM clipboard_entries WHERE content_hash = ?",
+    )
+    .bind(&entry.content_hash)
+    .fetch_one(db.pool())
+    .await?;
 
-    match existing {
-        Some(row) => {
-            let id: String = row.get("id");
-            let count: i32 = row.get("copy_count");
-            let new_count = count + 1;
-
-            sqlx::query("UPDATE clipboard_entries SET copy_count = ?, created_at = ? WHERE id = ?")
-                .bind(new_count)
-                .bind(entry.created_at)
-                .bind(&id)
-                .execute(db.pool())
-                .await?;
-
-            updated_entry.id = id;
-            updated_entry.copy_count = new_count;
-        }
-        None => {
-            updated_entry.copy_count = 1;
-
-            sqlx::query(
-                r#"
-                INSERT INTO clipboard_entries
-                (id, content_hash, content_type, content_data, source_app,
-                 created_at, copy_count, file_path, is_favorite, content_subtype, metadata, app_bundle_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                "#,
-            )
-            .bind(&entry.id)
-            .bind(&entry.content_hash)
-            .bind(&entry.content_type)
-            .bind(&entry.content_data)
-            .bind(&entry.source_app)
-            .bind(entry.created_at)
-            .bind(1)
-            .bind(&entry.file_path)
-            .bind(entry.is_favorite as i32)
-            .bind(&entry.content_subtype)
-            .bind(&entry.metadata)
-            .bind(&entry.app_bundle_id)
-            .execute(db.pool())
-            .await?;
-        }
-    }
-
-    Ok(Some(updated_entry))
+    Ok(stored_entry)
 }
 
 async fn emit_clipboard_update(app_handle: &Arc<Mutex<Option<AppHandle>>>, entry: &ClipboardEntry) {
@@ -173,6 +223,11 @@ async fn emit_clipboard_update(app_handle: &Arc<Mutex<Option<AppHandle>>>, entry
             log::error!("[CaptureRuntime] 发送更新事件失败: {}", error);
         }
     }
+}
+
+fn short_hash(content_hash: &str) -> &str {
+    let length = content_hash.len().min(8);
+    &content_hash[..length]
 }
 
 pub fn calculate_content_hash(data: &[u8]) -> String {

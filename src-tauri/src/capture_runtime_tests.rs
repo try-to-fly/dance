@@ -48,6 +48,31 @@ mod capture_runtime_tests {
         .expect("fetch clipboard entry by content hash")
     }
 
+    async fn wait_for_entry_copy_count(
+        state: &AppState,
+        content_hash: &str,
+        expected_copy_count: i32,
+    ) -> ClipboardEntry {
+        for _ in 0..20 {
+            if let Some(entry) = sqlx::query_as::<_, ClipboardEntry>(
+                "SELECT * FROM clipboard_entries WHERE content_hash = ?",
+            )
+            .bind(content_hash)
+            .fetch_optional(state.db.pool())
+            .await
+            .expect("poll clipboard entry by content hash")
+            {
+                if entry.copy_count == expected_copy_count {
+                    return entry;
+                }
+            }
+
+            sleep(Duration::from_millis(50)).await;
+        }
+
+        fetch_entry_by_hash(state, content_hash).await
+    }
+
     #[tokio::test]
     async fn test_capture_runtime_stop_cancels_tasks() {
         let (state, _roots) = create_test_state().await;
@@ -71,6 +96,20 @@ mod capture_runtime_tests {
         let (state, _roots) = create_test_state().await;
         state.start_monitoring().await.expect("start monitoring");
 
+        let suppression_hash = state
+            .register_suppression_for_text("backend suppression text", 1500)
+            .await;
+        let runtime_guard = state.capture_runtime.read().await;
+        let runtime = runtime_guard
+            .as_ref()
+            .expect("capture runtime should exist while monitoring");
+        assert_eq!(
+            runtime.observed_hash().await,
+            Some(suppression_hash.clone())
+        );
+        assert!(runtime.has_suppression_key(&suppression_hash).await);
+        drop(runtime_guard);
+
         let content_hash = "runtime-upsert-contract-hash";
         let mut first_entry = create_text_entry(content_hash, "same payload");
         first_entry.created_at = 100;
@@ -91,9 +130,7 @@ mod capture_runtime_tests {
         assert!(state.tx.send(first_entry).is_ok());
         assert!(state.tx.send(second_entry).is_ok());
 
-        sleep(Duration::from_millis(300)).await;
-
-        let stored_entry = fetch_entry_by_hash(&state, content_hash).await;
+        let stored_entry = wait_for_entry_copy_count(&state, content_hash, 2).await;
         assert_eq!(count_entries(&state).await, 1);
         assert_eq!(stored_entry.copy_count, 2);
         assert_eq!(stored_entry.created_at, 200);
