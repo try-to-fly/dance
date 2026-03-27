@@ -7,7 +7,7 @@ import { Button } from '../../ui/button';
 import { Badge } from '../../ui/badge';
 import { useResolvedTheme } from '../../../hooks/useResolvedTheme';
 import { defineMonacoThemes } from '../../../utils/monacoTheme';
-import { writeText } from '@tauri-apps/plugin-clipboard-manager';
+import { copyToClipboard } from '../../../stores/clipboardStore';
 import MonacoEditor, { loader } from '@monaco-editor/react';
 import * as monaco from 'monaco-editor';
 
@@ -41,7 +41,7 @@ export function JsonRenderer({ content }: JsonRendererProps) {
 
   const handleCopy = async () => {
     try {
-      await writeText(formattedJson);
+      await copyToClipboard(formattedJson);
       setIsCopied(true);
       setTimeout(() => setIsCopied(false), 2000);
     } catch (error) {

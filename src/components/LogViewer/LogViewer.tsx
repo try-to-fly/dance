@@ -10,6 +10,7 @@ import { Badge } from '../ui/badge';
 import { FileText, Trash2, Copy, Search, Settings, RefreshCw } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import * as Toast from '@radix-ui/react-toast';
+import { copyToClipboard } from '../../stores/clipboardStore';
 
 interface LogViewerProps {
   isOpen: boolean;
@@ -134,13 +135,18 @@ export function LogViewer({ isOpen, onClose }: LogViewerProps) {
     }
   }, [showToastMessage, t]);
 
-  const copyLogs = useCallback(() => {
+  const copyLogs = useCallback(async () => {
     const logText = filteredLogs
       .map((log) => `${log.timestamp} [${log.level.toUpperCase()}] ${log.message}`)
       .join('\n');
 
-    navigator.clipboard.writeText(logText);
-    showToastMessage(t('logs.messages.logsCopied', 'Logs copied to clipboard'));
+    try {
+      await copyToClipboard(logText);
+      showToastMessage(t('logs.messages.logsCopied', 'Logs copied to clipboard'));
+    } catch (error) {
+      console.error('Failed to copy logs:', error);
+      showToastMessage(t('logs.errors.copyFailed', 'Failed to copy logs'));
+    }
   }, [filteredLogs, showToastMessage, t]);
 
   const setLogLevel = useCallback(

@@ -6,7 +6,7 @@ import { Badge } from '../../ui/badge';
 import { ContentSubType } from '../../../types/clipboard';
 import { useResolvedTheme } from '../../../hooks/useResolvedTheme';
 import { defineMonacoThemes } from '../../../utils/monacoTheme';
-import { writeText } from '@tauri-apps/plugin-clipboard-manager';
+import { copyToClipboard } from '../../../stores/clipboardStore';
 import MonacoEditor, { loader } from '@monaco-editor/react';
 import * as monaco from 'monaco-editor';
 
@@ -94,7 +94,7 @@ export function UnifiedTextRenderer({
 
   const handleCopy = async () => {
     try {
-      await writeText(editedContent);
+      await copyToClipboard(editedContent);
       setIsCopied(true);
       setTimeout(() => setIsCopied(false), 2000);
     } catch (error) {
