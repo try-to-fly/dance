@@ -11,7 +11,7 @@ This roadmap keeps the existing desktop client on its current Tauri + React + Ru
 - Integer phases (1, 2, 3): Planned milestone work
 - Decimal phases (2.1, 2.2): Urgent insertions (marked with INSERTED)
 
-- [ ] **Phase 1: Capture Reliability & Storage Cohesion** - Make monitoring start and stop trustworthy while keeping persisted clipboard data under one consistent local lifecycle.
+- [x] **Phase 1: Capture Reliability & Storage Cohesion** - Make monitoring start and stop trustworthy while keeping persisted clipboard data under one consistent local lifecycle.
 - [ ] **Phase 2: Analysis Contracts & Versioned Detection** - Establish Rust-side analysis as the single source of truth for subtype classification, metadata extraction, and graceful fallback.
 - [ ] **Phase 3: Unified Developer Previews** - Render supported developer content through one consistent preview pipeline across raw and semantic representations.
 - [ ] **Phase 4: Search Quality & Retrieval** - Deliver responsive indexed, filtered, fuzzy, and ranked retrieval for large local clipboard histories.
@@ -38,7 +38,7 @@ Plans:
 - [x] 01-02-PLAN.md — 建立 AppPaths 存储权威并完成 legacy migration
 - [x] 01-03-PLAN.md — 引入 lifecycle runtime、brownfield dedupe migration 与 backend suppression contract
 - [x] 01-04-PLAN.md — 统一所有前端 copy 入口到 backend copy-routing 合同
-- [ ] 01-05-PLAN.md — 接入 marker-first capture policy 与 macOS pasteboard marker adapter
+- [x] 01-05-PLAN.md — 接入 marker-first capture policy 与 macOS pasteboard marker adapter
 
 ### Phase 2: Analysis Contracts & Versioned Detection
 
@@ -99,10 +99,10 @@ Plans:
 **Execution Order:**
 Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5
 
-| Phase                                       | Plans Complete | Status      | Completed |
-| ------------------------------------------- | -------------- | ----------- | --------- |
-| 1. Capture Reliability & Storage Cohesion   | 4/5            | In Progress | -         |
-| 2. Analysis Contracts & Versioned Detection | 0/TBD          | Not started | -         |
-| 3. Unified Developer Previews               | 0/TBD          | Not started | -         |
-| 4. Search Quality & Retrieval               | 0/TBD          | Not started | -         |
-| 5. Rebuild Safety & Release Gates           | 0/TBD          | Not started | -         |
+| Phase                                       | Plans Complete | Status      | Completed  |
+| ------------------------------------------- | -------------- | ----------- | ---------- |
+| 1. Capture Reliability & Storage Cohesion   | 5/5            | Complete    | 2026-03-27 |
+| 2. Analysis Contracts & Versioned Detection | 0/TBD          | Not started | -          |
+| 3. Unified Developer Previews               | 0/TBD          | Not started | -          |
+| 4. Search Quality & Retrieval               | 0/TBD          | Not started | -          |
+| 5. Rebuild Safety & Release Gates           | 0/TBD          | Not started | -          |

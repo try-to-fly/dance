@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-stopped_at: Completed 01-04-PLAN.md
-last_updated: '2026-03-27T14:23:08.841Z'
+status: verifying
+stopped_at: Completed 01-05-PLAN.md
+last_updated: '2026-03-27T14:53:27.673Z'
 last_activity: 2026-03-27
 progress:
   total_phases: 5
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 5
-  completed_plans: 4
-  percent: 80
+  completed_plans: 5
+  percent: 100
 ---
 
 # Project State
@@ -21,30 +21,30 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-27)
 
 **Core value:** 开发者复制任意常见内容后，应用都能稳定记录、准确识别，并以最合适的结构化方式展示出来。
-**Current focus:** Phase 01 — capture-reliability-storage-cohesion
+**Current focus:** Phase 01 — capture-reliability-storage-cohesion verification
 
 ## Current Position
 
-Phase: 01 (capture-reliability-storage-cohesion) — EXECUTING
+Phase: 01 (capture-reliability-storage-cohesion) — VERIFYING
 Plan: 5 of 5
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-03-27
 
-Progress: [████████░░] 80%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 4
-- Average duration: 13 min
-- Total execution time: 0.8 hours
+- Total plans completed: 5
+- Average duration: 14 min
+- Total execution time: 1.2 hours
 
 **By Phase:**
 
 | Phase                                       | Plans | Total  | Avg/Plan |
 | ------------------------------------------- | ----- | ------ | -------- |
-| 1. Capture Reliability & Storage Cohesion   | 4     | 50 min | 13 min   |
+| 1. Capture Reliability & Storage Cohesion   | 5     | 70 min | 14 min   |
 | 2. Analysis Contracts & Versioned Detection | 0     | 0 min  | 0 min    |
 | 3. Unified Developer Previews               | 0     | 0 min  | 0 min    |
 | 4. Search Quality & Retrieval               | 0     | 0 min  | 0 min    |
@@ -52,13 +52,14 @@ Progress: [████████░░] 80%
 
 **Recent Trend:**
 
-- Last 5 plans: 01-01 (5 min), 01-02 (16 min), 01-03 (21 min), 01-04 (8 min)
+- Last 5 plans: 01-01 (5 min), 01-02 (16 min), 01-03 (21 min), 01-04 (8 min), 01-05 (20 min)
 - Trend: Stable
 
-| Phase 01 P01 | 5 | 2 tasks | 5 files |
+| Phase 01 P01 | 5 min | 2 tasks | 5 files |
 | Phase 01-capture-reliability-storage-cohesion P02 | 16 min | 2 tasks | 12 files |
 | Phase 01 P03 | 21 min | 2 tasks | 13 files |
 | Phase 01 P04 | 8 min | 2 tasks | 8 files |
+| Phase 01-capture-reliability-storage-cohesion P05 | 20min | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -81,6 +82,9 @@ Recent decisions affecting current work:
 - [Phase 01]: 把 frontend copy helper 收敛到 src/stores/clipboardStore.ts，由它统一调用 invoke('copy_to_clipboard', { content })。
 - [Phase 01]: 菜单、renderer 和 log viewer 都只复用共享 helper，不再各自直写系统剪贴板。
 - [Phase 01]: TDD 继续用 Vitest contract tests 锁定 copy-routing，确保回退时直接在执行阶段报红。
+- [Phase 01-capture-reliability-storage-cohesion]: CAPT-03 先读取 pasteboard marker 和 source metadata，再决定是否进入 ContentDetector::detect 或图片处理。
+- [Phase 01-capture-reliability-storage-cohesion]: CurrentOnly 在 Phase 1 只更新 observed-hash dedupe 状态，不发送到 runtime save loop。
+- [Phase 01-capture-reliability-storage-cohesion]: macOS 使用 NSPasteboard marker adapter；非 macOS 明确保持 no-op markers，不破坏现有采集。
 
 ### Pending Todos
 
@@ -88,12 +92,12 @@ None yet.
 
 ### Blockers/Concerns
 
-- Phase 1 planning must confirm platform-specific transient, concealed, and remote clipboard markers before changing capture policy.
-- Storage-path unification must preserve data already split across `dance` and `clipboard-app` roots without silent loss.
+- CAPT-03 的 Rust 自动化验证已经完成，但真实 macOS transient/concealed/remote clipboard 手动 smoke 仍建议在 verification 阶段补跑。
+- Phase 2 需要继续保持 marker-first capture boundary，避免把 subtype 分析逻辑重新塞回 monitor。
 - Phase 4 will need representative query samples to tune structured ranking and fuzzy reranking.
 
 ## Session Continuity
 
-Last session: 2026-03-27T14:23:08.837Z
-Stopped at: Completed 01-04-PLAN.md
+Last session: 2026-03-27T14:53:27.670Z
+Stopped at: Completed 01-05-PLAN.md
 Resume file: None

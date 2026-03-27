@@ -11,7 +11,7 @@
 
 - [x] **CAPT-01**: User can start and stop clipboard monitoring without hidden background listeners continuing after stop
 - [x] **CAPT-02**: User sees each clipboard change recorded once without duplicate history entries caused by repeated listeners or self-generated copy flows
-- [ ] **CAPT-03**: User can keep ignored, transient, concealed, or otherwise non-persistent clipboard events out of saved history
+- [x] **CAPT-03**: User can keep ignored, transient, concealed, or otherwise non-persistent clipboard events out of saved history
 - [x] **CAPT-04**: User can rely on one consistent local storage lifecycle for history, cache, image assets, and related metadata
 
 ### Detection
@@ -79,7 +79,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | ----------- | ------- | -------- |
 | CAPT-01     | Phase 1 | Complete |
 | CAPT-02     | Phase 1 | Complete |
-| CAPT-03     | Phase 1 | Pending  |
+| CAPT-03     | Phase 1 | Complete |
 | CAPT-04     | Phase 1 | Complete |
 | DETE-01     | Phase 2 | Pending  |
 | DETE-02     | Phase 2 | Pending  |
