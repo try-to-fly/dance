@@ -2,6 +2,7 @@
 
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 
 pub const ANALYSIS_CONTRACT_VERSION: i32 = 1;
 pub const TEXT_ANALYSIS_VERSION: i32 = 1;
@@ -22,11 +23,63 @@ pub enum AnalysisSubtype {
     Base64,
 }
 
+impl AnalysisSubtype {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::PlainText => "plain_text",
+            Self::Url => "url",
+            Self::IpAddress => "ip_address",
+            Self::Email => "email",
+            Self::Color => "color",
+            Self::Code => "code",
+            Self::Command => "command",
+            Self::Timestamp => "timestamp",
+            Self::Json => "json",
+            Self::Markdown => "markdown",
+            Self::Base64 => "base64",
+        }
+    }
+
+    pub fn from_str(value: &str) -> Option<Self> {
+        match value {
+            "plain_text" => Some(Self::PlainText),
+            "url" => Some(Self::Url),
+            "ip_address" => Some(Self::IpAddress),
+            "email" => Some(Self::Email),
+            "color" => Some(Self::Color),
+            "code" => Some(Self::Code),
+            "command" => Some(Self::Command),
+            "timestamp" => Some(Self::Timestamp),
+            "json" => Some(Self::Json),
+            "markdown" => Some(Self::Markdown),
+            "base64" => Some(Self::Base64),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum AnalysisStatus {
     Matched,
     Fallback,
+}
+
+impl AnalysisStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Matched => "matched",
+            Self::Fallback => "fallback",
+        }
+    }
+
+    pub fn from_str(value: &str) -> Option<Self> {
+        match value {
+            "matched" => Some(Self::Matched),
+            "fallback" => Some(Self::Fallback),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -217,6 +270,86 @@ impl AnalysisMetadata {
             AnalysisMetadata::Markdown(_) => AnalysisSubtype::Markdown,
             AnalysisMetadata::Base64(_) => AnalysisSubtype::Base64,
         }
+    }
+
+    pub fn to_legacy_metadata_json(&self) -> Option<String> {
+        let value = match self {
+            AnalysisMetadata::PlainText(_) => return None,
+            AnalysisMetadata::Url(metadata) => json!({
+                "url_parts": {
+                    "protocol": metadata.protocol,
+                    "host": metadata.host,
+                    "path": metadata.path,
+                    "query_params": metadata
+                        .query_params
+                        .iter()
+                        .map(|param| (&param.key, &param.value))
+                        .collect::<Vec<_>>(),
+                }
+            }),
+            AnalysisMetadata::IpAddress(metadata) => json!({
+                "version": match metadata.version {
+                    IpAddressVersion::V4 => "v4",
+                    IpAddressVersion::V6 => "v6",
+                },
+                "is_loopback": metadata.is_loopback,
+                "is_private": metadata.is_private,
+            }),
+            AnalysisMetadata::Email(metadata) => json!({
+                "local_part": metadata.local_part,
+                "domain": metadata.domain,
+            }),
+            AnalysisMetadata::Color(metadata) => json!({
+                "color_formats": {
+                    "hex": metadata.hex,
+                    "rgb": metadata.rgb,
+                    "rgba": metadata.rgba,
+                    "hsl": metadata.hsl,
+                }
+            }),
+            AnalysisMetadata::Code(metadata) => json!({
+                "detected_language": metadata.detected_language,
+                "line_count": metadata.line_count,
+            }),
+            AnalysisMetadata::Command(metadata) => json!({
+                "command_name": metadata.executable,
+                "has_pipeline": metadata.has_pipeline,
+                "has_sudo_prefix": metadata.has_sudo_prefix,
+            }),
+            AnalysisMetadata::Timestamp(metadata) => json!({
+                "timestamp_formats": {
+                    "unix_ms": metadata.unix_ms,
+                    "iso8601": metadata.iso8601,
+                    "date_string": metadata.date_string,
+                }
+            }),
+            AnalysisMetadata::Json(metadata) => json!({
+                "root_kind": match metadata.root_kind {
+                    JsonRootKind::Object => "object",
+                    JsonRootKind::Array => "array",
+                    JsonRootKind::String => "string",
+                    JsonRootKind::Number => "number",
+                    JsonRootKind::Boolean => "boolean",
+                    JsonRootKind::Null => "null",
+                },
+                "key_count": metadata.key_count,
+            }),
+            AnalysisMetadata::Markdown(metadata) => json!({
+                "has_heading": metadata.has_heading,
+                "has_fenced_code_block": metadata.has_fenced_code_block,
+                "has_link": metadata.has_link,
+            }),
+            AnalysisMetadata::Base64(metadata) => json!({
+                "base64_metadata": {
+                    "estimated_original_size": metadata.estimated_original_size,
+                    "encoded_size": metadata.encoded_size,
+                    "content_hint": metadata.content_hint,
+                    "encoding_efficiency": metadata.encoding_efficiency,
+                }
+            }),
+        };
+
+        Some(value.to_string())
     }
 }
 

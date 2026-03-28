@@ -1,3 +1,4 @@
+use crate::analysis::AnalysisSnapshot;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
@@ -15,6 +16,8 @@ pub struct ClipboardEntry {
     pub content_subtype: Option<String>,
     pub metadata: Option<String>,
     pub app_bundle_id: Option<String>,
+    #[sqlx(skip)]
+    pub analysis: Option<AnalysisSnapshot>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -69,7 +72,14 @@ impl ClipboardEntry {
             content_subtype: None,
             metadata: None,
             app_bundle_id: None,
+            analysis: None,
         }
+    }
+
+    pub fn attach_analysis(&mut self, analysis: AnalysisSnapshot) {
+        self.content_subtype = Some(analysis.subtype.as_str().to_string());
+        self.metadata = analysis.metadata.to_legacy_metadata_json();
+        self.analysis = Some(analysis);
     }
 }
 
@@ -104,6 +114,7 @@ mod tests {
         assert_eq!(entry.content_subtype, None);
         assert_eq!(entry.metadata, None);
         assert_eq!(entry.app_bundle_id, None);
+        assert_eq!(entry.analysis, None);
 
         // Test UUID format
         assert!(uuid::Uuid::parse_str(&entry.id).is_ok());
@@ -165,6 +176,21 @@ mod tests {
             serde_json::from_str(&entry.metadata.unwrap()).unwrap();
         assert_eq!(parsed_metadata["url_parts"]["protocol"], "https");
         assert_eq!(parsed_metadata["url_parts"]["host"], "example.com");
+    }
+
+    #[test]
+    fn test_clipboard_entry_analysis_fields_default_to_none() {
+        let entry = ClipboardEntry::new(
+            ContentType::Text,
+            Some("analysis test".to_string()),
+            "analysis_hash".to_string(),
+            Some("AnalysisApp".to_string()),
+            None,
+        );
+
+        assert!(entry.analysis.is_none());
+        assert!(entry.content_subtype.is_none());
+        assert!(entry.metadata.is_none());
     }
 
     #[test]

@@ -1,5 +1,6 @@
 #[cfg(test)]
 mod tests {
+    use crate::analysis::{upsert_entry_analysis, TextAnalysisService};
     use crate::app_paths::AppPaths;
     use crate::database::Database;
     use crate::models::{ClipboardEntry, ContentType};
@@ -196,6 +197,94 @@ mod tests {
         assert!(result.is_ok());
         let entries = result.unwrap();
         assert_eq!(entries.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_history_reads_analysis_rows_with_legacy_fallback() {
+        let (state, _temp_dir) = create_test_state().await;
+
+        let authoritative_entry = ClipboardEntry::new(
+            ContentType::Text,
+            Some("https://example.com/api?debug=1".to_string()),
+            "history_analysis_hash".to_string(),
+            Some("Browser".to_string()),
+            None,
+        );
+        let mut legacy_entry = ClipboardEntry::new(
+            ContentType::Text,
+            Some("legacy value".to_string()),
+            "history_legacy_hash".to_string(),
+            Some("Terminal".to_string()),
+            None,
+        );
+        legacy_entry.content_subtype = Some("command".to_string());
+        legacy_entry.metadata = Some(r#"{"command_name":"ls"}"#.to_string());
+
+        for entry in [&authoritative_entry, &legacy_entry] {
+            sqlx::query(
+                r#"
+                INSERT INTO clipboard_entries
+                (id, content_hash, content_type, content_data, source_app, created_at, copy_count, is_favorite, content_subtype, metadata)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                "#,
+            )
+            .bind(&entry.id)
+            .bind(&entry.content_hash)
+            .bind(&entry.content_type)
+            .bind(&entry.content_data)
+            .bind(&entry.source_app)
+            .bind(entry.created_at)
+            .bind(entry.copy_count)
+            .bind(entry.is_favorite)
+            .bind(&entry.content_subtype)
+            .bind(&entry.metadata)
+            .execute(state.db.pool())
+            .await
+            .unwrap();
+        }
+
+        let snapshot = TextAnalysisService::new().analyze("https://example.com/api?debug=1");
+        upsert_entry_analysis(
+            state.db.pool(),
+            &authoritative_entry.id,
+            &authoritative_entry.content_hash,
+            &snapshot,
+        )
+        .await
+        .unwrap();
+
+        let history = state
+            .get_clipboard_history(Some(10), Some(0), None)
+            .await
+            .unwrap();
+        let analyzed = history
+            .iter()
+            .find(|entry| entry.id == authoritative_entry.id)
+            .unwrap();
+        let legacy = history
+            .iter()
+            .find(|entry| entry.id == legacy_entry.id)
+            .unwrap();
+
+        assert_eq!(analyzed.content_subtype, Some("url".to_string()));
+        assert!(analyzed
+            .metadata
+            .as_ref()
+            .is_some_and(|value| value.contains("url_parts")));
+        assert_eq!(
+            analyzed
+                .analysis
+                .as_ref()
+                .map(|value| value.subtype.as_str()),
+            Some("url")
+        );
+
+        assert_eq!(legacy.content_subtype, Some("command".to_string()));
+        assert_eq!(
+            legacy.metadata,
+            Some(r#"{"command_name":"ls"}"#.to_string())
+        );
+        assert!(legacy.analysis.is_none());
     }
 
     #[tokio::test]

@@ -1,3 +1,4 @@
+use crate::analysis::load_entry_analysis_for_history;
 use crate::app_paths::AppPaths;
 use crate::capture::{calculate_content_hash, CaptureRuntime};
 use crate::clipboard::{ClipboardMonitor, ContentProcessor};
@@ -114,29 +115,7 @@ impl AppState {
         let limit = limit.unwrap_or(50);
         let offset = offset.unwrap_or(0);
 
-        let query = if let Some(search_term) = search {
-            sqlx::query_as::<_, ClipboardEntry>(
-                r#"
-                SELECT * FROM clipboard_entries 
-                WHERE content_data LIKE ? OR source_app LIKE ?
-                ORDER BY created_at DESC 
-                LIMIT ? OFFSET ?
-                "#,
-            )
-            .bind(format!("%{}%", search_term))
-            .bind(format!("%{}%", search_term))
-            .bind(limit)
-            .bind(offset)
-        } else {
-            sqlx::query_as::<_, ClipboardEntry>(
-                "SELECT * FROM clipboard_entries ORDER BY created_at DESC LIMIT ? OFFSET ?",
-            )
-            .bind(limit)
-            .bind(offset)
-        };
-
-        let entries = query.fetch_all(self.db.pool()).await?;
-        Ok(entries)
+        load_entry_analysis_for_history(self.db.pool(), limit, offset, search.as_deref()).await
     }
 
     pub async fn toggle_favorite(&self, id: String) -> Result<()> {

@@ -65,6 +65,10 @@ impl Database {
     }
 
     pub async fn init(&self) -> Result<()> {
+        sqlx::query("PRAGMA foreign_keys = ON")
+            .execute(&self.pool)
+            .await?;
+
         sqlx::query(
             r#"
             CREATE TABLE IF NOT EXISTS clipboard_entries (
@@ -137,6 +141,37 @@ impl Database {
 
         let _ = sqlx::query(
             "CREATE INDEX IF NOT EXISTS idx_app_bundle_id ON clipboard_entries(app_bundle_id)",
+        )
+        .execute(&self.pool)
+        .await;
+
+        let _ = sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS entry_analysis (
+                entry_id TEXT PRIMARY KEY,
+                content_hash TEXT NOT NULL,
+                contract_version INTEGER NOT NULL,
+                analysis_version INTEGER NOT NULL,
+                status TEXT NOT NULL,
+                subtype TEXT NOT NULL,
+                metadata_json TEXT NOT NULL CHECK (json_valid(metadata_json)),
+                diagnostics_json TEXT NOT NULL CHECK (json_valid(diagnostics_json)),
+                analyzed_at INTEGER NOT NULL,
+                FOREIGN KEY (entry_id) REFERENCES clipboard_entries(id) ON DELETE CASCADE
+            )
+            "#,
+        )
+        .execute(&self.pool)
+        .await;
+
+        let _ = sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_entry_analysis_content_hash ON entry_analysis(content_hash)",
+        )
+        .execute(&self.pool)
+        .await;
+
+        let _ = sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_entry_analysis_versions ON entry_analysis(analysis_version, contract_version)",
         )
         .execute(&self.pool)
         .await;
@@ -268,6 +303,9 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::analysis::{
+        load_entry_analysis_for_history, upsert_entry_analysis, TextAnalysisService,
+    };
     use crate::models::{ClipboardEntry, ContentType};
     use sqlx::Row;
     use tempfile::TempDir;
@@ -280,6 +318,65 @@ mod tests {
         let db = Database::from_pool(pool);
         db.init().await.unwrap();
         (db, temp_dir)
+    }
+
+    async fn assert_analysis_join_read_model(db: &Database) {
+        let mut entry = ClipboardEntry::new(
+            ContentType::Text,
+            Some("https://example.com/path?debug=true".to_string()),
+            "analysis_merge_hash".to_string(),
+            Some("Browser".to_string()),
+            None,
+        );
+        entry.content_subtype = Some("plain_text".to_string());
+        entry.metadata = Some(r#"{"legacy":true}"#.to_string());
+
+        sqlx::query(
+            r#"
+            INSERT INTO clipboard_entries
+            (id, content_hash, content_type, content_data, source_app, created_at, copy_count, is_favorite, content_subtype, metadata)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            "#,
+        )
+        .bind(&entry.id)
+        .bind(&entry.content_hash)
+        .bind(&entry.content_type)
+        .bind(&entry.content_data)
+        .bind(&entry.source_app)
+        .bind(entry.created_at)
+        .bind(entry.copy_count)
+        .bind(entry.is_favorite)
+        .bind(&entry.content_subtype)
+        .bind(&entry.metadata)
+        .execute(db.pool())
+        .await
+        .unwrap();
+
+        let snapshot = TextAnalysisService::new().analyze("https://example.com/path?debug=true");
+        upsert_entry_analysis(db.pool(), &entry.id, &entry.content_hash, &snapshot)
+            .await
+            .unwrap();
+
+        let history = load_entry_analysis_for_history(db.pool(), 50, 0, None)
+            .await
+            .unwrap();
+        let joined_entry = history
+            .into_iter()
+            .find(|candidate| candidate.id == entry.id)
+            .unwrap();
+
+        assert_eq!(joined_entry.content_subtype, Some("url".to_string()));
+        assert!(joined_entry
+            .metadata
+            .as_ref()
+            .is_some_and(|value| value.contains("url_parts")));
+        assert_eq!(
+            joined_entry
+                .analysis
+                .as_ref()
+                .map(|value| value.subtype.as_str()),
+            Some("url")
+        );
     }
 
     #[tokio::test]
@@ -1035,5 +1132,140 @@ mod tests {
             stored_entry.app_bundle_id,
             Some("com.test.migration".to_string())
         );
+    }
+
+    #[tokio::test]
+    async fn test_database_reads_analysis_columns_after_migration() {
+        let (db, _temp_dir) = create_test_db().await;
+
+        let columns = sqlx::query("PRAGMA table_info(entry_analysis)")
+            .fetch_all(db.pool())
+            .await
+            .unwrap();
+        let column_names = columns
+            .iter()
+            .map(|row| row.get::<String, _>("name"))
+            .collect::<Vec<_>>();
+
+        assert!(column_names.contains(&"entry_id".to_string()));
+        assert!(column_names.contains(&"content_hash".to_string()));
+        assert!(column_names.contains(&"contract_version".to_string()));
+        assert!(column_names.contains(&"analysis_version".to_string()));
+        assert!(column_names.contains(&"status".to_string()));
+        assert!(column_names.contains(&"subtype".to_string()));
+        assert!(column_names.contains(&"metadata_json".to_string()));
+        assert!(column_names.contains(&"diagnostics_json".to_string()));
+        assert!(column_names.contains(&"analyzed_at".to_string()));
+
+        let foreign_keys = sqlx::query("PRAGMA foreign_key_list(entry_analysis)")
+            .fetch_all(db.pool())
+            .await
+            .unwrap();
+        assert_eq!(foreign_keys.len(), 1);
+        assert_eq!(
+            foreign_keys[0].get::<String, _>("table"),
+            "clipboard_entries"
+        );
+        assert_eq!(foreign_keys[0].get::<String, _>("on_delete"), "CASCADE");
+
+        let indexes = sqlx::query("PRAGMA index_list(entry_analysis)")
+            .fetch_all(db.pool())
+            .await
+            .unwrap();
+        let index_names = indexes
+            .iter()
+            .map(|row| row.get::<String, _>("name"))
+            .collect::<Vec<_>>();
+
+        assert!(index_names.contains(&"idx_entry_analysis_content_hash".to_string()));
+        assert!(index_names.contains(&"idx_entry_analysis_versions".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_database_upserts_entry_analysis_rows() {
+        let (db, _temp_dir) = create_test_db().await;
+
+        let entry = ClipboardEntry::new(
+            ContentType::Text,
+            Some("https://example.com/docs".to_string()),
+            "analysis_upsert_hash".to_string(),
+            Some("Browser".to_string()),
+            None,
+        );
+
+        sqlx::query(
+            r#"
+            INSERT INTO clipboard_entries
+            (id, content_hash, content_type, content_data, source_app, created_at, copy_count, is_favorite)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            "#,
+        )
+        .bind(&entry.id)
+        .bind(&entry.content_hash)
+        .bind(&entry.content_type)
+        .bind(&entry.content_data)
+        .bind(&entry.source_app)
+        .bind(entry.created_at)
+        .bind(entry.copy_count)
+        .bind(entry.is_favorite)
+        .execute(db.pool())
+        .await
+        .unwrap();
+
+        let snapshot = TextAnalysisService::new().analyze("https://example.com/docs");
+        upsert_entry_analysis(db.pool(), &entry.id, &entry.content_hash, &snapshot)
+            .await
+            .unwrap();
+
+        let row = sqlx::query(
+            r#"
+            SELECT
+                content_hash,
+                contract_version,
+                analysis_version,
+                status,
+                subtype,
+                json_valid(metadata_json) AS metadata_valid,
+                json_valid(diagnostics_json) AS diagnostics_valid
+            FROM entry_analysis
+            WHERE entry_id = ?
+            "#,
+        )
+        .bind(&entry.id)
+        .fetch_one(db.pool())
+        .await
+        .unwrap();
+
+        assert_eq!(row.get::<String, _>("content_hash"), entry.content_hash);
+        assert_eq!(
+            row.get::<String, _>("status"),
+            snapshot.status.as_str().to_string()
+        );
+        assert_eq!(
+            row.get::<String, _>("subtype"),
+            snapshot.subtype.as_str().to_string()
+        );
+        assert_eq!(
+            row.get::<i32, _>("contract_version"),
+            snapshot.contract_version
+        );
+        assert_eq!(
+            row.get::<i32, _>("analysis_version"),
+            snapshot.analysis_version
+        );
+        assert_eq!(row.get::<i64, _>("metadata_valid"), 1);
+        assert_eq!(row.get::<i64, _>("diagnostics_valid"), 1);
+    }
+
+    #[tokio::test]
+    async fn test_database_merges_analysis_fields() {
+        let (db, _temp_dir) = create_test_db().await;
+        assert_analysis_join_read_model(&db).await;
+    }
+
+    #[tokio::test]
+    async fn test_entry_analysis_repository_upsert_and_join_read_model() {
+        let (db, _temp_dir) = create_test_db().await;
+        assert_analysis_join_read_model(&db).await;
     }
 }
