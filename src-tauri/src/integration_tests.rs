@@ -1,5 +1,9 @@
 #[cfg(test)]
 mod integration_tests {
+    use crate::analysis::{
+        AnalysisDiagnosticCode, AnalysisMetadata, AnalysisStatus, AnalysisSubtype,
+        TextAnalysisService,
+    };
     use crate::app_paths::AppPaths;
     use crate::clipboard::content_detector::{ContentDetector, ContentSubType};
     use crate::clipboard::ContentProcessor;
@@ -7,8 +11,10 @@ mod integration_tests {
     use crate::models::{ClipboardEntry, ContentType};
     use crate::state::AppState;
     use crate::test_support::{create_temp_app_roots, TestAppRoots};
+    use sqlx::Row;
     use std::sync::Arc;
     use tokio::sync::broadcast;
+    use tokio::time::{sleep, Duration};
 
     async fn create_integration_test_env() -> (Arc<AppState>, TestAppRoots) {
         let roots = create_temp_app_roots();
@@ -38,6 +44,85 @@ mod integration_tests {
         };
 
         (Arc::new(state), roots)
+    }
+
+    async fn wait_for_persisted_entry(state: &AppState, content_hash: &str) -> ClipboardEntry {
+        for _ in 0..20 {
+            if let Some(entry) = sqlx::query_as::<_, ClipboardEntry>(
+                "SELECT * FROM clipboard_entries WHERE content_hash = ?",
+            )
+            .bind(content_hash)
+            .fetch_optional(state.db.pool())
+            .await
+            .unwrap()
+            {
+                return entry;
+            }
+
+            sleep(Duration::from_millis(50)).await;
+        }
+
+        panic!("timed out waiting for persisted entry '{}'", content_hash);
+    }
+
+    async fn wait_for_persisted_analysis(
+        state: &AppState,
+        content_hash: &str,
+    ) -> (String, String, String) {
+        for _ in 0..20 {
+            if let Some(row) = sqlx::query(
+                r#"
+                SELECT status, subtype, diagnostics_json
+                FROM entry_analysis
+                WHERE content_hash = ?
+                "#,
+            )
+            .bind(content_hash)
+            .fetch_optional(state.db.pool())
+            .await
+            .unwrap()
+            {
+                return (
+                    row.get("status"),
+                    row.get("subtype"),
+                    row.get("diagnostics_json"),
+                );
+            }
+
+            sleep(Duration::from_millis(50)).await;
+        }
+
+        panic!(
+            "timed out waiting for persisted analysis '{}'",
+            content_hash
+        );
+    }
+
+    async fn persist_text_entry_with_analysis(
+        state: &Arc<AppState>,
+        content: &str,
+    ) -> (ClipboardEntry, String, String, String) {
+        state.start_monitoring().await.unwrap();
+
+        let content_hash = crate::capture::calculate_content_hash(content.as_bytes());
+        let mut entry = ClipboardEntry::new(
+            ContentType::Text,
+            Some(content.to_string()),
+            content_hash.clone(),
+            Some("RuntimeApp".to_string()),
+            None,
+        );
+        entry.attach_analysis(TextAnalysisService::new().analyze(content));
+
+        state.tx.send(entry).unwrap();
+
+        let stored_entry = wait_for_persisted_entry(state, &content_hash).await;
+        let (status, subtype, diagnostics_json) =
+            wait_for_persisted_analysis(state, &stored_entry.content_hash).await;
+
+        state.stop_monitoring().await.unwrap();
+
+        (stored_entry, status, subtype, diagnostics_json)
     }
 
     #[tokio::test]
@@ -851,5 +936,150 @@ mod integration_tests {
             .unwrap();
 
         assert_eq!(total_entries, 8); // All edge cases stored
+    }
+
+    #[test]
+    fn test_analysis_service_preserves_precedence_and_typed_metadata() {
+        let service = TextAnalysisService::new();
+
+        let json_snapshot = service.analyze(r#"{"url":"https://example.com/api","count":2}"#);
+        assert_eq!(json_snapshot.subtype, AnalysisSubtype::Json);
+        match json_snapshot.metadata {
+            AnalysisMetadata::Json(metadata) => {
+                assert_eq!(metadata.root_kind, crate::analysis::JsonRootKind::Object);
+                assert_eq!(metadata.key_count, Some(2));
+            }
+            other => panic!("expected json metadata, got {:?}", other),
+        }
+
+        let url_snapshot = service.analyze("https://example.com/docs?tab=api");
+        assert_eq!(url_snapshot.subtype, AnalysisSubtype::Url);
+        match url_snapshot.metadata {
+            AnalysisMetadata::Url(metadata) => {
+                assert_eq!(metadata.host, "example.com");
+                assert_eq!(metadata.path, "/docs");
+                assert_eq!(metadata.query_params.len(), 1);
+            }
+            other => panic!("expected url metadata, got {:?}", other),
+        }
+
+        let command_snapshot = service.analyze("npm run dev && cargo test");
+        assert_eq!(command_snapshot.subtype, AnalysisSubtype::Command);
+        match command_snapshot.metadata {
+            AnalysisMetadata::Command(metadata) => {
+                assert_eq!(metadata.command_name.as_deref(), Some("npm"));
+                assert_eq!(metadata.shell_family.as_deref(), Some("posix"));
+                assert!(!metadata.has_pipeline);
+            }
+            other => panic!("expected command metadata, got {:?}", other),
+        }
+
+        let markdown_snapshot = service.analyze("# Title\n\n- item\n\n```rust\nfn main() {}\n```");
+        assert_eq!(markdown_snapshot.subtype, AnalysisSubtype::Markdown);
+        match markdown_snapshot.metadata {
+            AnalysisMetadata::Markdown(metadata) => {
+                assert!(metadata.has_heading);
+                assert!(metadata.has_list);
+                assert!(metadata.has_code_fence);
+            }
+            other => panic!("expected markdown metadata, got {:?}", other),
+        }
+
+        let email_snapshot = service.analyze("developer@example.com");
+        match email_snapshot.metadata {
+            AnalysisMetadata::Email(metadata) => {
+                assert_eq!(metadata.domain, "example.com");
+            }
+            other => panic!("expected email metadata, got {:?}", other),
+        }
+
+        let ip_snapshot = service.analyze("192.168.1.10");
+        match ip_snapshot.metadata {
+            AnalysisMetadata::IpAddress(metadata) => {
+                assert_eq!(metadata.version, crate::analysis::IpAddressVersion::V4);
+                assert!(metadata.is_private);
+            }
+            other => panic!("expected ip metadata, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_text_analysis_service_fallback_preserves_diagnostics() {
+        let service = TextAnalysisService::new();
+        let snapshot = service.analyze("{broken-json");
+
+        assert_eq!(snapshot.status, AnalysisStatus::Fallback);
+        assert_eq!(snapshot.subtype, AnalysisSubtype::PlainText);
+        assert_eq!(snapshot.diagnostics.len(), 1);
+        assert_eq!(
+            snapshot.diagnostics[0].code,
+            AnalysisDiagnosticCode::JsonMalformed
+        );
+    }
+
+    #[tokio::test]
+    async fn test_capture_path_writes_entry_analysis_snapshot() {
+        let (state, _temp_dir) = create_integration_test_env().await;
+        let content = "https://example.com/runtime/path?debug=true";
+        let (stored_entry, status, subtype, diagnostics_json) =
+            persist_text_entry_with_analysis(&state, content).await;
+        let history = state
+            .get_clipboard_history(Some(10), Some(0), None)
+            .await
+            .unwrap();
+        let joined = history
+            .into_iter()
+            .find(|candidate| candidate.content_hash == stored_entry.content_hash)
+            .unwrap();
+
+        assert_eq!(stored_entry.content_subtype, Some("url".to_string()));
+        assert_eq!(status, "matched");
+        assert_eq!(subtype, "url");
+        assert_eq!(diagnostics_json, "[]");
+        assert_eq!(
+            joined
+                .analysis
+                .as_ref()
+                .map(|analysis| analysis.subtype.as_str()),
+            Some("url")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_capture_runtime_failure_analysis_falls_back_to_plain_text() {
+        let (state, _temp_dir) = create_integration_test_env().await;
+        let content = "{broken-json";
+        let (stored_entry, status, subtype, diagnostics_json) =
+            persist_text_entry_with_analysis(&state, content).await;
+
+        assert_eq!(stored_entry.content_data.as_deref(), Some(content));
+        assert_eq!(stored_entry.content_subtype, Some("plain_text".to_string()));
+        assert_eq!(status, "fallback");
+        assert_eq!(subtype, "plain_text");
+        assert!(diagnostics_json.contains("json_malformed"));
+    }
+
+    #[tokio::test]
+    async fn test_analysis_fallback_persists_diagnostics() {
+        let (state, _temp_dir) = create_integration_test_env().await;
+        let (_stored_entry, status, subtype, diagnostics_json) =
+            persist_text_entry_with_analysis(&state, "{broken-json").await;
+
+        assert_eq!(status, "fallback");
+        assert_eq!(subtype, "plain_text");
+        assert!(diagnostics_json.contains("json_malformed"));
+    }
+
+    #[tokio::test]
+    async fn test_integration_text_entries_store_analysis_contract() {
+        let (state, _temp_dir) = create_integration_test_env().await;
+        let (stored_entry, status, subtype, diagnostics_json) =
+            persist_text_entry_with_analysis(&state, "https://example.com/runtime/path?debug=true")
+                .await;
+
+        assert_eq!(stored_entry.content_subtype, Some("url".to_string()));
+        assert_eq!(status, "matched");
+        assert_eq!(subtype, "url");
+        assert_eq!(diagnostics_json, "[]");
     }
 }

@@ -1,8 +1,9 @@
+use crate::analysis::TextAnalysisService;
 use crate::app_paths::AppPaths;
 use crate::capture::{
     calculate_content_hash, decide_capture, CaptureDisposition, PasteboardMarkers,
 };
-use crate::clipboard::{content_detector::ContentDetector, ClipboardMonitor};
+use crate::clipboard::ClipboardMonitor;
 use crate::state::AppState;
 use crate::test_support::{create_temp_app_roots, TestAppRoots};
 use sqlx::query_scalar;
@@ -99,6 +100,7 @@ async fn test_capture_policy_current_only_is_non_persistent_in_v1() {
     };
     let detection_calls = Arc::new(AtomicUsize::new(0));
     let detection_calls_for_detector = Arc::clone(&detection_calls);
+    let analysis_service = TextAnalysisService::new();
     let content = "auto generated text";
 
     let disposition = monitor
@@ -110,7 +112,7 @@ async fn test_capture_policy_current_only_is_non_persistent_in_v1() {
             content,
             move |text| {
                 detection_calls_for_detector.fetch_add(1, Ordering::SeqCst);
-                ContentDetector::detect(text)
+                analysis_service.analyze(text)
             },
         )
         .await

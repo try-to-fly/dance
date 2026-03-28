@@ -1,3 +1,4 @@
+use crate::analysis::upsert_entry_analysis;
 use crate::clipboard::ClipboardMonitor;
 use crate::database::Database;
 use crate::models::ClipboardEntry;
@@ -182,6 +183,9 @@ async fn persist_entry(db: &Database, entry: ClipboardEntry) -> anyhow::Result<C
         entry.content_type
     );
 
+    let snapshot = entry.analysis.clone();
+    let mut tx = db.pool().begin().await?;
+
     sqlx::query(
         r#"
         INSERT INTO clipboard_entries
@@ -211,15 +215,28 @@ async fn persist_entry(db: &Database, entry: ClipboardEntry) -> anyhow::Result<C
     .bind(&entry.content_subtype)
     .bind(&entry.metadata)
     .bind(&entry.app_bundle_id)
-    .execute(db.pool())
+    .execute(&mut *tx)
     .await?;
 
-    let stored_entry = sqlx::query_as::<_, ClipboardEntry>(
+    let mut stored_entry = sqlx::query_as::<_, ClipboardEntry>(
         "SELECT * FROM clipboard_entries WHERE content_hash = ?",
     )
     .bind(&entry.content_hash)
-    .fetch_one(db.pool())
+    .fetch_one(&mut *tx)
     .await?;
+
+    if let Some(snapshot) = snapshot {
+        upsert_entry_analysis(
+            &mut *tx,
+            &stored_entry.id,
+            &stored_entry.content_hash,
+            &snapshot,
+        )
+        .await?;
+        stored_entry.attach_analysis(snapshot);
+    }
+
+    tx.commit().await?;
 
     Ok(stored_entry)
 }

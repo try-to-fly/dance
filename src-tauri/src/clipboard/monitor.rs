@@ -1,15 +1,14 @@
 use anyhow::Result;
-use serde_json;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 use tokio::sync::Mutex;
 
+use crate::analysis::{AnalysisSnapshot, TextAnalysisService};
 use crate::capture::macos_markers::read_pasteboard_markers;
 use crate::capture::{
     calculate_content_hash, consume_suppression_key, decide_capture, remember_observed_hash,
     CaptureDisposition, PasteboardMarkers, SuppressionEntry,
 };
-use crate::clipboard::content_detector::{ContentDetector, ContentMetadata, ContentSubType};
 use crate::clipboard::processor::ContentProcessor;
 use crate::config::ConfigManager;
 use crate::models::{ClipboardEntry, ContentType};
@@ -19,6 +18,7 @@ pub struct ClipboardMonitor {
     tx: broadcast::Sender<ClipboardEntry>,
     processor: Arc<ContentProcessor>,
     config_manager: Arc<Mutex<ConfigManager>>,
+    analysis_service: TextAnalysisService,
 }
 
 impl ClipboardMonitor {
@@ -31,6 +31,7 @@ impl ClipboardMonitor {
             tx,
             processor,
             config_manager,
+            analysis_service: TextAnalysisService::new(),
         })
     }
 
@@ -123,17 +124,17 @@ impl ClipboardMonitor {
         }
     }
 
-    async fn process_text_capture_with_detector<F>(
+    async fn process_text_capture_with_analysis<F>(
         &self,
         last_observed_hash: &Arc<Mutex<Option<String>>>,
         suppression_registry: &Arc<Mutex<Vec<SuppressionEntry>>>,
         app_info: Option<&AppInfo>,
         markers: &PasteboardMarkers,
         trimmed_text: &str,
-        detector: F,
+        analyzer: F,
     ) -> Result<Option<CaptureDisposition>>
     where
-        F: FnOnce(&str) -> (ContentSubType, Option<ContentMetadata>),
+        F: FnOnce(&str) -> AnalysisSnapshot,
     {
         let hash = calculate_content_hash(trimmed_text.as_bytes());
         log::debug!("[ClipboardMonitor] 计算内容Hash: {}", &hash[..8]);
@@ -161,10 +162,13 @@ impl ClipboardMonitor {
             return Ok(None);
         }
 
-        let (subtype, metadata) = detector(trimmed_text);
-        log::debug!("[ClipboardMonitor] 内容检测结果: {:?}", subtype);
+        let snapshot = analyzer(trimmed_text);
+        log::debug!(
+            "[ClipboardMonitor] authoritative analysis 结果: {:?} ({:?})",
+            snapshot.subtype,
+            snapshot.status
+        );
 
-        let metadata_json = metadata.and_then(|value| serde_json::to_string(&value).ok());
         let mut entry = ClipboardEntry::new(
             ContentType::Text,
             Some(trimmed_text.to_string()),
@@ -172,18 +176,12 @@ impl ClipboardMonitor {
             app_info.map(|info| info.name.clone()),
             None,
         );
-
-        let subtype_str = serde_json::to_value(&subtype)
-            .ok()
-            .and_then(|value| value.as_str().map(|value| value.to_string()))
-            .unwrap_or_else(|| "plain_text".to_string());
-        entry.content_subtype = Some(subtype_str);
-        entry.metadata = metadata_json;
         entry.app_bundle_id = Self::resolve_source_bundle_id(markers, app_info)
             .map(|bundle_id| bundle_id.to_string());
+        entry.attach_analysis(snapshot.clone());
 
         log::info!(
-            "[ClipboardMonitor] 发现新文本内容: {} | 来源: {} | 类型: {:?}",
+            "[ClipboardMonitor] 发现新文本内容: {} | 来源: {} | 类型: {:?} | 状态: {:?}",
             if trimmed_text.chars().count() > 50 {
                 format!("{}...", trimmed_text.chars().take(50).collect::<String>())
             } else {
@@ -192,7 +190,8 @@ impl ClipboardMonitor {
             app_info
                 .map(|info| info.name.as_str())
                 .unwrap_or("未知应用"),
-            subtype
+            snapshot.subtype,
+            snapshot.status
         );
 
         let _ = self.tx.send(entry);
@@ -242,13 +241,13 @@ impl ClipboardMonitor {
                 );
 
                 if self
-                    .process_text_capture_with_detector(
+                    .process_text_capture_with_analysis(
                         last_observed_hash,
                         suppression_registry,
                         app_info.as_ref(),
                         &markers,
                         trimmed_text,
-                        ContentDetector::detect,
+                        |text| self.analysis_service.analyze(text),
                     )
                     .await?
                     .is_some()
@@ -419,15 +418,10 @@ impl ClipboardMonitor {
         detector: F,
     ) -> Result<crate::capture::CaptureDisposition>
     where
-        F: FnOnce(
-            &str,
-        ) -> (
-            crate::clipboard::content_detector::ContentSubType,
-            Option<crate::clipboard::content_detector::ContentMetadata>,
-        ),
+        F: FnOnce(&str) -> AnalysisSnapshot,
     {
         Ok(self
-            .process_text_capture_with_detector(
+            .process_text_capture_with_analysis(
                 last_observed_hash,
                 suppression_registry,
                 app_info,

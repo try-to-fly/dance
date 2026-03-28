@@ -195,7 +195,8 @@ impl CodeMetadata {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CommandMetadata {
-    pub executable: Option<String>,
+    pub command_name: Option<String>,
+    pub shell_family: Option<String>,
     pub has_pipeline: bool,
     pub has_sudo_prefix: bool,
 }
@@ -227,7 +228,8 @@ pub struct JsonMetadata {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct MarkdownMetadata {
     pub has_heading: bool,
-    pub has_fenced_code_block: bool,
+    pub has_list: bool,
+    pub has_code_fence: bool,
     pub has_link: bool,
 }
 
@@ -312,7 +314,8 @@ impl AnalysisMetadata {
                 "line_count": metadata.line_count,
             }),
             AnalysisMetadata::Command(metadata) => json!({
-                "command_name": metadata.executable,
+                "command_name": metadata.command_name,
+                "shell_family": metadata.shell_family,
                 "has_pipeline": metadata.has_pipeline,
                 "has_sudo_prefix": metadata.has_sudo_prefix,
             }),
@@ -336,7 +339,8 @@ impl AnalysisMetadata {
             }),
             AnalysisMetadata::Markdown(metadata) => json!({
                 "has_heading": metadata.has_heading,
-                "has_fenced_code_block": metadata.has_fenced_code_block,
+                "has_list": metadata.has_list,
+                "has_code_fence": metadata.has_code_fence,
                 "has_link": metadata.has_link,
             }),
             AnalysisMetadata::Base64(metadata) => json!({

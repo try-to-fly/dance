@@ -814,6 +814,35 @@ mod tests {
 
     // Basic text detection tests
     #[test]
+    fn test_content_detector_supported_subtypes_are_stable() {
+        let cases = vec![
+            ("https://example.com/path?foo=bar", ContentSubType::Url),
+            ("192.168.1.10", ContentSubType::IpAddress),
+            ("developer@example.com", ContentSubType::Email),
+            ("#ff8800", ContentSubType::Color),
+            (r#"{"hello":"world","count":2}"#, ContentSubType::Json),
+            ("git status --short", ContentSubType::Command),
+            ("2025-01-01T12:00:00Z", ContentSubType::Timestamp),
+            ("# Header\n\n- item", ContentSubType::Markdown),
+            ("Y29uc29sZS5sb2coJ2hlbGxvJyk7", ContentSubType::Base64),
+            (
+                "function greet(name) {\n  return name;\n}",
+                ContentSubType::Code,
+            ),
+            ("ordinary clipboard note", ContentSubType::PlainText),
+        ];
+
+        for (input, expected_subtype) in cases {
+            let (sub_type, _) = ContentDetector::detect(input);
+            assert_eq!(
+                sub_type, expected_subtype,
+                "unexpected subtype for stable corpus input '{}'",
+                input
+            );
+        }
+    }
+
+    #[test]
     fn test_plain_text_detection() {
         let test_cases = vec![
             "Hello, world!",
