@@ -81,7 +81,7 @@ Plans:
 
 Plans:
 
-- [ ] 03-01-PLAN.md — 建立 analysis-first semantic preview core 与 list/retrieval summary contract
+- [x] 03-01-PLAN.md — 建立 analysis-first semantic preview core 与 list/retrieval summary contract
 - [ ] 03-02-PLAN.md — 将 Clipboard list 收口为固定高度的两层语义摘要
 - [ ] 03-03-PLAN.md — 落地本地 URL 结构卡与默认无远端依赖的 detail contract
 - [ ] 03-04-PLAN.md — 打磨 Color detail renderer 的 swatch 与开发友好格式

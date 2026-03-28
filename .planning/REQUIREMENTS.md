@@ -27,7 +27,7 @@
 - [ ] **PREV-02**: User can inspect URL entries in a structured preview showing at least protocol, host, path, and query details without requiring default remote fetching
 - [ ] **PREV-03**: User can inspect color entries with a visual swatch and alternate color formats suitable for development work
 - [ ] **PREV-04**: User can inspect code and command entries in a read-only developer-oriented view with preserved formatting and language or shell hints when available
-- [ ] **PREV-05**: User sees the same semantic type and preview intent for an entry across the list view, detail view, and follow-up retrieval flows
+- [x] **PREV-05**: User sees the same semantic type and preview intent for an entry across the list view, detail view, and follow-up retrieval flows
 
 ### Retrieval
 
@@ -89,7 +89,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | PREV-02     | Phase 3 | Pending  |
 | PREV-03     | Phase 3 | Pending  |
 | PREV-04     | Phase 3 | Pending  |
-| PREV-05     | Phase 3 | Pending  |
+| PREV-05     | Phase 3 | Complete |
 | RETR-01     | Phase 4 | Pending  |
 | RETR-02     | Phase 4 | Pending  |
 | RETR-03     | Phase 4 | Pending  |

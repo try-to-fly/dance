@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: planning
-stopped_at: Phase 3 context gathered
-last_updated: '2026-03-28T14:35:39.622Z'
+status: executing
+stopped_at: Completed 03-01-PLAN.md
+last_updated: '2026-03-28T16:14:04.175Z'
 last_activity: 2026-03-28
 progress:
   total_phases: 5
   completed_phases: 2
-  total_plans: 13
-  completed_plans: 13
+  total_plans: 18
+  completed_plans: 14
   percent: 100
 ---
 
@@ -25,9 +25,9 @@ See: .planning/PROJECT.md (updated 2026-03-28)
 
 ## Current Position
 
-Phase: 3 (unified-developer-previews)
-Plan: Not started
-Status: Phase 2 complete — ready for Phase 3 planning
+Phase: 03 (unified-developer-previews) — EXECUTING
+Plan: 2 of 5
+Status: Ready to execute
 Last activity: 2026-03-28
 
 Progress: [██████████] 100%
@@ -61,6 +61,7 @@ Progress: [██████████] 100%
 | Phase 02 P05 | summary recorded | history reanalysis closure | complete |
 | Phase 02 P06 | 10min | 2 tasks | 7 files |
 | Phase 02 P07 | 6min | 2 tasks | 6 files |
+| Phase 03-unified-developer-previews P01 | 11min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -93,6 +94,8 @@ Recent decisions affecting current work:
 - [Phase 02-analysis-contracts-versioned-detection]: 备用视图里的 image/audio/video 使用原生媒体元素渲染，不复用统一文本 fallback。
 - [Phase 02]: Keep raw-only alternate views visible for non-immersive JSON detail and hide them only for immersive image/video/audio previews.
 - [Phase 02]: Use one explicit clamp height for JsonRenderer tree, code, and invalid states so Monaco never depends on parent 100% height.
+- [Phase 03-unified-developer-previews]: Semantic preview contract 保持同步、analysis-first，只依赖 entry.analysis、本地 metadata 和 raw content。
+- [Phase 03-unified-developer-previews]: list/retrieval 的差异落在 density adapter，而不是重新解析 subtype 或引入新的 preview 语义入口。
 
 ### Pending Todos
 
@@ -106,6 +109,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-28T14:35:39.618Z
-Stopped at: Phase 3 context gathered
-Resume file: .planning/phases/03-unified-developer-previews/03-CONTEXT.md
+Last session: 2026-03-28T16:14:04.171Z
+Stopped at: Completed 03-01-PLAN.md
+Resume file: None
