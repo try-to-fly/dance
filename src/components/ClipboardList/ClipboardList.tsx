@@ -24,7 +24,7 @@ export const ClipboardList: React.FC = () => {
   const virtualizer = useVirtualizer({
     count: entries.length,
     getScrollElement: () => scrollContainerRef.current,
-    estimateSize: () => 168,
+    estimateSize: () => 124,
     overscan: 4,
   });
 
