@@ -1,5 +1,6 @@
 #![allow(unexpected_cfgs)]
 
+mod analysis;
 mod app_paths;
 mod capture;
 mod clipboard;
@@ -32,6 +33,9 @@ mod capture_runtime_tests;
 
 #[cfg(test)]
 mod capture_policy_tests;
+
+#[cfg(test)]
+mod analysis_contract_tests {}
 
 use app_paths::AppPaths;
 use commands::*;
