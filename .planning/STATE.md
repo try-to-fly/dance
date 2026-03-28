@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 02-05-PLAN.md
-last_updated: '2026-03-28T03:59:47Z'
+stopped_at: Completed 02-06-PLAN.md
+last_updated: '2026-03-28T05:12:15.641Z'
 last_activity: 2026-03-28
 progress:
   total_phases: 5
-  completed_phases: 2
-  total_plans: 11
-  completed_plans: 11
-  percent: 100
+  completed_phases: 1
+  total_plans: 13
+  completed_plans: 12
+  percent: 92
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-27)
 
 **Core value:** 开发者复制任意常见内容后，应用都能稳定记录、准确识别，并以最合适的结构化方式展示出来。
-**Current focus:** Phase 02 complete — ready for verify-work and Phase 03 planning
+**Current focus:** Phase 02 — analysis-contracts-versioned-detection
 
 ## Current Position
 
-Phase: 02 (analysis-contracts-versioned-detection) — COMPLETE
-Plan: 5 of 5
-Status: Phase complete
+Phase: 02 (analysis-contracts-versioned-detection) — EXECUTING
+Plan: 7 of 7
+Status: Ready to execute
 Last activity: 2026-03-28
 
-Progress: [██████████] 100%
+Progress: [█████████░] 92%
 
 ## Performance Metrics
 
@@ -45,21 +45,21 @@ Progress: [██████████] 100%
 | Phase                                       | Plans | Total                | Avg/Plan |
 | ------------------------------------------- | ----- | -------------------- | -------- |
 | 1. Capture Reliability & Storage Cohesion   | 6     | tracked in summaries | n/a      |
-| 2. Analysis Contracts & Versioned Detection | 5     | tracked in summaries | n/a      |
+| 2. Analysis Contracts & Versioned Detection | 6     | tracked in summaries | n/a      |
 | 3. Unified Developer Previews               | 0     | not started          | n/a      |
 | 4. Search Quality & Retrieval               | 0     | not started          | n/a      |
 | 5. Rebuild Safety & Release Gates           | 0     | not started          | n/a      |
 
 **Recent Trend:**
 
-- Last 5 plans: 02-01, 02-02, 02-03, 02-04, 02-05
-- Trend: Phase 2 execution complete
+- Last 5 plans: 02-02, 02-03, 02-04, 02-05, 02-06
+- Trend: Phase 2 nearing completion
 
-| Phase 02 P01 | summary recorded | analysis contract | complete |
 | Phase 02 P02 | summary recorded | companion persistence | complete |
 | Phase 02 P03 | summary recorded | runtime analysis wiring | complete |
 | Phase 02 P04 | summary recorded | frontend analysis-first consumption | complete |
 | Phase 02 P05 | summary recorded | history reanalysis closure | complete |
+| Phase 02 P06 | 10min | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -87,6 +87,9 @@ Recent decisions affecting current work:
 - [Phase 01-capture-reliability-storage-cohesion]: macOS 使用 NSPasteboard marker adapter；非 macOS 明确保持 no-op markers，不破坏现有采集。
 - [Phase 01]: 不把 AppPaths 直接塞进 ClipboardMonitor 状态 — 通过 ContentProcessor 复用 resolve_relative_asset_path()，维持现有 monitor 构造签名。
 - [Phase 01]: 日志文件名固定为 clipboard-app.log — 与 tauri_plugin_log 当前 file_name 配置保持一致。
+- [Phase 02-analysis-contracts-versioned-detection]: URL 条目无论远端 resolved previewKind 是 JSON、文本还是媒体，主视图都保持 url_card。
+- [Phase 02-analysis-contracts-versioned-detection]: URL 条目的 ResolvedPreviewData 只能承载真实远端 payload，不能再把原始 URL 字符串预填成 textContent。
+- [Phase 02-analysis-contracts-versioned-detection]: 备用视图里的 image/audio/video 使用原生媒体元素渲染，不复用统一文本 fallback。
 
 ### Pending Todos
 
@@ -100,6 +103,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-28T03:05:57.697Z
-Stopped at: Completed 02-05-PLAN.md
+Last session: 2026-03-28T05:12:15.638Z
+Stopped at: Completed 02-06-PLAN.md
 Resume file: None

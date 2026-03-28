@@ -17,9 +17,9 @@
 ### Detection
 
 - [ ] **DETE-01**: User copying supported developer content gets a stable subtype classification for URL, JSON, code, command, color, markdown, email, IP, timestamp, base64, or plain text fallback
-- [ ] **DETE-02**: User sees subtype-specific metadata extracted for supported content, including URL parts, color formats, detected language, timestamp formats, and related structured hints
+- [x] **DETE-02**: User sees subtype-specific metadata extracted for supported content, including URL parts, color formats, detected language, timestamp formats, and related structured hints
 - [ ] **DETE-03**: User benefits from improved detection rules on existing history without needing to recopy items after parser or classifier upgrades
-- [ ] **DETE-04**: User can still inspect copied content when analysis fails because the app degrades gracefully to raw content and preserves failure diagnostics for later repair
+- [x] **DETE-04**: User can still inspect copied content when analysis fails because the app degrades gracefully to raw content and preserves failure diagnostics for later repair
 
 ### Preview
 
@@ -82,9 +82,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | CAPT-03     | Phase 1 | Complete |
 | CAPT-04     | Phase 1 | Complete |
 | DETE-01     | Phase 2 | Pending  |
-| DETE-02     | Phase 2 | Pending  |
+| DETE-02     | Phase 2 | Complete |
 | DETE-03     | Phase 2 | Pending  |
-| DETE-04     | Phase 2 | Pending  |
+| DETE-04     | Phase 2 | Complete |
 | PREV-01     | Phase 3 | Pending  |
 | PREV-02     | Phase 3 | Pending  |
 | PREV-03     | Phase 3 | Pending  |
