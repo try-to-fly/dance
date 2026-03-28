@@ -11,6 +11,7 @@ export interface ClipboardEntry {
   content_subtype?: ContentSubType | string | null;
   metadata?: string | null;
   app_bundle_id?: string | null;
+  analysis?: EntryAnalysisSnapshot | null;
 }
 
 export type ContentType = 'text' | 'image' | 'file' | 'unknown';
@@ -27,6 +28,63 @@ export type ContentSubType =
   | 'json'
   | 'markdown'
   | 'base64';
+
+export type AnalysisSubtype = ContentSubType;
+
+export type AnalysisStatus = 'matched' | 'fallback';
+
+export type AnalysisDiagnosticCode =
+  | 'heuristic_fallback'
+  | 'json_malformed'
+  | 'base64_malformed'
+  | 'url_malformed'
+  | 'metadata_unavailable';
+
+export type AnalysisDiagnosticSeverity = 'info' | 'warning' | 'error';
+
+export interface AnalysisDiagnostic {
+  code: AnalysisDiagnosticCode;
+  severity: AnalysisDiagnosticSeverity;
+  message: string;
+}
+
+export interface PlainTextAnalysisMetadata {
+  char_count: number;
+  line_count: number;
+}
+
+export interface IpAddressAnalysisMetadata {
+  version: 'v4' | 'v6';
+  is_loopback: boolean;
+  is_private: boolean;
+}
+
+export interface EmailAnalysisMetadata {
+  local_part: string;
+  domain: string;
+}
+
+export interface CodeAnalysisMetadata {
+  detected_language?: string | null;
+  line_count: number;
+}
+
+export interface CommandAnalysisMetadata {
+  executable?: string | null;
+  has_pipeline: boolean;
+  has_sudo_prefix: boolean;
+}
+
+export interface JsonAnalysisMetadata {
+  root_kind: 'object' | 'array' | 'string' | 'number' | 'boolean' | 'null';
+  key_count?: number | null;
+}
+
+export interface MarkdownAnalysisMetadata {
+  has_heading: boolean;
+  has_fenced_code_block: boolean;
+  has_link: boolean;
+}
 
 export interface ContentMetadata {
   detected_language?: string;
@@ -71,6 +129,29 @@ export interface Base64Metadata {
   encoded_size?: number;
   content_hint?: string;
   encoding_efficiency?: number;
+}
+
+export type EntryAnalysisMetadata =
+  | { kind: 'plain_text'; data: PlainTextAnalysisMetadata }
+  | { kind: 'url'; data: UrlParts }
+  | { kind: 'ip_address'; data: IpAddressAnalysisMetadata }
+  | { kind: 'email'; data: EmailAnalysisMetadata }
+  | { kind: 'color'; data: ColorFormats }
+  | { kind: 'code'; data: CodeAnalysisMetadata }
+  | { kind: 'command'; data: CommandAnalysisMetadata }
+  | { kind: 'timestamp'; data: TimestampFormats }
+  | { kind: 'json'; data: JsonAnalysisMetadata }
+  | { kind: 'markdown'; data: MarkdownAnalysisMetadata }
+  | { kind: 'base64'; data: Base64Metadata };
+
+export interface EntryAnalysisSnapshot {
+  contract_version: number;
+  analysis_version: number;
+  status: AnalysisStatus;
+  subtype: AnalysisSubtype;
+  metadata: EntryAnalysisMetadata;
+  diagnostics: AnalysisDiagnostic[];
+  analyzed_at: number;
 }
 
 export interface FileMetadata {
