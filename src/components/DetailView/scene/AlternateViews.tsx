@@ -20,6 +20,14 @@ const normalizeToText = (payload: unknown): string => {
   }
 };
 
+const normalizeToMediaSrc = (payload: unknown) => {
+  if (typeof payload === 'string') {
+    return payload;
+  }
+
+  return normalizeToText(payload);
+};
+
 export function AlternateViews({ views }: AlternateViewsProps) {
   const defaultKey = views[0]?.key ?? '';
   const [activeKey, setActiveKey] = useState(defaultKey);
@@ -41,6 +49,40 @@ export function AlternateViews({ views }: AlternateViewsProps) {
   const renderView = (view: PreviewAlternateView) => {
     if (view.kind === 'json') {
       return <JsonRenderer content={normalizeToText(view.payload)} />;
+    }
+
+    if (view.kind === 'image') {
+      return (
+        <div className="overflow-hidden rounded-xl border border-border/70 bg-muted/30 p-2">
+          <img
+            src={normalizeToMediaSrc(view.payload)}
+            alt={`${view.label} preview`}
+            className="max-h-[320px] w-full rounded-lg object-contain"
+          />
+        </div>
+      );
+    }
+
+    if (view.kind === 'audio') {
+      return (
+        <audio
+          controls
+          aria-label={`${view.label} preview`}
+          className="w-full"
+          src={normalizeToMediaSrc(view.payload)}
+        />
+      );
+    }
+
+    if (view.kind === 'video') {
+      return (
+        <video
+          controls
+          aria-label={`${view.label} preview`}
+          className="max-h-[320px] w-full rounded-xl border border-border/70 bg-muted/30"
+          src={normalizeToMediaSrc(view.payload)}
+        />
+      );
     }
 
     if (view.kind === 'url_card') {
