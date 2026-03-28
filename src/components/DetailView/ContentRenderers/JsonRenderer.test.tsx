@@ -2,6 +2,8 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { JsonRenderer } from './JsonRenderer';
 
+const contentHeight = 'clamp(360px, 52vh, 920px)';
+
 const mockedJsonRendererDeps = vi.hoisted(() => ({
   invoke: vi.fn().mockResolvedValue(undefined),
   writeText: vi.fn().mockResolvedValue(undefined),
@@ -92,6 +94,8 @@ describe('JsonRenderer', () => {
     expect(screen.getByText('JSON')).toBeInTheDocument();
     expect(screen.getByText('树形视图')).toBeInTheDocument();
     expect(screen.getByTestId('json-tree-view')).toHaveTextContent('"name":"dance"');
+    expect(screen.getByTestId('json-content-shell')).toHaveStyle({ height: contentHeight });
+    expect(screen.getByTestId('json-tree-scroll-region')).toHaveClass('overflow-auto');
     expect(screen.queryByTestId('json-monaco-editor')).not.toBeInTheDocument();
   });
 
@@ -102,8 +106,15 @@ describe('JsonRenderer', () => {
 
     expect(screen.getByText('代码视图')).toBeInTheDocument();
     expect(screen.getByTestId('json-monaco-editor')).toHaveAttribute('data-language', 'json');
-    expect(screen.getByTestId('json-monaco-editor')).toHaveAttribute('data-height', '100%');
+    expect(screen.getByTestId('json-monaco-editor')).toHaveAttribute('data-height', contentHeight);
     expect(mockedJsonRendererDeps.defineMonacoThemes).toHaveBeenCalledTimes(1);
+  });
+
+  it('无效 JSON 提示也落在显式高度容器中', () => {
+    render(<JsonRenderer content="{broken-json" />);
+
+    expect(screen.getByText('无效的 JSON 格式')).toBeInTheDocument();
+    expect(screen.getByTestId('json-content-shell')).toHaveStyle({ height: contentHeight });
   });
 
   it('复制按钮走 backend copy_to_clipboard 合同', () => {
