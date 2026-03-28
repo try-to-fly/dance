@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-stopped_at: Completed 02-06-PLAN.md
-last_updated: '2026-03-28T05:12:15.641Z'
+status: verifying
+stopped_at: Completed 02-07-PLAN.md
+last_updated: '2026-03-28T05:24:26.293Z'
 last_activity: 2026-03-28
 progress:
   total_phases: 5
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 13
-  completed_plans: 12
-  percent: 92
+  completed_plans: 13
+  percent: 100
 ---
 
 # Project State
@@ -25,18 +25,18 @@ See: .planning/PROJECT.md (updated 2026-03-27)
 
 ## Current Position
 
-Phase: 02 (analysis-contracts-versioned-detection) — EXECUTING
+Phase: 02 (analysis-contracts-versioned-detection) — VERIFYING
 Plan: 7 of 7
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-03-28
 
-Progress: [█████████░] 92%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 11
+- Total plans completed: 13
 - Average duration: tracked in summary files
 - Total execution time: tracked in summary files
 
@@ -52,14 +52,15 @@ Progress: [█████████░] 92%
 
 **Recent Trend:**
 
-- Last 5 plans: 02-02, 02-03, 02-04, 02-05, 02-06
-- Trend: Phase 2 nearing completion
+- Last 5 plans: 02-03, 02-04, 02-05, 02-06, 02-07
+- Trend: Phase 2 complete, ready for verification
 
 | Phase 02 P02 | summary recorded | companion persistence | complete |
 | Phase 02 P03 | summary recorded | runtime analysis wiring | complete |
 | Phase 02 P04 | summary recorded | frontend analysis-first consumption | complete |
 | Phase 02 P05 | summary recorded | history reanalysis closure | complete |
 | Phase 02 P06 | 10min | 2 tasks | 7 files |
+| Phase 02 P07 | 6min | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -90,6 +91,8 @@ Recent decisions affecting current work:
 - [Phase 02-analysis-contracts-versioned-detection]: URL 条目无论远端 resolved previewKind 是 JSON、文本还是媒体，主视图都保持 url_card。
 - [Phase 02-analysis-contracts-versioned-detection]: URL 条目的 ResolvedPreviewData 只能承载真实远端 payload，不能再把原始 URL 字符串预填成 textContent。
 - [Phase 02-analysis-contracts-versioned-detection]: 备用视图里的 image/audio/video 使用原生媒体元素渲染，不复用统一文本 fallback。
+- [Phase 02]: Keep raw-only alternate views visible for non-immersive JSON detail and hide them only for immersive image/video/audio previews.
+- [Phase 02]: Use one explicit clamp height for JsonRenderer tree, code, and invalid states so Monaco never depends on parent 100% height.
 
 ### Pending Todos
 
@@ -103,6 +106,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-28T05:12:15.638Z
-Stopped at: Completed 02-06-PLAN.md
+Last session: 2026-03-28T05:24:26.291Z
+Stopped at: Completed 02-07-PLAN.md
 Resume file: None
