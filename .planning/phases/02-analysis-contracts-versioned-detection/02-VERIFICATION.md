@@ -1,23 +1,25 @@
 ---
 phase: 02-analysis-contracts-versioned-detection
-verified: 2026-03-28T05:34:26Z
-status: human_needed
+verified: 2026-03-28T08:11:17Z
+status: passed
 score: 4/4 must-haves verified
 human_verification:
   - test: '运行桌面应用并复制 URL、JSON、畸形 JSON、Base64 文本'
     expected: '新历史项显示稳定 subtype；畸形输入降级为 plain_text 且保留 diagnostics；raw 内容仍可查看'
     why_human: '真实剪贴板监听依赖 OS pasteboard、Tauri 事件与桌面壳，静态检查和单元测试不能完全替代'
+    result: pass
   - test: '在 Preferences 触发 analysis rebuild 后打开 URL 与长 JSON 详情'
     expected: '重建结果摘要出现并刷新历史；URL 仍以 url_card 为主视图；JSON Raw 入口可见，长内容列与 Monaco 代码视图可滚动'
     why_human: '最终交互、滚动手感与桌面布局只能在真实渲染环境中确认'
+    result: pass
 ---
 
 # Phase 2: Analysis Contracts & Versioned Detection Verification Report
 
 **Phase Goal:** Users get stable developer-content analysis that can be re-applied to history and still falls back cleanly when parsing fails.
-**Verified:** 2026-03-28T05:34:26Z
-**Status:** human_needed
-**Re-verification:** No — initial verification
+**Verified:** 2026-03-28T08:11:17Z
+**Status:** passed
+**Re-verification:** Yes — desktop human validation approved after implementation
 
 ## Goal Achievement
 
@@ -116,8 +118,7 @@ human_verification:
 | `DETE-03`   | `02-02`, `02-05`                                              | Existing history can benefit from upgraded detection without recopy | ✓ SATISFIED | stale selector + batched rebuilder + Tauri command + Preferences rebuild entry point + integration test。               |
 | `DETE-04`   | `02-01`, `02-02`, `02-03`, `02-04`, `02-05`, `02-06`, `02-07` | Graceful fallback to raw content with preserved diagnostics         | ✓ SATISFIED | fallback snapshot、diagnostics persistence、detail fallback badge/inspector/raw tab、JSON raw-only scroll regressions。 |
 
-Phase 02 在 `PLAN` frontmatter 中声明的 requirement IDs 为 `DETE-01`、`DETE-02`、`DETE-03`、`DETE-04`。这些 ID 在 `REQUIREMENTS.md` 中全部可追踪；未发现额外映射到 Phase 02 但未被任何 plan 声明的 orphaned requirement。  
-补充说明：`REQUIREMENTS.md` traceability 表仍把 `DETE-01` 与 `DETE-03` 标为 `Pending`，但当前代码证据和定向测试已经满足这两项 requirement，文档状态落后于实现。
+Phase 02 在 `PLAN` frontmatter 中声明的 requirement IDs 为 `DETE-01`、`DETE-02`、`DETE-03`、`DETE-04`。这些 ID 在 `REQUIREMENTS.md` 中全部可追踪；未发现额外映射到 Phase 02 但未被任何 plan 声明的 orphaned requirement。
 
 ### Anti-Patterns Found
 
@@ -128,25 +129,27 @@ Phase 02 在 `PLAN` frontmatter 中声明的 requirement IDs 为 `DETE-01`、`DE
 
 未发现会阻断 Phase 02 目标达成的 stub、orphaned artifact 或未接线关键链路。
 
-### Human Verification Required
+### Human Verification Completed
 
 ### 1. Live Clipboard Capture
 
 **Test:** 运行桌面应用，依次复制 HTTPS URL、合法 JSON、畸形 JSON、Base64 文本。  
 **Expected:** 新历史项显示稳定 subtype；合法内容显示对应 metadata；畸形输入降级为 `plain_text`，但 raw 内容仍可查看且 diagnostics 可见。  
+**Result:** PASS  
 **Why human:** 真实剪贴板监听依赖 OS pasteboard、Tauri runtime 和桌面事件循环，代码审查与单元/集成测试不能完全替代。
 
 ### 2. Desktop Rebuild + Detail UI Sanity
 
 **Test:** 打开 Preferences 的 system/cache 区域，点击 analysis rebuild；随后打开一个 URL 条目和一个长 JSON 条目的详情。  
 **Expected:** rebuild 结果摘要出现并刷新历史；URL 仍以 `url_card` 为主视图；JSON Raw 入口可达；长内容列和 Monaco 代码视图可以滚动。  
+**Result:** PASS  
 **Why human:** 最终交互、布局裁切、滚动手感和真实桌面渲染效果只能在运行中的应用里确认。
 
 ### Gaps Summary
 
-未发现阻塞性 gap。Phase 02 的 must-haves 在代码、关键链路、数据流和定向测试层面都已闭合：Rust authoritative analysis contract 已存在并接入 capture/runtime，`entry_analysis` companion table 成为持久化权威，history 可重建并从 Preferences 触发，前端 detail/store 也已 analysis-first 且在 fallback 场景保留 raw content 与 diagnostics。剩余事项只是在真实桌面环境中做最终 sanity check。
+未发现阻塞性 gap。Phase 02 的 must-haves 在代码、关键链路、数据流、定向测试和桌面端人工验证层面都已闭合：Rust authoritative analysis contract 已存在并接入 capture/runtime，`entry_analysis` companion table 成为持久化权威，history 可重建并从 Preferences 触发，前端 detail/store 也已 analysis-first 且在 fallback 场景保留 raw content 与 diagnostics，URL/JSON 的 UAT 回归也已确认修复。
 
 ---
 
-_Verified: 2026-03-28T05:34:26Z_  
+_Verified: 2026-03-28T08:11:17Z_  
 _Verifier: Claude (gsd-verifier)_
