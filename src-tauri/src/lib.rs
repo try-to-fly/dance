@@ -35,7 +35,7 @@ mod capture_runtime_tests;
 mod capture_policy_tests;
 
 #[cfg(test)]
-mod analysis_contract_tests {}
+mod analysis_contract_tests;
 
 use app_paths::AppPaths;
 use commands::*;
