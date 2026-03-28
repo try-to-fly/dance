@@ -188,7 +188,7 @@ describe('DetailView', () => {
     expect(screen.queryByText('类型')).not.toBeInTheDocument();
   });
 
-  it('根据内容子类型切换到 JSON 渲染器，并在 raw-only 场景下隐藏备用视图', () => {
+  it('根据内容子类型切换到 JSON 渲染器，并保留 raw-only 备用视图入口', () => {
     mockedUseClipboardStore.mockReturnValue(
       createStoreState({
         ...baseEntry,
@@ -200,7 +200,13 @@ describe('DetailView', () => {
     render(<DetailView />);
 
     expect(screen.getByTestId('renderer-json')).toHaveTextContent('{"hello":"world"}');
-    expect(screen.queryAllByTestId('renderer-unified')).toHaveLength(0);
+    expect(screen.getByText('Raw')).toBeInTheDocument();
+    expect(
+      screen
+        .getAllByTestId('renderer-unified')
+        .some((node) => node.textContent?.includes('plain_text:{"hello":"world"}'))
+    ).toBe(true);
+    expect(document.getElementById('detail-view-primary-column')).toHaveClass('overflow-y-auto');
   });
 
   it('Base64 条目在新预览模型落地前保留可读的文本兜底', () => {

@@ -12,12 +12,13 @@ vi.mock('../ContentRenderers', () => ({
 }));
 
 describe('AlternateViews', () => {
-  it('只有 raw 单一备用视图时不渲染容器', () => {
-    const { container } = render(
+  it('只有 raw 单一备用视图时仍渲染 Raw 卡片', () => {
+    render(
       <AlternateViews views={[{ key: 'raw', label: 'Raw', kind: 'raw', payload: 'hello' }]} />
     );
 
-    expect(container).toBeEmptyDOMElement();
+    expect(screen.getByText('Raw')).toBeInTheDocument();
+    expect(screen.getByTestId('text-renderer')).toHaveTextContent('hello');
   });
 
   it('存在多个备用视图时保留 tabs 容器', () => {
