@@ -190,28 +190,6 @@ const resolvePrimaryKind = (
   }
 
   if (subType === 'url') {
-    const resolvedKind = resolvedData?.url?.previewKind;
-    if (resolvedData?.imageUrl) {
-      return 'image';
-    }
-    if (resolvedData?.videoUrl) {
-      return 'video';
-    }
-    if (resolvedData?.audioUrl) {
-      return 'audio';
-    }
-    if (hasResolvedJsonContent(resolvedData) || resolvedKind === 'json') {
-      return 'json';
-    }
-    if (resolvedKind === 'code') {
-      return 'code';
-    }
-    if (resolvedKind === 'markdown') {
-      return 'markdown';
-    }
-    if (resolvedData?.textContent) {
-      return 'plain_text';
-    }
     return 'url_card';
   }
 
@@ -344,6 +322,30 @@ export const buildPreviewDescriptor = ({
     });
   }
   if (subType === 'url') {
+    if (resolvedData?.imageUrl) {
+      alternateViews.push({
+        key: 'resolved-image',
+        label: 'Image',
+        kind: 'image',
+        payload: resolvedData.imageUrl,
+      });
+    }
+    if (resolvedData?.audioUrl) {
+      alternateViews.push({
+        key: 'resolved-audio',
+        label: 'Audio',
+        kind: 'audio',
+        payload: resolvedData.audioUrl,
+      });
+    }
+    if (resolvedData?.videoUrl) {
+      alternateViews.push({
+        key: 'resolved-video',
+        label: 'Video',
+        kind: 'video',
+        payload: resolvedData.videoUrl,
+      });
+    }
     alternateViews.push({
       key: 'url-structure',
       label: 'URL',

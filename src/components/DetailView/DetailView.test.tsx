@@ -338,13 +338,13 @@ describe('DetailView', () => {
     const { rerender } = render(<DetailView />);
 
     await waitFor(() => {
-      expect(screen.getByAltText('preview')).toHaveAttribute('src', 'https://example.com/a.png');
+      expect(screen.getByText('https://example.com/a.png')).toBeInTheDocument();
     });
 
     currentEntry = secondEntry;
     rerender(<DetailView />);
 
-    expect(screen.queryByAltText('preview')).not.toBeInTheDocument();
+    expect(screen.queryByText('https://example.com/a.png')).not.toBeInTheDocument();
     expect(screen.getAllByTestId('renderer-unified')[0]).toHaveTextContent('command:echo second');
 
     resolveSecondEntry?.({});

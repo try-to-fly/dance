@@ -798,18 +798,19 @@ export const useClipboardStore = create<ClipboardStore>((set, get) => ({
     }
 
     if ((contentType.includes('text') || contentType.includes('string')) && entry.content_data) {
-      resolved.textContent = entry.content_data;
-      if (subType === 'json') {
-        try {
-          resolved.jsonContent = JSON.parse(entry.content_data);
-        } catch {
-          // keep raw text only
-        }
-      }
       if (subType === 'url' && state.resolveUrlPreview) {
         const urlResolved = await state.resolveUrlPreview(entry.content_data);
         Object.assign(resolved, urlResolved);
         ttlMs = Math.min(ttlMs, getPreviewCacheTtlMs(urlResolved));
+      } else {
+        resolved.textContent = entry.content_data;
+        if (subType === 'json') {
+          try {
+            resolved.jsonContent = JSON.parse(entry.content_data);
+          } catch {
+            // keep raw text only
+          }
+        }
       }
       if (subType === 'base64' && state.decodeBase64Preview) {
         const base64Resolved = await state.decodeBase64Preview(entry.content_data);
