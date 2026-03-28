@@ -175,7 +175,7 @@ describe('buildSemanticPreviewModel', () => {
       semanticType: 'json',
       previewIntent: 'json_structured',
       headline: 'JSON object',
-      secondarySummary: '2 keys | 29 chars',
+      secondarySummary: '2 keys | 28 chars',
       supportsRawView: true,
       usesWorkbench: false,
     });

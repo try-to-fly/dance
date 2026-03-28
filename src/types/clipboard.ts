@@ -29,6 +29,41 @@ export type ContentSubType =
   | 'markdown'
   | 'base64';
 
+export type PreviewIntent =
+  | 'plain_text_summary'
+  | 'markdown_structured'
+  | 'email_structured'
+  | 'ip_structured'
+  | 'timestamp_structured'
+  | 'json_structured'
+  | 'url_structured'
+  | 'color_structured'
+  | 'code_workbench'
+  | 'command_workbench'
+  | 'base64_summary'
+  | 'image_asset'
+  | 'file_asset';
+
+export type PreviewSummaryDensity = 'list' | 'retrieval';
+
+export interface SemanticPreviewModel {
+  semanticType: ContentSubType | 'image' | 'file';
+  previewIntent: PreviewIntent;
+  headline: string;
+  secondarySummary: string;
+  rawContent: string | null;
+  supportsRawView: boolean;
+  usesWorkbench: boolean;
+}
+
+export interface PreviewSummaryDescriptor {
+  density: PreviewSummaryDensity;
+  semanticType: SemanticPreviewModel['semanticType'];
+  previewIntent: PreviewIntent;
+  headline: string;
+  secondarySummary: string;
+}
+
 export type AnalysisSubtype = ContentSubType;
 
 export type AnalysisStatus = 'matched' | 'fallback';
