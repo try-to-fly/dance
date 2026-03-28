@@ -1,4 +1,3 @@
-import { useState, useEffect } from 'react';
 import { Copy, Palette } from 'lucide-react';
 import colorConvert from 'color-convert';
 import { useClipboardStore } from '../../../stores/clipboardStore';
@@ -12,109 +11,177 @@ interface ColorRendererProps {
   metadata?: string | null;
 }
 
+interface ParsedColorValue {
+  rgb: [number, number, number];
+  alpha: number;
+}
+
+const HEX_SHORT_LENGTH = 3;
+const HEX_FULL_LENGTH = 6;
+
+const parseMetadataColorFormats = (metadata?: string | null): ColorFormats | null => {
+  if (!metadata) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(metadata) as
+      | { color_formats?: ColorFormats; kind?: string; data?: ColorFormats }
+      | ColorFormats;
+
+    if ('color_formats' in parsed && parsed.color_formats) {
+      return parsed.color_formats;
+    }
+
+    if ('kind' in parsed && parsed.kind === 'color' && parsed.data) {
+      return parsed.data;
+    }
+
+    return parsed;
+  } catch {
+    return null;
+  }
+};
+
+const normalizeHex = (value: string): string | null => {
+  const normalized = value.trim().replace(/^#/, '');
+  if (normalized.length === HEX_SHORT_LENGTH) {
+    return normalized
+      .split('')
+      .map((char) => `${char}${char}`)
+      .join('');
+  }
+
+  if (normalized.length === HEX_FULL_LENGTH) {
+    return normalized;
+  }
+
+  return null;
+};
+
+const parseRgbLikeValue = (value: string): ParsedColorValue | null => {
+  const matches = value.match(/[\d.]+/g);
+  if (!matches || matches.length < 3) {
+    return null;
+  }
+
+  const rgb: [number, number, number] = [
+    Number.parseInt(matches[0], 10),
+    Number.parseInt(matches[1], 10),
+    Number.parseInt(matches[2], 10),
+  ];
+
+  return {
+    rgb,
+    alpha: matches[3] ? Number.parseFloat(matches[3]) : 1,
+  };
+};
+
+const parseHslValue = (value: string): ParsedColorValue | null => {
+  const matches = value.match(/[\d.]+/g);
+  if (!matches || matches.length < 3) {
+    return null;
+  }
+
+  const hsl: [number, number, number] = [
+    Number.parseInt(matches[0], 10),
+    Number.parseInt(matches[1], 10),
+    Number.parseInt(matches[2], 10),
+  ];
+
+  return {
+    rgb: colorConvert.hsl.rgb(hsl) as [number, number, number],
+    alpha: matches[3] ? Number.parseFloat(matches[3]) : 1,
+  };
+};
+
+const parseColorValue = (value: string): ParsedColorValue | null => {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  if (trimmed.startsWith('#')) {
+    const normalizedHex = normalizeHex(trimmed);
+    if (!normalizedHex) {
+      return null;
+    }
+
+    return {
+      rgb: colorConvert.hex.rgb(normalizedHex) as [number, number, number],
+      alpha: 1,
+    };
+  }
+
+  if (trimmed.startsWith('rgba(') || trimmed.startsWith('rgb(')) {
+    return parseRgbLikeValue(trimmed);
+  }
+
+  if (trimmed.startsWith('hsl(') || trimmed.startsWith('hsla(')) {
+    return parseHslValue(trimmed);
+  }
+
+  return null;
+};
+
+const formatAlpha = (value: number): string => {
+  if (Number.isNaN(value)) {
+    return '1';
+  }
+
+  return Number.isInteger(value)
+    ? String(value)
+    : value.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
+};
+
+const buildColorPresentation = (content: string, metadata?: string | null) => {
+  const metadataFormats = parseMetadataColorFormats(metadata);
+  const parseSource =
+    metadataFormats?.rgba ||
+    metadataFormats?.rgb ||
+    metadataFormats?.hex ||
+    metadataFormats?.hsl ||
+    content;
+  const parsed = parseColorValue(parseSource) ?? { rgb: [0, 0, 0] as [number, number, number], alpha: 1 };
+  const [red, green, blue] = parsed.rgb;
+  const hsl = colorConvert.rgb.hsl(parsed.rgb);
+
+  return {
+    rgbValues: parsed.rgb,
+    swatchColor:
+      metadataFormats?.hex ||
+      metadataFormats?.rgba ||
+      metadataFormats?.rgb ||
+      metadataFormats?.hsl ||
+      content,
+    formats: {
+      hex: metadataFormats?.hex ?? `#${colorConvert.rgb.hex(parsed.rgb)}`,
+      rgb: metadataFormats?.rgb ?? `rgb(${red}, ${green}, ${blue})`,
+      rgba: metadataFormats?.rgba ?? `rgba(${red}, ${green}, ${blue}, ${formatAlpha(parsed.alpha)})`,
+      hsl: metadataFormats?.hsl ?? `hsl(${hsl[0]}, ${hsl[1]}%, ${hsl[2]}%)`,
+    },
+  };
+};
+
+const getContrastColor = ([red, green, blue]: [number, number, number]) => {
+  const brightness = (red * 299 + green * 587 + blue * 114) / 1000;
+  return brightness > 128 ? '#000000' : '#ffffff';
+};
+
 export function ColorRenderer({ content, metadata }: ColorRendererProps) {
   const { copyToClipboard } = useClipboardStore();
-  const [colorFormats, setColorFormats] = useState<ColorFormats>({});
-  const [rgbValues, setRgbValues] = useState<[number, number, number]>([0, 0, 0]);
-
-  useEffect(() => {
-    console.log('[ColorRenderer] content:', content);
-    console.log('[ColorRenderer] metadata:', metadata);
-
-    if (metadata) {
-      try {
-        const parsed = JSON.parse(metadata);
-        console.log('[ColorRenderer] parsed metadata:', parsed);
-        if (parsed.color_formats) {
-          setColorFormats(parsed.color_formats);
-          console.log('[ColorRenderer] color_formats from metadata:', parsed.color_formats);
-        }
-      } catch (e) {
-        console.error('解析颜色元数据失败:', e);
-      }
-    }
-
-    // 解析颜色值
-    parseColor(content);
-  }, [content, metadata]);
-
-  const parseColor = (color: string) => {
-    const formats: ColorFormats = {};
-    let rgb: [number, number, number] = [0, 0, 0];
-
-    // HEX颜色
-    if (color.startsWith('#')) {
-      let hex = color.substring(1);
-      // 处理3位HEX颜色，转换为6位
-      if (hex.length === 3) {
-        hex = hex
-          .split('')
-          .map((c) => c + c)
-          .join('');
-      }
-      if (hex.length === 6) {
-        formats.hex = '#' + hex;
-        try {
-          rgb = colorConvert.hex.rgb(hex) as [number, number, number];
-        } catch (e) {
-          console.error('解析HEX颜色失败:', e);
-        }
-      }
-    }
-    // RGB/RGBA颜色
-    else if (color.startsWith('rgb')) {
-      const matches = color.match(/\d+/g);
-      if (matches && matches.length >= 3) {
-        rgb = [parseInt(matches[0]), parseInt(matches[1]), parseInt(matches[2])];
-        if (color.startsWith('rgba') && matches.length === 4) {
-          formats.rgba = color;
-        } else {
-          formats.rgb = color;
-        }
-      }
-    }
-    // HSL颜色
-    else if (color.startsWith('hsl')) {
-      const matches = color.match(/\d+/g);
-      if (matches && matches.length >= 3) {
-        const hsl: [number, number, number] = [
-          parseInt(matches[0]),
-          parseInt(matches[1]),
-          parseInt(matches[2]),
-        ];
-        rgb = colorConvert.hsl.rgb(hsl) as [number, number, number];
-        formats.hsl = color;
-      }
-    }
-
-    setRgbValues(rgb);
-
-    // 生成所有格式
-    if (!formats.hex) {
-      formats.hex = '#' + colorConvert.rgb.hex(rgb);
-    }
-    if (!formats.rgb) {
-      formats.rgb = `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
-    }
-    if (!formats.rgba) {
-      formats.rgba = `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, 1)`;
-    }
-    if (!formats.hsl) {
-      const hsl = colorConvert.rgb.hsl(rgb);
-      formats.hsl = `hsl(${hsl[0]}, ${hsl[1]}%, ${hsl[2]}%)`;
-    }
-
-    setColorFormats(formats);
-  };
+  const { formats, rgbValues, swatchColor } = buildColorPresentation(content, metadata);
 
   const handleCopy = async (text: string) => {
     await copyToClipboard(text);
   };
 
-  const getContrastColor = () => {
-    const brightness = (rgbValues[0] * 299 + rgbValues[1] * 587 + rgbValues[2] * 114) / 1000;
-    return brightness > 128 ? '#000000' : '#ffffff';
-  };
+  const orderedFormats = [
+    { copyLabel: 'HEX', displayLabel: 'HEX:', value: formats.hex },
+    { copyLabel: 'RGB', displayLabel: 'RGB:', value: formats.rgb },
+    { copyLabel: 'RGBA', displayLabel: 'RGBA:', value: formats.rgba },
+    { copyLabel: 'HSL', displayLabel: 'HSL:', value: formats.hsl },
+  ];
 
   return (
     <div className="space-y-4">
@@ -135,10 +202,11 @@ export function ColorRenderer({ content, metadata }: ColorRendererProps) {
         <CardContent className="space-y-4">
           <div className="flex items-center gap-4">
             <div
+              data-testid="color-swatch"
               className="w-24 h-24 rounded-lg border-2 border-muted flex items-center justify-center shadow-sm"
               style={{
-                backgroundColor: colorFormats.hex || content,
-                color: getContrastColor(),
+                backgroundColor: swatchColor,
+                color: getContrastColor(rgbValues),
               }}
             >
               <Palette className="w-8 h-8" />
@@ -152,15 +220,27 @@ export function ColorRenderer({ content, metadata }: ColorRendererProps) {
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {colorFormats.hex && (
-              <div className="space-y-2">
-                <span className="text-sm font-medium text-muted-foreground">HEX:</span>
+            {orderedFormats.map((item) => (
+              <div
+                key={item.copyLabel}
+                data-format-label={item.copyLabel}
+                data-testid="color-format-row"
+                className="space-y-2"
+              >
+                <span className="text-sm font-medium text-muted-foreground">
+                  {item.displayLabel}
+                </span>
                 <div className="flex items-center gap-2">
-                  <code className="flex-1 p-2 bg-muted rounded font-mono text-sm">
-                    {colorFormats.hex}
+                  <code
+                    data-testid={`color-format-${item.copyLabel.toLowerCase()}`}
+                    className="flex-1 p-2 bg-muted rounded font-mono text-sm"
+                  >
+                    {item.value}
                   </code>
                   <Button
-                    onClick={() => handleCopy(colorFormats.hex!)}
+                    aria-label={`复制 ${item.copyLabel}`}
+                    title={`复制 ${item.copyLabel}`}
+                    onClick={() => handleCopy(item.value)}
                     size="sm"
                     variant="ghost"
                     className="h-8 w-8 p-0"
@@ -169,64 +249,7 @@ export function ColorRenderer({ content, metadata }: ColorRendererProps) {
                   </Button>
                 </div>
               </div>
-            )}
-
-            {colorFormats.rgb && (
-              <div className="space-y-2">
-                <span className="text-sm font-medium text-muted-foreground">RGB:</span>
-                <div className="flex items-center gap-2">
-                  <code className="flex-1 p-2 bg-muted rounded font-mono text-sm">
-                    {colorFormats.rgb}
-                  </code>
-                  <Button
-                    onClick={() => handleCopy(colorFormats.rgb!)}
-                    size="sm"
-                    variant="ghost"
-                    className="h-8 w-8 p-0"
-                  >
-                    <Copy className="w-3 h-3" />
-                  </Button>
-                </div>
-              </div>
-            )}
-
-            {colorFormats.rgba && (
-              <div className="space-y-2">
-                <span className="text-sm font-medium text-muted-foreground">RGBA:</span>
-                <div className="flex items-center gap-2">
-                  <code className="flex-1 p-2 bg-muted rounded font-mono text-sm">
-                    {colorFormats.rgba}
-                  </code>
-                  <Button
-                    onClick={() => handleCopy(colorFormats.rgba!)}
-                    size="sm"
-                    variant="ghost"
-                    className="h-8 w-8 p-0"
-                  >
-                    <Copy className="w-3 h-3" />
-                  </Button>
-                </div>
-              </div>
-            )}
-
-            {colorFormats.hsl && (
-              <div className="space-y-2">
-                <span className="text-sm font-medium text-muted-foreground">HSL:</span>
-                <div className="flex items-center gap-2">
-                  <code className="flex-1 p-2 bg-muted rounded font-mono text-sm">
-                    {colorFormats.hsl}
-                  </code>
-                  <Button
-                    onClick={() => handleCopy(colorFormats.hsl!)}
-                    size="sm"
-                    variant="ghost"
-                    className="h-8 w-8 p-0"
-                  >
-                    <Copy className="w-3 h-3" />
-                  </Button>
-                </div>
-              </div>
-            )}
+            ))}
           </div>
         </CardContent>
       </Card>
