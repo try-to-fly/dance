@@ -76,8 +76,16 @@ Plans:
 3. User can inspect color items with a visual swatch and alternate development-friendly color formats.
 4. User can inspect code and command items in a read-only developer-oriented view with preserved formatting and language or shell hints when available.
 5. User sees the same semantic type and preview intent for an entry in the list, detail, and retrieval flows.
-   **Plans**: TBD
+   **Plans**: 5 plans
    **UI hint**: yes
+
+Plans:
+
+- [ ] 03-01-PLAN.md — 建立 analysis-first semantic preview core 与 list/retrieval summary contract
+- [ ] 03-02-PLAN.md — 将 Clipboard list 收口为固定高度的两层语义摘要
+- [ ] 03-03-PLAN.md — 落地本地 URL 结构卡与默认无远端依赖的 detail contract
+- [ ] 03-04-PLAN.md — 打磨 Color detail renderer 的 swatch 与开发友好格式
+- [ ] 03-05-PLAN.md — 闭合 code/command 本地 workbench 的临时编辑与复制合同
 
 ### Phase 4: Search Quality & Retrieval
 
@@ -114,6 +122,6 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5
 | ------------------------------------------- | -------------- | ----------- | ---------- |
 | 1. Capture Reliability & Storage Cohesion   | 6/6            | Complete    | 2026-03-28 |
 | 2. Analysis Contracts & Versioned Detection | 7/7            | Complete    | 2026-03-28 |
-| 3. Unified Developer Previews               | 0/TBD          | Not started | -          |
+| 3. Unified Developer Previews               | 0/5            | Not started | -          |
 | 4. Search Quality & Retrieval               | 0/TBD          | Not started | -          |
 | 5. Rebuild Safety & Release Gates           | 0/TBD          | Not started | -          |
