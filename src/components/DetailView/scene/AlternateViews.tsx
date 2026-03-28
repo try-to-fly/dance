@@ -42,10 +42,6 @@ export function AlternateViews({ views }: AlternateViewsProps) {
     return null;
   }
 
-  if (views.length === 1 && views[0]?.key === 'raw') {
-    return null;
-  }
-
   const renderView = (view: PreviewAlternateView) => {
     if (view.kind === 'json') {
       return <JsonRenderer content={normalizeToText(view.payload)} />;

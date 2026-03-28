@@ -89,9 +89,10 @@ export function DetailScene({
   const hasInspector = descriptor.inspectorSections.length > 0;
   const hasImmersivePreview = immersivePreviewKinds.has(descriptor.primaryKind);
   const useDenseHeader = denseHeaderPreviewKinds.has(descriptor.primaryKind);
-  const showAlternateViews = !(
-    descriptor.alternateViews.length === 1 && descriptor.alternateViews[0]?.key === 'raw'
-  );
+  const hasRawOnlyAlternateView =
+    descriptor.alternateViews.length === 1 && descriptor.alternateViews[0]?.key === 'raw';
+  const showAlternateViews =
+    descriptor.alternateViews.length > 0 && !(hasImmersivePreview && hasRawOnlyAlternateView);
   const layoutMode = hasImmersivePreview ? 'immersive' : useDenseHeader ? 'dense' : 'default';
   const actionButtonClassName = cn(
     'h-8 rounded-xl px-3 text-xs min-[1200px]:h-9',
@@ -375,20 +376,27 @@ export function DetailScene({
             )}
           >
             <div
+              id="detail-view-primary-column"
               className={cn(
                 'min-h-0',
-                hasImmersivePreview && 'flex min-h-0 flex-col gap-2',
-                !hasImmersivePreview && 'space-y-2.5'
+                hasImmersivePreview ? 'flex flex-col gap-2' : 'overflow-y-auto pr-0.5'
               )}
             >
-              <div className={cn('min-h-0', hasImmersivePreview && 'flex-1')}>
-                <PrimaryPreviewRenderer
-                  kind={descriptor.primaryKind}
-                  payload={descriptor.primaryPayload}
-                  onOpenFile={onOpenFile}
-                />
+              <div
+                className={cn(
+                  'min-h-0',
+                  hasImmersivePreview ? 'flex min-h-0 flex-1 flex-col gap-2' : 'space-y-2.5'
+                )}
+              >
+                <div className={cn('min-h-0', hasImmersivePreview && 'flex-1')}>
+                  <PrimaryPreviewRenderer
+                    kind={descriptor.primaryKind}
+                    payload={descriptor.primaryPayload}
+                    onOpenFile={onOpenFile}
+                  />
+                </div>
+                {showAlternateViews && <AlternateViews views={descriptor.alternateViews} />}
               </div>
-              {showAlternateViews && <AlternateViews views={descriptor.alternateViews} />}
             </div>
 
             {hasInspector && (
