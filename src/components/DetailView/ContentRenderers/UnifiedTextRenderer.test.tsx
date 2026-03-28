@@ -10,12 +10,14 @@ const mockedMonaco = vi.hoisted(() => ({
       beforeMount,
       height,
       language,
+      onChange,
       theme,
       value,
     }: {
       beforeMount?: (instance: unknown) => void;
       height: string;
       language: string;
+      onChange?: (value?: string) => void;
       theme: string;
       value: string;
     }) => {
@@ -28,6 +30,9 @@ const mockedMonaco = vi.hoisted(() => ({
           data-theme={theme}
         >
           {value}
+          <button onClick={() => onChange?.('editedValue')} type="button">
+            mutate-editor
+          </button>
         </div>
       );
     }
@@ -85,6 +90,7 @@ vi.mock('../../../utils/monacoTheme', () => ({
 }));
 
 describe('UnifiedTextRenderer', () => {
+  // PREV-04 read-only wording is overridden by D-14..D-17 for local workbench behavior.
   it('为代码内容展示检测出的语言，并保留可伸展的编辑器高度', () => {
     render(
       <UnifiedTextRenderer
@@ -134,5 +140,36 @@ describe('UnifiedTextRenderer', () => {
       content: 'pnpm lint',
     });
     expect(mockedMonaco.writeText).not.toHaveBeenCalled();
+  });
+
+  it('D-15 / D-16: sessionKey 切换时重置本地 workbench，并通过 onContentChange 上报当前 buffer', () => {
+    const onContentChange = vi.fn();
+    const { rerender } = render(
+      <UnifiedTextRenderer
+        content="echo same"
+        contentSubType="command"
+        sessionKey="entry-a"
+        onContentChange={onContentChange}
+      />
+    );
+
+    expect(onContentChange).toHaveBeenCalledWith('echo same');
+
+    fireEvent.click(screen.getByRole('button', { name: 'mutate-editor' }));
+
+    expect(screen.getByTestId('monaco-editor')).toHaveTextContent('editedValue');
+    expect(onContentChange).toHaveBeenLastCalledWith('editedValue');
+
+    rerender(
+      <UnifiedTextRenderer
+        content="echo same"
+        contentSubType="command"
+        sessionKey="entry-b"
+        onContentChange={onContentChange}
+      />
+    );
+
+    expect(screen.getByTestId('monaco-editor')).toHaveTextContent('echo same');
+    expect(onContentChange).toHaveBeenLastCalledWith('echo same');
   });
 });

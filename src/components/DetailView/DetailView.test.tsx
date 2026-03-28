@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useClipboardStore } from '../../stores/clipboardStore';
 import { ClipboardEntry, EntryAnalysisSnapshot, ResolvedPreviewData } from '../../types/clipboard';
@@ -6,9 +6,25 @@ import { DetailView } from './DetailView';
 
 const mockedComponents = vi.hoisted(() => ({
   unifiedTextRenderer: vi.fn(
-    ({ content, contentSubType }: { content: string; contentSubType: string }) => (
+    ({
+      content,
+      contentSubType,
+      onContentChange,
+      sessionKey,
+    }: {
+      content: string;
+      contentSubType: string;
+      onContentChange?: (value: string) => void;
+      sessionKey?: string;
+    }) => (
       <div data-testid="renderer-unified">
         {contentSubType}:{content}
+        {sessionKey ? <span data-testid="renderer-session-key">{sessionKey}</span> : null}
+        {onContentChange ? (
+          <button onClick={() => onContentChange('editedValue')} type="button">
+            mutate-workbench
+          </button>
+        ) : null}
       </div>
     )
   ),
@@ -155,6 +171,7 @@ const formatTimestamp = (value: number, compact = false) =>
   });
 
 describe('DetailView', () => {
+  // PREV-04 read-only wording is overridden by D-14..D-17 for code/command detail workbench behavior.
   beforeEach(() => {
     mockedUseClipboardStore.mockReturnValue(createStoreState(null));
   });
@@ -355,5 +372,62 @@ describe('DetailView', () => {
     expect(screen.getAllByTestId('renderer-unified')[0]).toHaveTextContent('command:echo second');
 
     resolveSecondEntry?.({});
+  });
+
+  it('D-15 / D-16 / D-17: code detail 复制当前 workbench buffer，关闭后会重置本地编辑', async () => {
+    const firstEntry: ClipboardEntry = {
+      ...baseEntry,
+      id: 'entry-code-a',
+      content_hash: 'hash-code-a',
+      content_subtype: 'code',
+      content_data: 'const answer = 42;',
+    };
+    const reopenedEntry: ClipboardEntry = {
+      ...baseEntry,
+      id: 'entry-code-b',
+      content_hash: 'hash-code-b',
+      content_subtype: 'code',
+      content_data: 'const answer = 42;',
+    };
+    const copyToClipboard = vi.fn().mockResolvedValue(undefined);
+    let currentEntry: ClipboardEntry | null = firstEntry;
+    const sharedStore = {
+      ...createStoreState(firstEntry),
+      copyToClipboard,
+    } as ReturnType<typeof createStoreState>;
+
+    mockedUseClipboardStore.mockImplementation(() => {
+      sharedStore.selectedEntry = currentEntry;
+      return sharedStore;
+    });
+
+    const { rerender } = render(<DetailView />);
+
+    expect(screen.getByTestId('renderer-session-key')).toHaveTextContent('entry-code-a:hash-code-a');
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'mutate-workbench' })[0]);
+    fireEvent.click(screen.getByRole('button', { name: '复制' }));
+
+    await waitFor(() => {
+      expect(copyToClipboard).toHaveBeenLastCalledWith('editedValue');
+    });
+
+    expect(firstEntry.content_data).toBe('const answer = 42;');
+
+    currentEntry = null;
+    rerender(<DetailView />);
+
+    expect(screen.getByText('请选择一条内容')).toBeInTheDocument();
+
+    currentEntry = reopenedEntry;
+    rerender(<DetailView />);
+
+    expect(screen.getByTestId('renderer-session-key')).toHaveTextContent('entry-code-b:hash-code-b');
+
+    fireEvent.click(screen.getByRole('button', { name: '复制' }));
+
+    await waitFor(() => {
+      expect(copyToClipboard).toHaveBeenLastCalledWith('const answer = 42;');
+    });
   });
 });
