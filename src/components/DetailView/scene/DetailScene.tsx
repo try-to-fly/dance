@@ -234,6 +234,23 @@ export function DetailScene({
                 {descriptor.typeLabel}
               </Badge>
 
+              {descriptor.badges.map((badge) => (
+                <Badge
+                  key={badge.label}
+                  variant={badge.tone === 'warning' ? 'outline' : 'secondary'}
+                  className={cn(
+                    'rounded-full',
+                    badge.tone === 'warning' &&
+                      'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-400/20 dark:bg-amber-400/10 dark:text-amber-300',
+                    useDenseHeader
+                      ? 'px-2 py-0.5 text-[10px] min-[1200px]:px-2.5 min-[1200px]:text-[11px]'
+                      : 'px-2.5 py-1 text-[11px] min-[1200px]:px-3'
+                  )}
+                >
+                  {badge.label}
+                </Badge>
+              ))}
+
               {entry.is_favorite && (
                 <Badge
                   variant="outline"

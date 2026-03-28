@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { buildPreviewDescriptor } from '../../lib/preview/previewDescriptor';
 import {
   ClipboardEntry,
+  EntryAnalysisSnapshot,
   PreviewDescriptor,
   PreviewKind,
   ResolvedPreviewData,
@@ -63,6 +64,23 @@ const baseEntry: ClipboardEntry = {
 
 const createEntry = (overrides: Partial<ClipboardEntry>): ClipboardEntry => ({
   ...baseEntry,
+  ...overrides,
+});
+
+const createAnalysis = (overrides: Partial<EntryAnalysisSnapshot>): EntryAnalysisSnapshot => ({
+  contract_version: 1,
+  analysis_version: 1,
+  status: 'matched',
+  subtype: 'plain_text',
+  metadata: {
+    kind: 'plain_text',
+    data: {
+      char_count: 11,
+      line_count: 1,
+    },
+  },
+  diagnostics: [],
+  analyzed_at: new Date('2026-03-27T10:00:00Z').getTime(),
   ...overrides,
 });
 
@@ -241,6 +259,90 @@ describe('DetailPreview 契约 - Descriptor', () => {
 
     expect(descriptor.primaryKind).toBe<PreviewKind>('url_card');
     expectAlternateKeys(descriptor, ['raw', 'url-structure']);
+  });
+
+  it('analysis-first 会覆盖 legacy subtype 和 metadata', () => {
+    const descriptor = createDescriptor(
+      createEntry({
+        content_subtype: 'json',
+        content_data: 'https://analysis.example.com/docs?tab=1',
+        metadata: JSON.stringify({
+          url_parts: {
+            protocol: 'https',
+            host: 'legacy.example.com',
+            path: '/wrong',
+            query_params: [['mode', 'legacy']],
+          },
+        }),
+        analysis: createAnalysis({
+          subtype: 'url',
+          metadata: {
+            kind: 'url',
+            data: {
+              protocol: 'https',
+              host: 'analysis.example.com',
+              path: '/docs',
+              query_params: [{ key: 'tab', value: '1' }],
+            },
+          },
+        }),
+      })
+    );
+
+    expect(descriptor.primaryKind).toBe<PreviewKind>('url_card');
+    expect(descriptor.actions).toContain('open_url');
+    expect(descriptor.inspectorSections.find((section) => section.title === 'URL')?.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ label: 'Host', value: 'analysis.example.com' }),
+        expect.objectContaining({ label: 'Path', value: '/docs' }),
+      ])
+    );
+  });
+
+  it('fallback analysis 会保留 raw 主视图并暴露 diagnostics inspector', () => {
+    const descriptor = createDescriptor(
+      createEntry({
+        content_subtype: 'json',
+        content_data: '{broken-json',
+        metadata: JSON.stringify({
+          timestamp_formats: {
+            unix_ms: 1735699200000,
+          },
+        }),
+        analysis: createAnalysis({
+          status: 'fallback',
+          subtype: 'plain_text',
+          metadata: {
+            kind: 'plain_text',
+            data: {
+              char_count: 12,
+              line_count: 1,
+            },
+          },
+          diagnostics: [
+            {
+              code: 'json_malformed',
+              severity: 'error',
+              message: 'json parse failed',
+            },
+          ],
+        }),
+      })
+    );
+
+    expect(descriptor.primaryKind).toBe<PreviewKind>('plain_text');
+    expect(descriptor.badges).toEqual(
+      expect.arrayContaining([expect.objectContaining({ label: 'Fallback', tone: 'warning' })])
+    );
+    expectAlternateKeys(descriptor, ['raw']);
+    expect(
+      descriptor.inspectorSections.find((section) => section.title === 'Analysis')?.items
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ label: 'Status', value: 'Fallback' }),
+        expect.objectContaining({ value: expect.stringContaining('json_malformed') }),
+      ])
+    );
   });
 });
 

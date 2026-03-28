@@ -50,7 +50,7 @@ export function PrimaryPreviewRenderer({ kind, payload, onOpenFile }: PrimaryPre
   const entry = data?.entry;
   const resolvedData = data?.resolvedData;
   const content = entry?.content_data || '';
-  const metadataString = entry?.metadata;
+  const metadataString = data?.metadata ? JSON.stringify(data.metadata) : entry?.metadata;
 
   if (!entry) {
     return null;

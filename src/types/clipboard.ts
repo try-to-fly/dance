@@ -70,7 +70,8 @@ export interface CodeAnalysisMetadata {
 }
 
 export interface CommandAnalysisMetadata {
-  executable?: string | null;
+  command_name?: string | null;
+  shell_family?: string | null;
   has_pipeline: boolean;
   has_sudo_prefix: boolean;
 }
@@ -82,7 +83,8 @@ export interface JsonAnalysisMetadata {
 
 export interface MarkdownAnalysisMetadata {
   has_heading: boolean;
-  has_fenced_code_block: boolean;
+  has_list: boolean;
+  has_code_fence: boolean;
   has_link: boolean;
 }
 
@@ -111,6 +113,18 @@ export interface UrlParts {
   query_params: Array<[string, string]>;
 }
 
+export interface AnalysisUrlQueryParam {
+  key: string;
+  value: string;
+}
+
+export interface AnalysisUrlMetadata {
+  protocol: string;
+  host: string;
+  path: string;
+  query_params: AnalysisUrlQueryParam[];
+}
+
 export interface ColorFormats {
   hex?: string;
   rgb?: string;
@@ -133,7 +147,7 @@ export interface Base64Metadata {
 
 export type EntryAnalysisMetadata =
   | { kind: 'plain_text'; data: PlainTextAnalysisMetadata }
-  | { kind: 'url'; data: UrlParts }
+  | { kind: 'url'; data: AnalysisUrlMetadata }
   | { kind: 'ip_address'; data: IpAddressAnalysisMetadata }
   | { kind: 'email'; data: EmailAnalysisMetadata }
   | { kind: 'color'; data: ColorFormats }

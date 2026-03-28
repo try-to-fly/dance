@@ -1,4 +1,6 @@
 import {
+  AnalysisDiagnostic,
+  AnalysisStatus,
   ClipboardEntry,
   ContentMetadata,
   ContentSubType,
@@ -9,8 +11,10 @@ import {
 } from '../../types/clipboard';
 import {
   buildEntrySemanticSummary,
-  getEntrySubType,
-  parseContentMetadata,
+  getEntryAnalysisDiagnostics,
+  getEntryAnalysisStatus,
+  getEntryAnalysisSubtype,
+  getEntryPresentationMetadata,
 } from './entryPresentation';
 
 export interface PreviewLabelSet {
@@ -138,6 +142,40 @@ const buildBase64Inspector = (
   return { title: 'Base64', items };
 };
 
+const formatAnalysisStatus = (status: AnalysisStatus): string =>
+  status === 'fallback' ? 'Fallback' : 'Matched';
+
+const formatDiagnosticValue = (diagnostic: AnalysisDiagnostic): string =>
+  `${diagnostic.severity.toUpperCase()} | ${diagnostic.code} | ${diagnostic.message}`;
+
+const buildAnalysisInspector = (
+  status: AnalysisStatus | null,
+  diagnostics: AnalysisDiagnostic[]
+): PreviewInspectorSection | null => {
+  if (!status && diagnostics.length === 0) {
+    return null;
+  }
+
+  const items: PreviewInspectorSection['items'] = [];
+
+  if (status) {
+    items.push({
+      label: 'Status',
+      value: formatAnalysisStatus(status),
+      mono: true,
+    });
+  }
+
+  diagnostics.forEach((diagnostic, index) => {
+    items.push({
+      label: `Diagnostic ${index + 1}`,
+      value: formatDiagnosticValue(diagnostic),
+    });
+  });
+
+  return items.length > 0 ? { title: 'Analysis', items } : null;
+};
+
 const resolvePrimaryKind = (
   entry: ClipboardEntry,
   subType: ContentSubType,
@@ -172,7 +210,7 @@ const resolvePrimaryKind = (
       return 'markdown';
     }
     if (resolvedData?.textContent) {
-      return resolvedKind === 'plain_text' ? 'plain_text' : 'plain_text';
+      return 'plain_text';
     }
     return 'url_card';
   }
@@ -260,8 +298,10 @@ export const buildPreviewDescriptor = ({
   resolvedData?: ResolvedPreviewData;
   labels: PreviewLabelSet;
 }): PreviewDescriptor => {
-  const metadata = parseContentMetadata(entry.metadata);
-  const subType = getEntrySubType(entry);
+  const metadata = getEntryPresentationMetadata(entry);
+  const subType = getEntryAnalysisSubtype(entry);
+  const analysisStatus = getEntryAnalysisStatus(entry);
+  const diagnostics = getEntryAnalysisDiagnostics(entry);
   const semantic = buildEntrySemanticSummary(entry, {
     fallbackImageLabel: labels.image,
     fallbackFileLabel: labels.file,
@@ -319,6 +359,7 @@ export const buildPreviewDescriptor = ({
   const urlInspector = buildUrlInspector(metadata);
   const mediaInspector = buildMediaInspector(resolvedData);
   const base64Inspector = buildBase64Inspector(metadata, resolvedData);
+  const analysisInspector = buildAnalysisInspector(analysisStatus, diagnostics);
   if (urlInspector) {
     inspectorSections.push(urlInspector);
   }
@@ -327,6 +368,9 @@ export const buildPreviewDescriptor = ({
   }
   if (base64Inspector) {
     inspectorSections.push(base64Inspector);
+  }
+  if (analysisInspector) {
+    inspectorSections.push(analysisInspector);
   }
 
   const primaryPayload = {
@@ -351,10 +395,18 @@ export const buildPreviewDescriptor = ({
     actions.push('open_file');
   }
 
+  const badges: PreviewDescriptor['badges'] = [];
+  if (analysisStatus === 'fallback') {
+    badges.push({
+      label: 'Fallback',
+      tone: 'warning',
+    });
+  }
+
   return {
     headline: semantic.headline,
     typeLabel,
-    badges: [],
+    badges,
     primaryKind,
     primaryPayload,
     inspectorSections,

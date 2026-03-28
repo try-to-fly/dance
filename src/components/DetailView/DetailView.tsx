@@ -1,10 +1,14 @@
 import { useEffect, useState } from 'react';
-import { AppWindow, Clock3, Layers3 } from 'lucide-react';
+import { AlertTriangle, AppWindow, Clock3, Layers3 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useClipboardStore } from '../../stores/clipboardStore';
 import { ContentSubType, ResolvedPreviewData } from '../../types/clipboard';
 import { buildPreviewDescriptor } from '../../lib/preview/previewDescriptor';
-import { getEntrySubType } from '../../lib/preview/entryPresentation';
+import {
+  getEntryAnalysisDiagnostics,
+  getEntryAnalysisStatus,
+  getEntryAnalysisSubtype,
+} from '../../lib/preview/entryPresentation';
 import { DetailEmptyState, DetailScene } from './scene/DetailScene';
 
 const normalizeMetaLabel = (value: string) => value.replace(/[：:]$/, '');
@@ -150,7 +154,9 @@ export function DetailView() {
     return <DetailEmptyState selectItemLabel={t('detail.selectItem')} />;
   }
 
-  const subType = getEntrySubType(selectedEntry);
+  const subType = getEntryAnalysisSubtype(selectedEntry);
+  const analysisStatus = getEntryAnalysisStatus(selectedEntry);
+  const analysisDiagnostics = getEntryAnalysisDiagnostics(selectedEntry);
   const translatedSubTypeLabel = t(`detail.contentTypes.${subType}`);
   const subTypeLabel =
     translatedSubTypeLabel === `detail.contentTypes.${subType}`
@@ -184,6 +190,17 @@ export function DetailView() {
       value: String(selectedEntry.copy_count),
       fullValue: String(selectedEntry.copy_count),
     },
+    ...(analysisStatus === 'fallback'
+      ? [
+          {
+            key: 'analysis-status',
+            icon: AlertTriangle,
+            label: normalizeMetaLabel(resolveLabel('detail.analysisStatus', '分析')),
+            value: analysisDiagnostics[0]?.code || 'Fallback',
+            fullValue: analysisDiagnostics[0]?.message || 'Fallback',
+          },
+        ]
+      : []),
   ];
 
   const descriptor = buildPreviewDescriptor({

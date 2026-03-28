@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useClipboardStore } from '../../stores/clipboardStore';
-import { ClipboardEntry, ResolvedPreviewData } from '../../types/clipboard';
+import { ClipboardEntry, EntryAnalysisSnapshot, ResolvedPreviewData } from '../../types/clipboard';
 import { DetailView } from './DetailView';
 
 const mockedComponents = vi.hoisted(() => ({
@@ -65,6 +65,8 @@ vi.mock('react-i18next', () => ({
         'detail.unknown': '未知',
         'detail.actions.copyDecoded': '复制解码内容',
         'detail.actions.openFile': '打开文件',
+        'detail.analysisStatus': '分析',
+        'detail.contentTypes.plain_text': '文本',
         'detail.contentTypes.command': '命令',
         'detail.contentTypes.json': 'JSON',
         'detail.contentTypes.base64': 'Base64编码',
@@ -113,6 +115,23 @@ const baseEntry: ClipboardEntry = {
   metadata: null,
   app_bundle_id: null,
 };
+
+const createAnalysis = (overrides: Partial<EntryAnalysisSnapshot>): EntryAnalysisSnapshot => ({
+  contract_version: 1,
+  analysis_version: 1,
+  status: 'matched',
+  subtype: 'plain_text',
+  metadata: {
+    kind: 'plain_text',
+    data: {
+      char_count: 10,
+      line_count: 1,
+    },
+  },
+  diagnostics: [],
+  analyzed_at: new Date('2026-03-26T10:20:30Z').getTime(),
+  ...overrides,
+});
 
 const createStoreState = (selectedEntry: ClipboardEntry | null) => ({
   selectedEntry,
@@ -201,6 +220,41 @@ describe('DetailView', () => {
         .getAllByTestId('renderer-unified')
         .some((node) => node.textContent?.includes('plain_text:eyJ0eXBlIjoianNvbiJ9'))
     ).toBe(true);
+  });
+
+  it('fallback analysis 会保留 raw 文本主视图并显示降级提示', () => {
+    mockedUseClipboardStore.mockReturnValue(
+      createStoreState({
+        ...baseEntry,
+        content_subtype: 'json',
+        content_data: '{broken-json',
+        metadata: JSON.stringify({
+          timestamp_formats: {
+            unix_ms: 1735699200000,
+          },
+        }),
+        analysis: createAnalysis({
+          status: 'fallback',
+          subtype: 'plain_text',
+          diagnostics: [
+            {
+              code: 'json_malformed',
+              severity: 'error',
+              message: 'json parse failed',
+            },
+          ],
+        }),
+      })
+    );
+
+    render(<DetailView />);
+
+    expect(screen.getAllByTestId('renderer-unified')[0]).toHaveTextContent(
+      'plain_text:{broken-json'
+    );
+    expect(screen.getAllByText('Fallback').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText('Analysis')).toBeInTheDocument();
+    expect(screen.getAllByText(/json_malformed/i).length).toBeGreaterThanOrEqual(1);
   });
 
   it('为图片条目异步加载预览内容和元数据', async () => {

@@ -4,11 +4,12 @@ import { listen } from '@tauri-apps/api/event';
 import {
   Base64PreviewResolution,
   ClipboardEntry,
-  ContentSubType,
+  PreviewKind,
   ResolvedPreviewData,
   Statistics,
   UrlPreviewResolution,
 } from '../types/clipboard';
+import { getEntryAnalysisSubtype } from '../lib/preview/entryPresentation';
 
 type UrlPreviewCategory = 'none' | 'image' | 'video' | 'audio' | 'text' | 'json';
 
@@ -71,7 +72,7 @@ const guessUrlPreviewCategory = (url: string): UrlPreviewCategory => {
   return 'none';
 };
 
-const inferTextSubtypeFromUrl = (url: string): ContentSubType => {
+const inferUrlTextPreviewKind = (url: string): PreviewKind => {
   const lower = url.toLowerCase();
   if (/\.(json)(\?|$)/i.test(lower) || lower.includes('/api/')) {
     return 'json';
@@ -80,7 +81,7 @@ const inferTextSubtypeFromUrl = (url: string): ContentSubType => {
     return 'markdown';
   }
   if (/\.(sh|bat)(\?|$)/i.test(lower)) {
-    return 'command';
+    return 'code';
   }
   if (/\.(html|htm|css|js|jsx|ts|tsx|py|java|cpp|c|h|php|rb|go|rs|sql|xml)(\?|$)/i.test(lower)) {
     return 'code';
@@ -274,8 +275,6 @@ const applyUrlPreviewFallback = async ({
 }): Promise<ResolvedPreviewData> => {
   const finalUrl = resolved.url?.finalUrl || normalizedUrl;
   const category = guessUrlPreviewCategory(finalUrl);
-  const inferredTextSubtype =
-    category === 'text' ? inferTextSubtypeFromUrl(finalUrl) : 'plain_text';
   const previewKind =
     category === 'image'
       ? 'image'
@@ -286,11 +285,7 @@ const applyUrlPreviewFallback = async ({
           : category === 'json'
             ? 'json'
             : category === 'text'
-              ? inferredTextSubtype === 'markdown'
-                ? 'markdown'
-                : inferredTextSubtype === 'code' || inferredTextSubtype === 'command'
-                  ? 'code'
-                  : 'plain_text'
+              ? inferUrlTextPreviewKind(finalUrl)
               : 'url_card';
 
   const nextResolved: ResolvedPreviewData = {
@@ -790,7 +785,7 @@ export const useClipboardStore = create<ClipboardStore>((set, get) => ({
 
     const resolved: ResolvedPreviewData = {};
     const contentType = entry.content_type.toLowerCase();
-    const subType = (entry.content_subtype || 'plain_text') as ContentSubType;
+    const subType = getEntryAnalysisSubtype(entry);
     let ttlMs = DEFAULT_PREVIEW_CACHE_TTL_MS;
 
     if (contentType.includes('image') && entry.file_path) {
@@ -879,19 +874,7 @@ export const useClipboardStore = create<ClipboardStore>((set, get) => ({
           }
 
           // 检查content_subtype字段
-          let entrySubtype = 'plain_text';
-          if (entry.content_subtype) {
-            // content_subtype直接是字符串，不需要JSON解析
-            entrySubtype = entry.content_subtype;
-            console.log(
-              '[Filter] Entry:',
-              entry.content_data?.substring(0, 20),
-              'subtype:',
-              entrySubtype,
-              'filtering for:',
-              subtype
-            );
-          }
+          const entrySubtype = getEntryAnalysisSubtype(entry);
 
           return entrySubtype === subtype;
         }
