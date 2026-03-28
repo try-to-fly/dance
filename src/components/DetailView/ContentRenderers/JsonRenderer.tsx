@@ -79,10 +79,14 @@ export function JsonRenderer({ content }: JsonRendererProps) {
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-hidden" style={{ minHeight: contentHeight }}>
+      <div
+        data-testid="json-content-shell"
+        className="min-h-0 flex-1 overflow-hidden"
+        style={{ height: contentHeight }}
+      >
         {viewMode === 'tree' ? (
           isValidJson && parsedJson !== null ? (
-            <div className="h-full overflow-auto p-4">
+            <div data-testid="json-tree-scroll-region" className="h-full overflow-auto p-4">
               <JsonView
                 data={parsedJson}
                 shouldExpandNode={(level) => level < 3}
@@ -90,14 +94,14 @@ export function JsonRenderer({ content }: JsonRendererProps) {
               />
             </div>
           ) : (
-            <div className="flex h-full items-center justify-center p-4 text-sm text-muted-foreground">
+            <div className="flex h-full items-center justify-center overflow-auto p-4 text-sm text-muted-foreground">
               {t('jsonView.invalidJson')}
             </div>
           )
         ) : (
           <MonacoEditor
             key={`json-${resolvedTheme}`}
-            height="100%"
+            height={contentHeight}
             language="json"
             value={formattedJson}
             theme={monacoTheme}
