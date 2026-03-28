@@ -106,4 +106,49 @@ describe('clipboardStore preview resolution', () => {
     });
     expect(writeTextMock).not.toHaveBeenCalled();
   });
+
+  it('URL 条目解析前不会把 raw URL 预填进 resolved textContent', async () => {
+    const entry: ClipboardEntry = {
+      ...baseEntry,
+      content_data: 'https://example.com/api/data',
+      content_subtype: 'url',
+      analysis: {
+        contract_version: 1,
+        analysis_version: 1,
+        status: 'matched',
+        subtype: 'url',
+        metadata: {
+          kind: 'url',
+          data: {
+            protocol: 'https',
+            host: 'example.com',
+            path: '/api/data',
+            query_params: [],
+          },
+        },
+        diagnostics: [],
+        analyzed_at: Date.now(),
+      },
+    };
+
+    useClipboardStore.setState({
+      resolveUrlPreview: vi.fn().mockResolvedValue({
+        url: {
+          finalUrl: 'https://example.com/api/data',
+          previewKind: 'json',
+        },
+      }),
+    });
+
+    const resolved = await useClipboardStore.getState().resolveEntryPreview?.(entry);
+
+    expect(resolved).toMatchObject({
+      url: {
+        finalUrl: 'https://example.com/api/data',
+        previewKind: 'json',
+      },
+    });
+    expect(resolved?.textContent).toBeUndefined();
+    expect(resolved?.jsonContent).toBeUndefined();
+  });
 });

@@ -108,7 +108,7 @@ describe('DetailPreview 契约 - Descriptor', () => {
     expectAlternateKeys(descriptor, ['raw']);
   });
 
-  it('图片 URL 条目优先进入图片主预览', () => {
+  it('图片 URL 条目保持 URL 主预览，并暴露 resolved-image 备用视图', () => {
     const descriptor = createDescriptor(
       createEntry({
         content_subtype: 'url',
@@ -128,12 +128,12 @@ describe('DetailPreview 契约 - Descriptor', () => {
       }
     );
 
-    expect(descriptor.primaryKind).toBe<PreviewKind>('image');
+    expect(descriptor.primaryKind).toBe<PreviewKind>('url_card');
     expect(descriptor.actions).toContain('open_url');
-    expectAlternateKeys(descriptor, ['raw', 'url-structure']);
+    expectAlternateKeys(descriptor, ['raw', 'resolved-image', 'url-structure']);
   });
 
-  it('视频 URL 条目优先进入视频主预览', () => {
+  it('视频 URL 条目保持 URL 主预览，并暴露 resolved-video 备用视图', () => {
     const descriptor = createDescriptor(
       createEntry({
         content_subtype: 'url',
@@ -145,11 +145,11 @@ describe('DetailPreview 契约 - Descriptor', () => {
       }
     );
 
-    expect(descriptor.primaryKind).toBe<PreviewKind>('video');
-    expectAlternateKeys(descriptor, ['raw', 'url-structure']);
+    expect(descriptor.primaryKind).toBe<PreviewKind>('url_card');
+    expectAlternateKeys(descriptor, ['raw', 'resolved-video', 'url-structure']);
   });
 
-  it('音频 URL 条目优先进入音频主预览', () => {
+  it('音频 URL 条目保持 URL 主预览，并暴露 resolved-audio 备用视图', () => {
     const descriptor = createDescriptor(
       createEntry({
         content_subtype: 'url',
@@ -161,8 +161,8 @@ describe('DetailPreview 契约 - Descriptor', () => {
       }
     );
 
-    expect(descriptor.primaryKind).toBe<PreviewKind>('audio');
-    expectAlternateKeys(descriptor, ['raw', 'url-structure']);
+    expect(descriptor.primaryKind).toBe<PreviewKind>('url_card');
+    expectAlternateKeys(descriptor, ['raw', 'resolved-audio', 'url-structure']);
   });
 
   it('Base64 JSON 条目优先进入 JSON 主预览并包含 decoded 备用视图', () => {
@@ -190,7 +190,7 @@ describe('DetailPreview 契约 - Descriptor', () => {
     expectAlternateKeys(descriptor, ['raw', 'resolved-json', 'decoded']);
   });
 
-  it('JSON 合法值 null 仍然进入 JSON 主预览并保留结构化备用视图', () => {
+  it('URL 远端 JSON 仍保持 URL 主预览，并保留 JSON 和文本备用视图', () => {
     const descriptor = createDescriptor(
       createEntry({
         content_subtype: 'url',
@@ -203,8 +203,24 @@ describe('DetailPreview 契约 - Descriptor', () => {
       }
     );
 
-    expect(descriptor.primaryKind).toBe<PreviewKind>('json');
+    expect(descriptor.primaryKind).toBe<PreviewKind>('url_card');
     expectAlternateKeys(descriptor, ['raw', 'resolved-text', 'resolved-json', 'url-structure']);
+  });
+
+  it('URL 远端文本仍保持 URL 主预览，并保留文本备用视图', () => {
+    const descriptor = createDescriptor(
+      createEntry({
+        content_subtype: 'url',
+        content_data: 'https://example.com/readme.txt',
+      }),
+      {
+        textContent: '# hello from remote',
+        url: { previewKind: 'plain_text' },
+      }
+    );
+
+    expect(descriptor.primaryKind).toBe<PreviewKind>('url_card');
+    expectAlternateKeys(descriptor, ['raw', 'resolved-text', 'url-structure']);
   });
 
   it('Base64 图片条目优先进入图片主预览', () => {
