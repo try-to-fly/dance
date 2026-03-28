@@ -69,6 +69,7 @@ vi.mock('react-i18next', () => ({
         'detail.contentTypes.plain_text': '文本',
         'detail.contentTypes.command': '命令',
         'detail.contentTypes.json': 'JSON',
+        'detail.contentTypes.url': 'URL',
         'detail.contentTypes.base64': 'Base64编码',
         'detail.contentTypes.image': '图片',
         'detail.contentTypes.file': '文件',
@@ -188,7 +189,7 @@ describe('DetailView', () => {
     expect(screen.queryByText('类型')).not.toBeInTheDocument();
   });
 
-  it('根据内容子类型切换到 JSON 渲染器，并保留 raw-only 备用视图入口', () => {
+  it('non-immersive JSON detail 保留 Raw tab 与 shared scroll 左列', () => {
     mockedUseClipboardStore.mockReturnValue(
       createStoreState({
         ...baseEntry,
@@ -200,7 +201,7 @@ describe('DetailView', () => {
     render(<DetailView />);
 
     expect(screen.getByTestId('renderer-json')).toHaveTextContent('{"hello":"world"}');
-    expect(screen.getByText('Raw')).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Raw' })).toBeInTheDocument();
     expect(
       screen
         .getAllByTestId('renderer-unified')

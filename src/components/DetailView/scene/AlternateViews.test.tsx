@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { AlternateViews } from './AlternateViews';
 
@@ -33,6 +33,51 @@ describe('AlternateViews', () => {
 
     expect(screen.getByRole('tab', { name: 'Raw' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'Decoded' })).toBeInTheDocument();
+  });
+
+  it('普通 detail 布局下 raw 和 url-structure 视图都稳定可达', () => {
+    render(
+      <AlternateViews
+        views={[
+          {
+            key: 'raw',
+            label: 'Raw',
+            kind: 'raw',
+            payload: 'https://example.com/docs?tab=preview&lang=zh',
+          },
+          {
+            key: 'url-structure',
+            label: 'URL',
+            kind: 'url_card',
+            payload: {
+              raw: 'https://example.com/docs?tab=preview&lang=zh',
+              parts: {
+                protocol: 'https',
+                host: 'example.com',
+                path: '/docs',
+                query_params: [
+                  ['tab', 'preview'],
+                  ['lang', 'zh'],
+                ],
+              },
+            },
+          },
+        ]}
+      />
+    );
+
+    expect(screen.getByRole('tab', { name: 'Raw' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'URL' })).toBeInTheDocument();
+    expect(screen.getByTestId('text-renderer')).toHaveTextContent(
+      'https://example.com/docs?tab=preview&lang=zh'
+    );
+
+    fireEvent.click(screen.getByRole('tab', { name: 'URL' }));
+
+    expect(screen.getByText('Protocol')).toBeInTheDocument();
+    expect(screen.getByText('Host')).toBeInTheDocument();
+    expect(screen.getByText('Path')).toBeInTheDocument();
+    expect(screen.getByText('Query')).toBeInTheDocument();
   });
 
   it('JSON 备用视图走 JsonRenderer，而不是统一文本渲染器', () => {

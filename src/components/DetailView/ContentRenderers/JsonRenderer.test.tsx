@@ -105,6 +105,7 @@ describe('JsonRenderer', () => {
     fireEvent.click(screen.getByTitle('切换到代码视图'));
 
     expect(screen.getByText('代码视图')).toBeInTheDocument();
+    expect(screen.getByTestId('json-content-shell')).toHaveStyle({ height: contentHeight });
     expect(screen.getByTestId('json-monaco-editor')).toHaveAttribute('data-language', 'json');
     expect(screen.getByTestId('json-monaco-editor')).toHaveAttribute('data-height', contentHeight);
     expect(mockedJsonRendererDeps.defineMonacoThemes).toHaveBeenCalledTimes(1);

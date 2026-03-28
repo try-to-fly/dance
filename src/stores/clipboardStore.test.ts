@@ -151,4 +151,47 @@ describe('clipboardStore preview resolution', () => {
     expect(resolved?.textContent).toBeUndefined();
     expect(resolved?.jsonContent).toBeUndefined();
   });
+
+  it('resolveEntryPreview 对 URL 条目默认不调用 resolveUrlPreview', async () => {
+    const resolveUrlPreview = vi.fn().mockResolvedValue({
+      textContent: 'remote preview should stay optional',
+      url: {
+        finalUrl: 'https://example.com/docs?tab=preview',
+        previewKind: 'plain_text',
+      },
+    });
+    const entry: ClipboardEntry = {
+      ...baseEntry,
+      id: 'entry-url-local',
+      content_hash: 'hash-url-local',
+      content_data: 'https://example.com/docs?tab=preview',
+      content_subtype: 'url',
+      analysis: {
+        contract_version: 1,
+        analysis_version: 1,
+        status: 'matched',
+        subtype: 'url',
+        metadata: {
+          kind: 'url',
+          data: {
+            protocol: 'https',
+            host: 'example.com',
+            path: '/docs',
+            query_params: [['tab', 'preview']],
+          },
+        },
+        diagnostics: [],
+        analyzed_at: Date.now(),
+      },
+    };
+
+    useClipboardStore.setState({
+      resolveUrlPreview,
+    });
+
+    const resolved = await useClipboardStore.getState().resolveEntryPreview?.(entry);
+
+    expect(resolveUrlPreview).not.toHaveBeenCalled();
+    expect(resolved).toEqual({});
+  });
 });

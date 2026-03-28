@@ -108,6 +108,38 @@ describe('DetailPreview 契约 - Descriptor', () => {
     expectAlternateKeys(descriptor, ['raw']);
   });
 
+  it('URL 条目即使没有 resolved data 也保留 raw 和 url-structure 入口', () => {
+    const descriptor = createDescriptor(
+      createEntry({
+        content_subtype: 'url',
+        content_data: 'https://example.com/docs/guide?tab=preview',
+        metadata: JSON.stringify({
+          url_parts: {
+            protocol: 'https',
+            host: 'example.com',
+            path: '/docs/guide',
+            query_params: [['tab', 'preview']],
+          },
+        }),
+        analysis: createAnalysis({
+          subtype: 'url',
+          metadata: {
+            kind: 'url',
+            data: {
+              protocol: 'https',
+              host: 'example.com',
+              path: '/docs/guide',
+              query_params: [['tab', 'preview']],
+            },
+          },
+        }),
+      })
+    );
+
+    expect(descriptor.primaryKind).toBe<PreviewKind>('url_card');
+    expectAlternateKeys(descriptor, ['raw', 'url-structure']);
+  });
+
   it('图片 URL 条目保持 URL 主预览，并暴露 resolved-image 备用视图', () => {
     const descriptor = createDescriptor(
       createEntry({
