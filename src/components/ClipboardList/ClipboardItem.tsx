@@ -40,7 +40,7 @@ import {
 import { ClipboardEntry } from '../../types/clipboard';
 import { useClipboardStore } from '../../stores/clipboardStore';
 import { cn } from '../../lib/utils';
-import { getFileName, parseContentMetadata } from '../../lib/preview/entryPresentation';
+import { buildPreviewSummary } from '../../lib/preview/previewSummary';
 
 interface ClipboardItemProps {
   entry: ClipboardEntry;
@@ -49,14 +49,6 @@ interface ClipboardItemProps {
   showNumber?: boolean;
   number?: number;
 }
-
-const truncateMiddle = (value: string, start = 18, end = 12): string => {
-  if (value.length <= start + end + 3) {
-    return value;
-  }
-
-  return `${value.slice(0, start)}...${value.slice(-end)}`;
-};
 
 export const ClipboardItem: React.FC<ClipboardItemProps> = ({
   entry,
@@ -70,31 +62,15 @@ export const ClipboardItem: React.FC<ClipboardItemProps> = ({
     toggleFavorite,
     deleteEntry,
     copyToClipboard,
-    getImageUrl,
     pasteSelectedEntry,
     getAppIcon,
   } = useClipboardStore();
-  const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [appIconUrl, setAppIconUrl] = useState<string | null>(null);
-  const contentType = entry.content_type.toLowerCase();
-  const isImageEntry = contentType.includes('image');
-  const isFileEntry = contentType.includes('file');
-  const metadata = parseContentMetadata(entry.metadata);
-  const fileName = getFileName(entry.file_path);
-  const textContent = entry.content_data ?? '';
-  const colorFormats = metadata?.color_formats;
-  const timestampFormats = metadata?.timestamp_formats;
-
-  useEffect(() => {
-    if (isImageEntry && entry.file_path) {
-      getImageUrl(entry.file_path)
-        .then(setImageUrl)
-        .catch(() => setImageUrl(null));
-      return;
-    }
-
-    setImageUrl(null);
-  }, [entry.file_path, getImageUrl, isImageEntry]);
+  const summary = buildPreviewSummary(entry, 'list');
+  const usesWorkbenchSummary =
+    summary.previewIntent === 'code_workbench' || summary.previewIntent === 'command_workbench';
+  const usesStructuredMonoSummary =
+    summary.previewIntent === 'json_structured' || summary.previewIntent === 'base64_summary';
 
   useEffect(() => {
     if (entry.app_bundle_id && getAppIcon) {
@@ -108,18 +84,11 @@ export const ClipboardItem: React.FC<ClipboardItemProps> = ({
   }, [entry.app_bundle_id, getAppIcon]);
 
   const getTypeMeta = () => {
-    const type = contentType;
-    const subtype = entry.content_subtype;
-
-    if (type.includes('image')) {
-      return { Icon: FileImage, label: t('clipboard:contentTypes.image') };
-    }
-
-    if (type.includes('file')) {
-      return { Icon: FolderClosed, label: t('clipboard:contentTypes.file') };
-    }
-
-    switch (subtype) {
+    switch (summary.semanticType) {
+      case 'image':
+        return { Icon: FileImage, label: t('clipboard:contentTypes.image') };
+      case 'file':
+        return { Icon: FolderClosed, label: t('clipboard:contentTypes.file') };
       case 'url':
         return { Icon: Link2, label: t('clipboard:contentTypes.url') };
       case 'ip_address':
@@ -158,10 +127,6 @@ export const ClipboardItem: React.FC<ClipboardItemProps> = ({
     return format(new Date(timestamp), 'MM-dd HH:mm');
   };
 
-  const formatFullDate = (timestamp: number) => {
-    return format(new Date(timestamp), 'yyyy-MM-dd HH:mm');
-  };
-
   const handleCopy = async () => {
     if (entry.content_data) {
       await copyToClipboard(entry.content_data);
@@ -175,94 +140,6 @@ export const ClipboardItem: React.FC<ClipboardItemProps> = ({
   };
 
   const { label: typeLabel } = getTypeMeta();
-
-  const renderPreview = () => {
-    if (isImageEntry) {
-      return (
-        <div className="overflow-hidden rounded-[18px] border border-border/60 bg-secondary/20">
-          <div className="flex max-h-[132px] items-center justify-center bg-[radial-gradient(circle_at_top,_rgba(45,212,191,0.18),_transparent_58%)] p-3">
-            {imageUrl ? (
-              <img
-                src={imageUrl}
-                alt={fileName || 'Clipboard image'}
-                className="max-h-[108px] w-auto max-w-full rounded-[14px] object-contain transition-transform duration-300 group-hover:scale-[1.02]"
-              />
-            ) : (
-              <div className="flex w-full items-center justify-center gap-2 rounded-[14px] border border-dashed border-border/60 bg-background/35 px-3 py-8 text-sm text-muted-foreground">
-                <FileImage className="h-5 w-5" />
-                <span>图片预览不可用</span>
-              </div>
-            )}
-          </div>
-        </div>
-      );
-    }
-
-    if (entry.content_subtype === 'color') {
-      const colorValue = colorFormats?.hex || entry.content_data || '#000000';
-
-      return (
-        <div className="flex max-h-[132px] flex-col gap-4 overflow-hidden rounded-[18px] border border-border/60 bg-secondary/20 p-4">
-          <div
-            className="h-16 w-full rounded-2xl border border-border/50 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]"
-            style={{ backgroundColor: colorValue }}
-          />
-          <div className="flex items-end justify-between gap-3">
-            <span className="truncate font-mono text-base font-semibold text-foreground">
-              {colorValue}
-            </span>
-            {colorFormats?.rgb && (
-              <span className="truncate font-mono text-[11px] text-muted-foreground">
-                {colorFormats.rgb}
-              </span>
-            )}
-          </div>
-        </div>
-      );
-    }
-
-    if (entry.content_subtype === 'timestamp' && timestampFormats?.unix_ms) {
-      return (
-        <div className="flex max-h-[132px] flex-col overflow-hidden rounded-[18px] border border-border/60 bg-secondary/20 p-4">
-          <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-            <Clock3 className="h-3.5 w-3.5" />
-            <span>时间解析</span>
-          </div>
-          <div className="mt-3 pr-20 text-lg font-semibold leading-6 text-foreground">
-            {formatFullDate(timestampFormats.unix_ms)}
-          </div>
-          {entry.content_data && (
-            <div className="mt-3 truncate font-mono text-xs text-muted-foreground">
-              {entry.content_data}
-            </div>
-          )}
-        </div>
-      );
-    }
-
-    const isStructuredText = ['code', 'command', 'json'].includes(entry.content_subtype || '');
-    const previewContent = textContent || fileName || '(无内容)';
-
-    return (
-      <div className="flex max-h-[132px] flex-col overflow-hidden rounded-[18px] border border-border/60 bg-secondary/20 p-4">
-        <div
-          className={cn(
-            'whitespace-pre-wrap break-all pr-12 text-sm leading-6 text-foreground/95',
-            isFileEntry ? 'line-clamp-3' : 'line-clamp-4',
-            isStructuredText && 'font-mono text-[13px] leading-5'
-          )}
-        >
-          {previewContent}
-        </div>
-
-        {isFileEntry && entry.file_path && (
-          <div className="mt-3 font-mono text-[11px] text-muted-foreground">
-            {truncateMiddle(entry.file_path, 28, 18)}
-          </div>
-        )}
-      </div>
-    );
-  };
 
   const menuContent = (
     <>
@@ -295,8 +172,10 @@ export const ClipboardItem: React.FC<ClipboardItemProps> = ({
     <ContextMenu>
       <ContextMenuTrigger asChild>
         <Card
+          data-semantic-type={summary.semanticType}
+          data-preview-intent={summary.previewIntent}
           className={cn(
-            'group relative min-h-[92px] cursor-pointer overflow-hidden rounded-[18px] border border-border/70 bg-background/72 px-3.5 py-3 shadow-[0_8px_24px_rgba(15,23,42,0.06)] transition-all duration-200 hover:border-primary/20 hover:bg-background/88 hover:shadow-[0_16px_36px_rgba(15,23,42,0.1)] min-[1200px]:min-h-[102px] min-[1200px]:rounded-[20px] min-[1200px]:px-4 min-[1200px]:py-3.5',
+            'group relative h-[118px] cursor-pointer overflow-hidden rounded-[18px] border border-border/70 bg-background/72 px-3.5 py-3 shadow-[0_8px_24px_rgba(15,23,42,0.06)] transition-all duration-200 hover:border-primary/20 hover:bg-background/88 hover:shadow-[0_16px_36px_rgba(15,23,42,0.1)] min-[1200px]:h-[126px] min-[1200px]:rounded-[20px] min-[1200px]:px-4 min-[1200px]:py-3.5',
             {
               'border-primary/30 bg-primary/8 shadow-[0_18px_42px_rgba(13,148,136,0.14)] ring-1 ring-primary/15':
                 isSelected,
@@ -310,7 +189,7 @@ export const ClipboardItem: React.FC<ClipboardItemProps> = ({
             <div className="absolute inset-y-3 left-0 w-1 rounded-r-full bg-primary min-[1200px]:inset-y-3.5" />
           )}
 
-          <div className="flex min-w-0 flex-col gap-3">
+          <div className="flex h-full min-w-0 flex-col gap-3">
             <div className="flex items-start justify-between gap-3">
               <div className="flex min-w-0 flex-wrap items-center gap-1.5 min-[1200px]:gap-2">
                 <Badge
@@ -428,7 +307,28 @@ export const ClipboardItem: React.FC<ClipboardItemProps> = ({
               </div>
             </div>
 
-            {renderPreview()}
+            <div className="flex min-h-0 flex-1 overflow-hidden rounded-[18px] border border-border/60 bg-secondary/20 px-4 py-3">
+              <div className="flex min-w-0 flex-1 flex-col justify-between gap-2">
+                <p
+                  className={cn(
+                    'line-clamp-1 text-sm font-semibold leading-5 text-foreground',
+                    (usesWorkbenchSummary || usesStructuredMonoSummary) && 'font-mono text-[13px]'
+                  )}
+                >
+                  {summary.headline}
+                </p>
+
+                <p
+                  className={cn(
+                    'line-clamp-2 text-xs leading-5 text-muted-foreground',
+                    usesWorkbenchSummary && 'font-mono',
+                    usesStructuredMonoSummary && 'font-mono text-[11px]'
+                  )}
+                >
+                  {summary.secondarySummary}
+                </p>
+              </div>
+            </div>
           </div>
         </Card>
       </ContextMenuTrigger>
