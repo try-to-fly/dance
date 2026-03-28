@@ -12,7 +12,7 @@ This roadmap keeps the existing desktop client on its current Tauri + React + Ru
 - Decimal phases (2.1, 2.2): Urgent insertions (marked with INSERTED)
 
 - [x] **Phase 1: Capture Reliability & Storage Cohesion** - Make monitoring start and stop trustworthy while keeping persisted clipboard data under one consistent local lifecycle.
-- [ ] **Phase 2: Analysis Contracts & Versioned Detection** - Establish Rust-side analysis as the single source of truth for subtype classification, metadata extraction, and graceful fallback.
+- [x] **Phase 2: Analysis Contracts & Versioned Detection** - Establish Rust-side analysis as the single source of truth for subtype classification, metadata extraction, and graceful fallback.
 - [ ] **Phase 3: Unified Developer Previews** - Render supported developer content through one consistent preview pipeline across raw and semantic representations.
 - [ ] **Phase 4: Search Quality & Retrieval** - Deliver responsive indexed, filtered, fuzzy, and ranked retrieval for large local clipboard histories.
 - [ ] **Phase 5: Rebuild Safety & Release Gates** - Preserve history across upgrades and prevent regressions with rebuild tooling and packaged validation.
@@ -52,7 +52,15 @@ Plans:
 2. User sees subtype-specific metadata extracted for supported content, including URL parts, color formats, detected language, timestamp formats, and other structured hints.
 3. User can re-run improved detection on existing history and get updated classifications without copying items again.
 4. User can still inspect copied content when analysis fails because the app falls back to raw content and preserves failure diagnostics for later repair.
-   **Plans**: TBD
+   **Plans**: 5/5 plans complete
+
+Plans:
+
+- [x] 02-01-PLAN.md — 建立 `AnalysisSnapshot` contract、stable subtype precedence 和 fallback diagnostics shape
+- [x] 02-02-PLAN.md — 建立 `entry_analysis` companion table、joined read model 与 authoritative persistence
+- [x] 02-03-PLAN.md — 把 authoritative analysis 接入 capture/runtime 主链路并持久化 diagnostics
+- [x] 02-04-PLAN.md — 让前端 detail/store 改为 analysis-first 消费，不再继续推断 subtype 语义
+- [x] 02-05-PLAN.md — 增加历史 reanalysis service、Tauri command 与 Preferences rebuild 入口
 
 ### Phase 3: Unified Developer Previews
 
@@ -103,7 +111,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5
 | Phase                                       | Plans Complete | Status      | Completed  |
 | ------------------------------------------- | -------------- | ----------- | ---------- |
 | 1. Capture Reliability & Storage Cohesion   | 6/6            | Complete    | 2026-03-28 |
-| 2. Analysis Contracts & Versioned Detection | 0/TBD          | Not started | -          |
+| 2. Analysis Contracts & Versioned Detection | 5/5            | Complete    | 2026-03-28 |
 | 3. Unified Developer Previews               | 0/TBD          | Not started | -          |
 | 4. Search Quality & Retrieval               | 0/TBD          | Not started | -          |
 | 5. Rebuild Safety & Release Gates           | 0/TBD          | Not started | -          |
