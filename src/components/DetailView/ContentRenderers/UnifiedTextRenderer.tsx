@@ -17,6 +17,8 @@ interface UnifiedTextRendererProps {
   content: string;
   contentSubType: ContentSubType;
   metadata?: string | null;
+  sessionKey?: string;
+  onContentChange?: (value: string) => void;
 }
 
 // 内容类型到Monaco语言的映射
@@ -74,16 +76,19 @@ export function UnifiedTextRenderer({
   content,
   contentSubType,
   metadata,
+  sessionKey,
+  onContentChange,
 }: UnifiedTextRendererProps) {
   const { t } = useTranslation(['common']);
   const [editedContent, setEditedContent] = useState(content);
   const [isCopied, setIsCopied] = useState(false);
   const resolvedTheme = useResolvedTheme();
 
-  // 当content props变化时，更新编辑器内容
+  // 切换条目会带来新的 sessionKey；即使原始内容相同，也必须重置本地 workbench。
   useEffect(() => {
     setEditedContent(content);
-  }, [content]);
+    onContentChange?.(content);
+  }, [content, onContentChange, sessionKey]);
 
   const language = getLanguageForContentType(contentSubType, metadata);
   const displayName = getDisplayNameForContentType(contentSubType, t);
@@ -100,6 +105,12 @@ export function UnifiedTextRenderer({
     } catch (error) {
       console.error(t('codeEditor.copyFailed'), error);
     }
+  };
+
+  const handleEditorChange = (value?: string) => {
+    const nextValue = value || '';
+    setEditedContent(nextValue);
+    onContentChange?.(nextValue);
   };
 
   return (
@@ -140,11 +151,11 @@ export function UnifiedTextRenderer({
           style={{ height: editorHeight }}
         >
           <MonacoEditor
-            key={`${language}-${resolvedTheme}-${content.substring(0, 50)}`}
+            key={`${sessionKey ?? 'default'}:${language}:${resolvedTheme}`}
             height="100%"
             language={language}
             value={editedContent}
-            onChange={(value) => setEditedContent(value || '')}
+            onChange={handleEditorChange}
             theme={monacoTheme}
             beforeMount={(monaco) => {
               defineMonacoThemes(monaco);

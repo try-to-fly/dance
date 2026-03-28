@@ -25,6 +25,8 @@ interface PrimaryPayload {
   subType: ContentSubType;
   metadata: ContentMetadata | null;
   resolvedData?: ResolvedPreviewData;
+  sessionKey?: string;
+  onContentChange?: (value: string) => void;
 }
 
 interface PrimaryPreviewRendererProps {
@@ -137,6 +139,14 @@ export function PrimaryPreviewRenderer({ kind, payload, onOpenFile }: PrimaryPre
         content={resolvedData?.textContent || content}
         contentSubType={data?.subType === 'command' ? 'command' : 'code'}
         metadata={metadataString}
+        sessionKey={
+          data?.subType === 'command' || data?.subType === 'code' ? data?.sessionKey : undefined
+        }
+        onContentChange={
+          data?.subType === 'command' || data?.subType === 'code'
+            ? data?.onContentChange
+            : undefined
+        }
       />
     );
   }

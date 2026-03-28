@@ -85,9 +85,14 @@ export function DetailView() {
     sourceKey: string;
     data: ResolvedPreviewData | null;
   } | null>(null);
+  const [workbenchBuffer, setWorkbenchBuffer] = useState<string | null>(null);
   const selectedEntryKey = selectedEntry
     ? `${selectedEntry.id}:${selectedEntry.content_hash}`
     : null;
+  const selectedEntrySubType = getEntryAnalysisSubtype(selectedEntry);
+  const usesWorkbench =
+    Boolean(selectedEntry) &&
+    (selectedEntrySubType === 'code' || selectedEntrySubType === 'command');
   const activeResolvedPreview =
     selectedEntryKey && resolvedPreview?.sourceKey === selectedEntryKey
       ? resolvedPreview.data
@@ -150,11 +155,20 @@ export function DetailView() {
     };
   }, [getImageUrl, resolveEntryPreview, selectedEntry, selectedEntryKey]);
 
+  useEffect(() => {
+    if (!selectedEntry || !usesWorkbench) {
+      setWorkbenchBuffer(null);
+      return;
+    }
+
+    setWorkbenchBuffer(selectedEntry.content_data ?? '');
+  }, [selectedEntry, selectedEntryKey, usesWorkbench]);
+
   if (!selectedEntry) {
     return <DetailEmptyState selectItemLabel={t('detail.selectItem')} />;
   }
 
-  const subType = getEntryAnalysisSubtype(selectedEntry);
+  const subType = selectedEntrySubType;
   const analysisStatus = getEntryAnalysisStatus(selectedEntry);
   const analysisDiagnostics = getEntryAnalysisDiagnostics(selectedEntry);
   const translatedSubTypeLabel = t(`detail.contentTypes.${subType}`);
@@ -230,8 +244,23 @@ export function DetailView() {
       },
     },
   });
+  const detailDescriptor = usesWorkbench
+    ? {
+        ...descriptor,
+        primaryPayload: {
+          ...(descriptor.primaryPayload as Record<string, unknown>),
+          sessionKey: selectedEntryKey,
+          onContentChange: setWorkbenchBuffer,
+        },
+      }
+    : descriptor;
 
   const handleCopy = async () => {
+    if (usesWorkbench && workbenchBuffer !== null) {
+      await copyToClipboard(workbenchBuffer);
+      return;
+    }
+
     if (selectedEntry.content_data) {
       await copyToClipboard(selectedEntry.content_data);
     }
@@ -289,7 +318,7 @@ export function DetailView() {
   return (
     <DetailScene
       entry={selectedEntry}
-      descriptor={descriptor}
+      descriptor={detailDescriptor}
       metadataPills={metadataPills}
       labels={{
         copy: t('copy'),
