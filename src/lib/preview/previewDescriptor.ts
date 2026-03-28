@@ -10,7 +10,7 @@ import {
   ResolvedPreviewData,
 } from '../../types/clipboard';
 import {
-  buildEntrySemanticSummary,
+  buildSemanticPreviewModel,
   getEntryAnalysisDiagnostics,
   getEntryAnalysisStatus,
   getEntryAnalysisSubtype,
@@ -177,23 +177,21 @@ const buildAnalysisInspector = (
 };
 
 const resolvePrimaryKind = (
-  entry: ClipboardEntry,
-  subType: ContentSubType,
+  semanticType: ReturnType<typeof buildSemanticPreviewModel>['semanticType'],
   resolvedData?: ResolvedPreviewData
 ): PreviewKind => {
-  const contentType = entry.content_type.toLowerCase();
-  if (contentType.includes('image')) {
+  if (semanticType === 'image') {
     return 'image';
   }
-  if (contentType.includes('file')) {
+  if (semanticType === 'file') {
     return 'file_card';
   }
 
-  if (subType === 'url') {
+  if (semanticType === 'url') {
     return 'url_card';
   }
 
-  if (subType === 'base64') {
+  if (semanticType === 'base64') {
     const hasInlineMedia =
       Boolean(resolvedData?.base64?.dataUrl) ||
       Boolean(resolvedData?.imageUrl) ||
@@ -218,28 +216,28 @@ const resolvePrimaryKind = (
     }
   }
 
-  if (subType === 'json') {
+  if (semanticType === 'json') {
     return 'json';
   }
-  if (subType === 'code') {
+  if (semanticType === 'code') {
     return 'code';
   }
-  if (subType === 'markdown') {
+  if (semanticType === 'markdown') {
     return 'markdown';
   }
-  if (subType === 'ip_address') {
+  if (semanticType === 'ip_address') {
     return 'ip_card';
   }
-  if (subType === 'email') {
+  if (semanticType === 'email') {
     return 'email_card';
   }
-  if (subType === 'color') {
+  if (semanticType === 'color') {
     return 'color_card';
   }
-  if (subType === 'timestamp') {
+  if (semanticType === 'timestamp') {
     return 'timestamp_card';
   }
-  if (subType === 'command') {
+  if (semanticType === 'command') {
     return 'code';
   }
 
@@ -247,22 +245,20 @@ const resolvePrimaryKind = (
 };
 
 const resolveTypeLabel = (
-  entry: ClipboardEntry,
-  subType: ContentSubType,
+  semanticType: ReturnType<typeof buildSemanticPreviewModel>['semanticType'],
   labels: PreviewLabelSet
 ): string => {
-  const type = entry.content_type.toLowerCase();
-  if (type.includes('image')) {
+  if (semanticType === 'image') {
     return labels.image;
   }
-  if (type.includes('file')) {
+  if (semanticType === 'file') {
     return labels.file;
   }
-  if (subType === 'base64') {
+  if (semanticType === 'base64') {
     return labels.base64;
   }
-  if (labels.subtypeLabels?.[subType]) {
-    return labels.subtypeLabels[subType] as string;
+  if (semanticType !== 'image' && semanticType !== 'file' && labels.subtypeLabels?.[semanticType]) {
+    return labels.subtypeLabels[semanticType] as string;
   }
   return labels.text;
 };
@@ -280,24 +276,24 @@ export const buildPreviewDescriptor = ({
   const subType = getEntryAnalysisSubtype(entry);
   const analysisStatus = getEntryAnalysisStatus(entry);
   const diagnostics = getEntryAnalysisDiagnostics(entry);
-  const semantic = buildEntrySemanticSummary(entry, {
+  const semantic = buildSemanticPreviewModel(entry, {
     fallbackImageLabel: labels.image,
     fallbackFileLabel: labels.file,
     fallbackTextLabel: labels.text,
   });
-  const primaryKind = resolvePrimaryKind(entry, subType, resolvedData);
-  const typeLabel = resolveTypeLabel(entry, subType, labels);
+  const primaryKind = resolvePrimaryKind(semantic.semanticType, resolvedData);
+  const typeLabel = resolveTypeLabel(semantic.semanticType, labels);
 
   const alternateViews: PreviewDescriptor['alternateViews'] = [];
-  if (entry.content_data) {
+  if (semantic.supportsRawView && semantic.rawContent) {
     alternateViews.push({
       key: 'raw',
       label: 'Raw',
       kind: 'raw',
-      payload: entry.content_data,
+      payload: semantic.rawContent,
     });
   }
-  if (resolvedData?.textContent && resolvedData.textContent !== entry.content_data) {
+  if (resolvedData?.textContent && resolvedData.textContent !== semantic.rawContent) {
     alternateViews.push({
       key: 'resolved-text',
       label: 'Resolved',
@@ -351,7 +347,7 @@ export const buildPreviewDescriptor = ({
       label: 'URL',
       kind: 'url_card',
       payload: {
-        raw: entry.content_data ?? '',
+        raw: semantic.rawContent ?? '',
         parts: metadata?.url_parts,
       },
     });
@@ -383,7 +379,7 @@ export const buildPreviewDescriptor = ({
   };
 
   const actions: PreviewDescriptor['actions'] = [];
-  if (entry.content_data) {
+  if (semantic.supportsRawView && semantic.rawContent) {
     actions.push('copy_raw');
   }
   if (subType === 'base64' && hasCopyableDecodedContent(resolvedData)) {

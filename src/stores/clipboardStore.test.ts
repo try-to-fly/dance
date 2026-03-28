@@ -107,7 +107,7 @@ describe('clipboardStore preview resolution', () => {
     expect(writeTextMock).not.toHaveBeenCalled();
   });
 
-  it('URL 条目解析前不会把 raw URL 预填进 resolved textContent', async () => {
+  it('URL 条目解析前不会把 raw URL 预填进 resolved textContent，也不会默认请求远端结果', async () => {
     const entry: ClipboardEntry = {
       ...baseEntry,
       content_data: 'https://example.com/api/data',
@@ -142,12 +142,7 @@ describe('clipboardStore preview resolution', () => {
 
     const resolved = await useClipboardStore.getState().resolveEntryPreview?.(entry);
 
-    expect(resolved).toMatchObject({
-      url: {
-        finalUrl: 'https://example.com/api/data',
-        previewKind: 'json',
-      },
-    });
+    expect(useClipboardStore.getState().resolveUrlPreview).not.toHaveBeenCalled();
     expect(resolved?.textContent).toBeUndefined();
     expect(resolved?.jsonContent).toBeUndefined();
   });

@@ -345,7 +345,7 @@ describe('DetailView', () => {
     const { rerender } = render(<DetailView />);
 
     await waitFor(() => {
-      expect(screen.getByText('https://example.com/a.png')).toBeInTheDocument();
+      expect(screen.getAllByText('https://example.com/a.png').length).toBeGreaterThan(0);
     });
 
     currentEntry = secondEntry;

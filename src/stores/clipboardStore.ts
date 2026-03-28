@@ -798,11 +798,7 @@ export const useClipboardStore = create<ClipboardStore>((set, get) => ({
     }
 
     if ((contentType.includes('text') || contentType.includes('string')) && entry.content_data) {
-      if (subType === 'url' && state.resolveUrlPreview) {
-        const urlResolved = await state.resolveUrlPreview(entry.content_data);
-        Object.assign(resolved, urlResolved);
-        ttlMs = Math.min(ttlMs, getPreviewCacheTtlMs(urlResolved));
-      } else {
+      if (subType !== 'url') {
         resolved.textContent = entry.content_data;
         if (subType === 'json') {
           try {

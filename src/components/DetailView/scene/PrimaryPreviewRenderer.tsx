@@ -1,4 +1,4 @@
-import { File, FileCode2, Globe, Music, Video } from 'lucide-react';
+import { File, FileCode2, Music, Video } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import {
   ClipboardEntry,
@@ -18,6 +18,7 @@ import {
   TimeRenderer,
   UnifiedTextRenderer,
 } from '../ContentRenderers';
+import { UrlCardRenderer } from '../ContentRenderers/UrlCardRenderer';
 
 interface PrimaryPayload {
   entry: ClipboardEntry;
@@ -177,19 +178,7 @@ export function PrimaryPreviewRenderer({ kind, payload, onOpenFile }: PrimaryPre
   }
 
   if (kind === 'url_card') {
-    return (
-      <Card>
-        <CardHeader className="pb-2">
-          <div className="flex items-center gap-2">
-            <Globe className="h-4 w-4" />
-            <Badge variant="secondary">{t('detail.contentTypes.url')}</Badge>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <code className="block break-all rounded-lg bg-muted p-3 text-xs">{content}</code>
-        </CardContent>
-      </Card>
-    );
+    return <UrlCardRenderer raw={content} parts={data?.metadata?.url_parts ?? null} />;
   }
 
   if (kind === 'file_card') {

@@ -3,6 +3,7 @@ import { PreviewAlternateView } from '../../../types/clipboard';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../ui/tabs';
 import { Card, CardContent } from '../../ui/card';
 import { JsonRenderer, UnifiedTextRenderer } from '../ContentRenderers';
+import { UrlCardRenderer, type UrlCardRendererProps } from '../ContentRenderers/UrlCardRenderer';
 
 interface AlternateViewsProps {
   views: PreviewAlternateView[];
@@ -26,6 +27,23 @@ const normalizeToMediaSrc = (payload: unknown) => {
   }
 
   return normalizeToText(payload);
+};
+
+const normalizeUrlCardPayload = (payload: unknown): UrlCardRendererProps => {
+  if (payload && typeof payload === 'object') {
+    const candidate = payload as Partial<UrlCardRendererProps>;
+    if (typeof candidate.raw === 'string') {
+      return {
+        raw: candidate.raw,
+        parts: candidate.parts ?? null,
+      };
+    }
+  }
+
+  return {
+    raw: normalizeToText(payload),
+    parts: null,
+  };
 };
 
 export function AlternateViews({ views }: AlternateViewsProps) {
@@ -82,11 +100,7 @@ export function AlternateViews({ views }: AlternateViewsProps) {
     }
 
     if (view.kind === 'url_card') {
-      return (
-        <code className="block break-all rounded-xl bg-muted/70 p-2.5 text-[11px] leading-5">
-          {normalizeToText(view.payload)}
-        </code>
-      );
+      return <UrlCardRenderer {...normalizeUrlCardPayload(view.payload)} />;
     }
 
     return (
@@ -98,19 +112,6 @@ export function AlternateViews({ views }: AlternateViewsProps) {
       />
     );
   };
-
-  if (views.length === 1) {
-    return (
-      <Card className="rounded-[16px] border-border/70 bg-background/70 shadow-none">
-        <CardContent className="space-y-2 p-2.5 min-[1200px]:p-3">
-          <div className="px-1 text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
-            {views[0].label}
-          </div>
-          {renderView(views[0])}
-        </CardContent>
-      </Card>
-    );
-  }
 
   return (
     <Card className="rounded-[16px] border-border/70 bg-background/70 shadow-none">
@@ -129,7 +130,7 @@ export function AlternateViews({ views }: AlternateViewsProps) {
           </TabsList>
 
           {views.map((view) => (
-            <TabsContent key={view.key} value={view.key} className="mt-0">
+            <TabsContent key={view.key} value={view.key} forceMount className="mt-0">
               {renderView(view)}
             </TabsContent>
           ))}
