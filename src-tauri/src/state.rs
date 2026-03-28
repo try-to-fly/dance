@@ -1,4 +1,6 @@
-use crate::analysis::load_entry_analysis_for_history;
+use crate::analysis::{
+    load_entry_analysis_for_history, EntryAnalysisRebuilder, RebuildEntryAnalysisResult,
+};
 use crate::app_paths::AppPaths;
 use crate::capture::{calculate_content_hash, CaptureRuntime};
 use crate::clipboard::{ClipboardMonitor, ContentProcessor};
@@ -116,6 +118,15 @@ impl AppState {
         let offset = offset.unwrap_or(0);
 
         load_entry_analysis_for_history(self.db.pool(), limit, offset, search.as_deref()).await
+    }
+
+    pub async fn rebuild_entry_analysis(
+        &self,
+        batch_size: Option<usize>,
+    ) -> Result<RebuildEntryAnalysisResult> {
+        EntryAnalysisRebuilder::new()
+            .rebuild(self.db.pool(), batch_size)
+            .await
     }
 
     pub async fn toggle_favorite(&self, id: String) -> Result<()> {

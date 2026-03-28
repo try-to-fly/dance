@@ -367,6 +367,7 @@ pub fn run() {
             start_monitoring,
             stop_monitoring,
             get_clipboard_history,
+            rebuild_entry_analysis,
             toggle_favorite,
             delete_entry,
             clear_history,

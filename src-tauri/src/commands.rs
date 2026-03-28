@@ -1,3 +1,4 @@
+use crate::analysis::RebuildEntryAnalysisResult;
 use crate::app_paths::AppPaths;
 use crate::config::AppConfig;
 use crate::models::{ClipboardEntry, Statistics};
@@ -160,6 +161,17 @@ pub async fn get_clipboard_history(
 ) -> Result<Vec<ClipboardEntry>, String> {
     state
         .get_clipboard_history(limit, offset, search)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn rebuild_entry_analysis(
+    state: State<'_, AppState>,
+    batch_size: Option<usize>,
+) -> Result<RebuildEntryAnalysisResult, String> {
+    state
+        .rebuild_entry_analysis(batch_size)
         .await
         .map_err(|e| e.to_string())
 }

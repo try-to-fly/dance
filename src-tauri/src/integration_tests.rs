@@ -1,8 +1,9 @@
 #[cfg(test)]
 mod integration_tests {
     use crate::analysis::{
-        AnalysisDiagnosticCode, AnalysisMetadata, AnalysisStatus, AnalysisSubtype,
-        TextAnalysisService,
+        upsert_entry_analysis, AnalysisDiagnosticCode, AnalysisMetadata, AnalysisSnapshot,
+        AnalysisStatus, AnalysisSubtype, TextAnalysisService, ANALYSIS_CONTRACT_VERSION,
+        TEXT_ANALYSIS_VERSION,
     };
     use crate::app_paths::AppPaths;
     use crate::clipboard::content_detector::{ContentDetector, ContentSubType};
@@ -123,6 +124,43 @@ mod integration_tests {
         state.stop_monitoring().await.unwrap();
 
         (stored_entry, status, subtype, diagnostics_json)
+    }
+
+    async fn insert_history_entry(state: &AppState, entry: &ClipboardEntry, content_type: &str) {
+        sqlx::query(
+            r#"
+            INSERT INTO clipboard_entries (
+                id,
+                content_hash,
+                content_type,
+                content_data,
+                source_app,
+                created_at,
+                copy_count,
+                file_path,
+                is_favorite,
+                content_subtype,
+                metadata,
+                app_bundle_id
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            "#,
+        )
+        .bind(&entry.id)
+        .bind(&entry.content_hash)
+        .bind(content_type)
+        .bind(&entry.content_data)
+        .bind(&entry.source_app)
+        .bind(entry.created_at)
+        .bind(entry.copy_count)
+        .bind(&entry.file_path)
+        .bind(entry.is_favorite)
+        .bind(&entry.content_subtype)
+        .bind(&entry.metadata)
+        .bind(&entry.app_bundle_id)
+        .execute(state.db.pool())
+        .await
+        .unwrap();
     }
 
     #[tokio::test]
@@ -1081,5 +1119,198 @@ mod integration_tests {
         assert_eq!(status, "matched");
         assert_eq!(subtype, "url");
         assert_eq!(diagnostics_json, "[]");
+    }
+
+    #[tokio::test]
+    async fn test_rebuild_text_analysis_updates_existing_history() {
+        let (state, _temp_dir) = create_integration_test_env().await;
+        let mut entry = ClipboardEntry::new(
+            ContentType::Text,
+            Some("https://analysis.example.com/runtime?debug=true".to_string()),
+            "rebuild_text_hash".to_string(),
+            Some("LegacyBrowser".to_string()),
+            None,
+        );
+        entry.copy_count = 7;
+        entry.is_favorite = true;
+        entry.content_subtype = Some("plain_text".to_string());
+
+        insert_history_entry(&state, &entry, "text").await;
+
+        let stale_snapshot = AnalysisSnapshot {
+            contract_version: ANALYSIS_CONTRACT_VERSION - 1,
+            analysis_version: TEXT_ANALYSIS_VERSION - 1,
+            status: AnalysisStatus::Matched,
+            subtype: AnalysisSubtype::PlainText,
+            metadata: AnalysisMetadata::PlainText(crate::analysis::PlainTextMetadata {
+                char_count: 10,
+                line_count: 1,
+            }),
+            diagnostics: Vec::new(),
+            analyzed_at: 1,
+        };
+        upsert_entry_analysis(
+            state.db.pool(),
+            &entry.id,
+            &entry.content_hash,
+            &stale_snapshot,
+        )
+        .await
+        .unwrap();
+
+        let result = state.rebuild_entry_analysis(Some(25)).await.unwrap();
+
+        assert_eq!(result.scanned, 1);
+        assert_eq!(result.updated, 1);
+        assert_eq!(result.skipped, 0);
+        assert_eq!(result.failed, 0);
+
+        let raw_row = sqlx::query(
+            r#"
+            SELECT content_data, copy_count, is_favorite, file_path
+            FROM clipboard_entries
+            WHERE id = ?
+            "#,
+        )
+        .bind(&entry.id)
+        .fetch_one(state.db.pool())
+        .await
+        .unwrap();
+
+        assert_eq!(
+            raw_row
+                .try_get::<Option<String>, _>("content_data")
+                .unwrap(),
+            entry.content_data
+        );
+        assert_eq!(
+            raw_row.try_get::<i32, _>("copy_count").unwrap(),
+            entry.copy_count
+        );
+        assert_eq!(
+            raw_row.try_get::<bool, _>("is_favorite").unwrap(),
+            entry.is_favorite
+        );
+        assert_eq!(
+            raw_row.try_get::<Option<String>, _>("file_path").unwrap(),
+            entry.file_path
+        );
+
+        let analysis_row = sqlx::query(
+            r#"
+            SELECT contract_version, analysis_version, status, subtype
+            FROM entry_analysis
+            WHERE entry_id = ?
+            "#,
+        )
+        .bind(&entry.id)
+        .fetch_one(state.db.pool())
+        .await
+        .unwrap();
+
+        assert_eq!(
+            analysis_row.try_get::<i32, _>("contract_version").unwrap(),
+            ANALYSIS_CONTRACT_VERSION
+        );
+        assert_eq!(
+            analysis_row.try_get::<i32, _>("analysis_version").unwrap(),
+            TEXT_ANALYSIS_VERSION
+        );
+        assert_eq!(
+            analysis_row.try_get::<String, _>("status").unwrap(),
+            "matched".to_string()
+        );
+        assert_eq!(
+            analysis_row.try_get::<String, _>("subtype").unwrap(),
+            "url".to_string()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_rebuild_text_analysis_skips_non_text_entries() {
+        let (state, _temp_dir) = create_integration_test_env().await;
+        let mut text_entry = ClipboardEntry::new(
+            ContentType::Text,
+            Some("echo rebuild".to_string()),
+            "rebuild_text_only_hash".to_string(),
+            Some("Terminal".to_string()),
+            None,
+        );
+        text_entry.content_subtype = Some("plain_text".to_string());
+
+        let image_entry = ClipboardEntry {
+            id: "image-entry-id".to_string(),
+            content_hash: "image-entry-hash".to_string(),
+            content_type: "image".to_string(),
+            content_data: None,
+            source_app: Some("Preview".to_string()),
+            created_at: text_entry.created_at + 1,
+            copy_count: 1,
+            file_path: Some("imgs/test.png".to_string()),
+            is_favorite: false,
+            content_subtype: None,
+            metadata: None,
+            app_bundle_id: None,
+            analysis: None,
+        };
+
+        insert_history_entry(&state, &text_entry, "text").await;
+        insert_history_entry(&state, &image_entry, "image").await;
+
+        let result = state.rebuild_entry_analysis(Some(25)).await.unwrap();
+
+        assert_eq!(result.updated, 1);
+        assert_eq!(result.skipped, 1);
+        assert_eq!(result.failed, 0);
+
+        let image_analysis_count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM entry_analysis WHERE entry_id = ?")
+                .bind(&image_entry.id)
+                .fetch_one(state.db.pool())
+                .await
+                .unwrap();
+        assert_eq!(image_analysis_count, 0);
+
+        let text_analysis_count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM entry_analysis WHERE entry_id = ?")
+                .bind(&text_entry.id)
+                .fetch_one(state.db.pool())
+                .await
+                .unwrap();
+        assert_eq!(text_analysis_count, 1);
+    }
+
+    #[tokio::test]
+    async fn test_rebuild_analysis_skips_fresh_rows() {
+        let (state, _temp_dir) = create_integration_test_env().await;
+        let entry = ClipboardEntry::new(
+            ContentType::Text,
+            Some("npm run dev".to_string()),
+            "fresh_rebuild_hash".to_string(),
+            Some("Terminal".to_string()),
+            None,
+        );
+        insert_history_entry(&state, &entry, "text").await;
+
+        let snapshot = TextAnalysisService::new().analyze("npm run dev");
+        let analyzed_at = snapshot.analyzed_at;
+        upsert_entry_analysis(state.db.pool(), &entry.id, &entry.content_hash, &snapshot)
+            .await
+            .unwrap();
+
+        let result = state.rebuild_entry_analysis(Some(25)).await.unwrap();
+        assert_eq!(result.scanned, 0);
+        assert_eq!(result.updated, 0);
+        assert_eq!(result.skipped, 0);
+        assert_eq!(result.failed, 0);
+
+        let refreshed_analyzed_at: i64 =
+            sqlx::query_scalar("SELECT analyzed_at FROM entry_analysis WHERE entry_id = ?")
+                .bind(&entry.id)
+                .fetch_one(state.db.pool())
+                .await
+                .unwrap();
+
+        assert_eq!(refreshed_analyzed_at, analyzed_at);
     }
 }

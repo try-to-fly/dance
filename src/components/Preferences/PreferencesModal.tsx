@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { useConfigStore } from '../../stores/configStore';
+import { useClipboardStore } from '../../stores/clipboardStore';
 import { ShortcutRecorder } from './ShortcutRecorder';
 import * as Toast from '@radix-ui/react-toast';
 import { analytics } from '../../services/analytics';
@@ -35,6 +36,14 @@ import { useTheme } from '../theme-provider';
 import { cn } from '../../lib/utils';
 
 type AppTheme = 'dark' | 'light' | 'system';
+const DEFAULT_REBUILD_BATCH_SIZE = 250;
+
+interface RebuildEntryAnalysisResult {
+  scanned: number;
+  updated: number;
+  skipped: number;
+  failed: number;
+}
 
 export function PreferencesModal() {
   const { t, i18n } = useTranslation(['preferences', 'common']);
@@ -73,6 +82,9 @@ export function PreferencesModal() {
   });
   const [selectedTheme, setSelectedTheme] = useState<AppTheme>(theme);
   const [showLogViewer, setShowLogViewer] = useState(false);
+  const [rebuildLoading, setRebuildLoading] = useState(false);
+  const [rebuildResult, setRebuildResult] = useState<RebuildEntryAnalysisResult | null>(null);
+  const [rebuildError, setRebuildError] = useState<string | null>(null);
 
   useEffect(() => {
     if (showPreferences) {
@@ -177,6 +189,29 @@ export function PreferencesModal() {
     setSelectedTheme(theme);
     setShortcutError(null);
     setShowPreferences(false);
+  };
+
+  const handleRebuildEntryAnalysis = async () => {
+    setRebuildLoading(true);
+    setRebuildError(null);
+    setRebuildResult(null);
+
+    try {
+      const result = await invoke<RebuildEntryAnalysisResult>('rebuild_entry_analysis', {
+        batchSize: DEFAULT_REBUILD_BATCH_SIZE,
+      });
+
+      setRebuildResult(result);
+
+      const clipboardState = useClipboardStore.getState();
+      clipboardState.invalidatePreview?.();
+      await clipboardState.fetchHistory?.();
+      await loadCacheStatistics();
+    } catch (error) {
+      setRebuildError(String(error));
+    } finally {
+      setRebuildLoading(false);
+    }
   };
 
   if (!localConfig) {
@@ -633,6 +668,58 @@ export function PreferencesModal() {
 
                     <div className="space-y-4">
                       <h3 className="text-lg font-semibold">{t('system.cache.title')}</h3>
+
+                      <Card data-testid="analysis-rebuild-card">
+                        <CardHeader className="space-y-2 pb-3">
+                          <CardTitle className="text-sm font-medium">
+                            {t('system.cache.rebuildTitle', '重建文本分析')}
+                          </CardTitle>
+                          <p className="text-sm text-muted-foreground">
+                            {t(
+                              'system.cache.rebuildDescription',
+                              '为已有历史补齐或重跑 authoritative analysis，不会改写原始内容。'
+                            )}
+                          </p>
+                        </CardHeader>
+                        <CardContent className="space-y-3 pt-0">
+                          <div className="flex flex-wrap items-center gap-3">
+                            <Button
+                              data-testid="analysis-rebuild-button"
+                              variant="secondary"
+                              onClick={() => void handleRebuildEntryAnalysis()}
+                              disabled={rebuildLoading}
+                            >
+                              {rebuildLoading
+                                ? t('system.cache.rebuilding', '重建中...')
+                                : t('system.cache.rebuildAction', '立即重建')}
+                            </Button>
+                            <span className="text-xs text-muted-foreground">
+                              {t(
+                                'system.cache.rebuildScope',
+                                '只处理本地文本历史，跳过图片等非文本条目。'
+                              )}
+                            </span>
+                          </div>
+
+                          {rebuildResult && (
+                            <div
+                              data-testid="analysis-rebuild-result"
+                              className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700"
+                            >
+                              {`已扫描 ${rebuildResult.scanned} 条，更新 ${rebuildResult.updated} 条，跳过 ${rebuildResult.skipped} 条，失败 ${rebuildResult.failed} 条。`}
+                            </div>
+                          )}
+
+                          {rebuildError && (
+                            <div
+                              data-testid="analysis-rebuild-error"
+                              className="rounded-xl border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+                            >
+                              {rebuildError}
+                            </div>
+                          )}
+                        </CardContent>
+                      </Card>
 
                       {cacheStatsLoading && (
                         <div className="flex items-center justify-center py-8">
