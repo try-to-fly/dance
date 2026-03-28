@@ -30,7 +30,7 @@ This roadmap keeps the existing desktop client on its current Tauri + React + Ru
 2. User sees each eligible clipboard change recorded once, even after repeated start/stop cycles or app-driven copy flows.
 3. User can keep ignored, transient, concealed, or other non-persistent clipboard events out of saved history.
 4. User can restart the app and still access history, cached previews, and image assets without path-related mismatches or missing data.
-   **Plans**: 5 plans
+   **Plans**: 6/6 plans complete
 
 Plans:
 
@@ -39,6 +39,7 @@ Plans:
 - [x] 01-03-PLAN.md — 引入 lifecycle runtime、brownfield dedupe migration 与 backend suppression contract
 - [x] 01-04-PLAN.md — 统一所有前端 copy 入口到 backend copy-routing 合同
 - [x] 01-05-PLAN.md — 接入 marker-first capture policy 与 macOS pasteboard marker adapter
+- [x] 01-06-PLAN.md — 闭合 CAPT-04 的 AppPaths residual bypass 并补日志路径回归测试
 
 ### Phase 2: Analysis Contracts & Versioned Detection
 
@@ -101,7 +102,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5
 
 | Phase                                       | Plans Complete | Status      | Completed  |
 | ------------------------------------------- | -------------- | ----------- | ---------- |
-| 1. Capture Reliability & Storage Cohesion   | 5/5            | Complete    | 2026-03-27 |
+| 1. Capture Reliability & Storage Cohesion   | 6/6            | Complete    | 2026-03-28 |
 | 2. Analysis Contracts & Versioned Detection | 0/TBD          | Not started | -          |
 | 3. Unified Developer Previews               | 0/TBD          | Not started | -          |
 | 4. Search Quality & Retrieval               | 0/TBD          | Not started | -          |
