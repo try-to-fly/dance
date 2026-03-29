@@ -8,6 +8,9 @@ use crate::commands::{CacheStatistics, CleanupResult};
 use crate::config::{AppConfig, ConfigManager};
 use crate::database::Database;
 use crate::models::{AppUsage, ClipboardEntry, Statistics};
+use crate::retrieval::{
+    refresh_favorite_search_document, search_clipboard_history, ClipboardHistoryQuery,
+};
 use anyhow::Result;
 use arboard::Clipboard;
 use chrono::Utc;
@@ -114,10 +117,53 @@ impl AppState {
         offset: Option<i32>,
         search: Option<String>,
     ) -> Result<Vec<ClipboardEntry>> {
+        if search
+            .as_ref()
+            .is_some_and(|value| !value.trim().is_empty())
+        {
+            return search_clipboard_history(
+                self.db.pool(),
+                ClipboardHistoryQuery {
+                    text: search,
+                    limit,
+                    offset,
+                    ..Default::default()
+                },
+            )
+            .await;
+        }
+
         let limit = limit.unwrap_or(50);
         let offset = offset.unwrap_or(0);
 
-        load_entry_analysis_for_history(self.db.pool(), limit, offset, search.as_deref()).await
+        load_entry_analysis_for_history(self.db.pool(), limit, offset, None).await
+    }
+
+    pub async fn search_clipboard_history(
+        &self,
+        query: ClipboardHistoryQuery,
+    ) -> Result<Vec<ClipboardEntry>> {
+        search_clipboard_history(self.db.pool(), query).await
+    }
+
+    pub async fn list_clipboard_source_apps(&self, limit: Option<i32>) -> Result<Vec<String>> {
+        let limit = limit.unwrap_or(24).max(1);
+
+        sqlx::query_scalar::<_, String>(
+            r#"
+            SELECT source_app
+            FROM clipboard_entries
+            WHERE source_app IS NOT NULL
+              AND TRIM(source_app) != ''
+            GROUP BY source_app
+            ORDER BY MAX(created_at) DESC, COUNT(*) DESC
+            LIMIT ?
+            "#,
+        )
+        .bind(limit)
+        .fetch_all(self.db.pool())
+        .await
+        .map_err(Into::into)
     }
 
     pub async fn rebuild_entry_analysis(
@@ -134,6 +180,7 @@ impl AppState {
             .bind(&id)
             .execute(self.db.pool())
             .await?;
+        refresh_favorite_search_document(self.db.pool(), &id).await?;
 
         Ok(())
     }

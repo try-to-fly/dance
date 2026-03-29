@@ -37,9 +37,14 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '../ui/dropdown-menu';
-import { ClipboardEntry } from '../../types/clipboard';
+import {
+  ClipboardEntry,
+  ClipboardRetrievalMatchKind,
+  PreviewSummaryDensity,
+} from '../../types/clipboard';
 import { useClipboardStore } from '../../stores/clipboardStore';
 import { cn } from '../../lib/utils';
+import { normalizeContentPreview } from '../../lib/preview/entryPresentation';
 import { buildPreviewSummary } from '../../lib/preview/previewSummary';
 
 interface ClipboardItemProps {
@@ -48,7 +53,33 @@ interface ClipboardItemProps {
   onClick?: () => void;
   showNumber?: boolean;
   number?: number;
+  density?: PreviewSummaryDensity;
+  activeFilterReasons?: string[];
 }
+
+const RETRIEVAL_REASON_LABELS: Record<ClipboardRetrievalMatchKind, string> = {
+  content: '文本',
+  source_app: '来源应用',
+  url_host: 'URL Host',
+  url_path: 'URL Path',
+  url_query: 'URL Path',
+  json_key: 'JSON Key',
+  command_name: '命令名',
+  color_value: '颜色格式',
+  metadata: '文本',
+  fuzzy: '模糊匹配',
+};
+
+const buildRetrievalReasons = (entry: ClipboardEntry, activeFilterReasons: string[]) => {
+  const reasons = [
+    ...(entry.retrieval?.match_kind
+      ? [RETRIEVAL_REASON_LABELS[entry.retrieval.match_kind] ?? entry.retrieval.label]
+      : []),
+    ...activeFilterReasons,
+  ];
+
+  return Array.from(new Set(reasons.filter(Boolean)));
+};
 
 export const ClipboardItem: React.FC<ClipboardItemProps> = ({
   entry,
@@ -56,21 +87,23 @@ export const ClipboardItem: React.FC<ClipboardItemProps> = ({
   onClick,
   showNumber,
   number,
+  density = 'list',
+  activeFilterReasons = [],
 }) => {
   const { t } = useTranslation(['common', 'clipboard']);
-  const {
-    toggleFavorite,
-    deleteEntry,
-    copyToClipboard,
-    pasteSelectedEntry,
-    getAppIcon,
-  } = useClipboardStore();
+  const { toggleFavorite, deleteEntry, copyToClipboard, pasteSelectedEntry, getAppIcon } =
+    useClipboardStore();
   const [appIconUrl, setAppIconUrl] = useState<string | null>(null);
-  const summary = buildPreviewSummary(entry, 'list');
+  const summary = buildPreviewSummary(entry, density);
   const usesWorkbenchSummary =
     summary.previewIntent === 'code_workbench' || summary.previewIntent === 'command_workbench';
   const usesStructuredMonoSummary =
     summary.previewIntent === 'json_structured' || summary.previewIntent === 'base64_summary';
+  const retrievalSnippet = entry.retrieval?.snippet?.trim() || '';
+  const retrievalReasons = buildRetrievalReasons(entry, activeFilterReasons);
+  const visibleRetrievalReasons = retrievalReasons.slice(0, 2);
+  const overflowRetrievalReasons = retrievalReasons.length - visibleRetrievalReasons.length;
+  const isRetrievalDensity = density === 'retrieval';
 
   useEffect(() => {
     if (entry.app_bundle_id && getAppIcon) {
@@ -140,6 +173,9 @@ export const ClipboardItem: React.FC<ClipboardItemProps> = ({
   };
 
   const { label: typeLabel } = getTypeMeta();
+  const rawPreviewFallback = normalizeContentPreview(entry.content_data, 160);
+  const previewHeadline = summary.headline.trim() || rawPreviewFallback || typeLabel;
+  const previewSecondary = summary.secondarySummary.trim() || rawPreviewFallback || previewHeadline;
 
   const menuContent = (
     <>
@@ -174,8 +210,10 @@ export const ClipboardItem: React.FC<ClipboardItemProps> = ({
         <Card
           data-semantic-type={summary.semanticType}
           data-preview-intent={summary.previewIntent}
+          data-density={density}
           className={cn(
-            'group relative h-[118px] cursor-pointer overflow-hidden rounded-[18px] border border-border/70 bg-background/72 px-3.5 py-3 shadow-[0_8px_24px_rgba(15,23,42,0.06)] transition-all duration-200 hover:border-primary/20 hover:bg-background/88 hover:shadow-[0_16px_36px_rgba(15,23,42,0.1)] min-[1200px]:h-[126px] min-[1200px]:rounded-[20px] min-[1200px]:px-4 min-[1200px]:py-3.5',
+            'group relative min-h-[132px] cursor-pointer overflow-hidden rounded-[18px] border border-border/70 bg-background/72 px-3 py-2.5 shadow-[0_8px_24px_rgba(15,23,42,0.06)] transition-all duration-200 hover:border-primary/20 hover:bg-background/88 hover:shadow-[0_16px_36px_rgba(15,23,42,0.1)] min-[1200px]:min-h-[138px] min-[1200px]:rounded-[20px] min-[1200px]:px-3.5 min-[1200px]:py-3',
+            isRetrievalDensity && 'min-h-[156px] min-[1200px]:min-h-[164px]',
             {
               'border-primary/30 bg-primary/8 shadow-[0_18px_42px_rgba(13,148,136,0.14)] ring-1 ring-primary/15':
                 isSelected,
@@ -189,13 +227,20 @@ export const ClipboardItem: React.FC<ClipboardItemProps> = ({
             <div className="absolute inset-y-3 left-0 w-1 rounded-r-full bg-primary min-[1200px]:inset-y-3.5" />
           )}
 
-          <div className="flex h-full min-w-0 flex-col gap-3">
+          <div
+            className={cn(
+              'grid h-full min-w-0 gap-2',
+              isRetrievalDensity
+                ? 'grid-rows-[auto_auto_minmax(0,1fr)] gap-2.5'
+                : 'grid-rows-[auto_minmax(52px,1fr)]'
+            )}
+          >
             <div className="flex items-start justify-between gap-3">
-              <div className="flex min-w-0 flex-wrap items-center gap-1.5 min-[1200px]:gap-2">
+              <div className="flex min-w-0 items-center gap-1.5 overflow-hidden min-[1200px]:gap-2">
                 <Badge
                   variant="secondary"
                   className={cn(
-                    'rounded-full border px-2.5 py-0.5 text-[10px] font-medium min-[1200px]:text-[11px]',
+                    'shrink-0 rounded-full border px-2.5 py-0.5 text-[10px] font-medium min-[1200px]:text-[11px]',
                     isSelected
                       ? 'border-primary/20 bg-primary/10 text-primary'
                       : 'border-border/70 bg-secondary/70 text-foreground'
@@ -204,13 +249,13 @@ export const ClipboardItem: React.FC<ClipboardItemProps> = ({
                   {typeLabel}
                 </Badge>
 
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-secondary/70 px-2.5 py-0.5 text-[11px] text-muted-foreground min-[1200px]:text-xs">
+                <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-secondary/70 px-2.5 py-0.5 text-[11px] text-muted-foreground min-[1200px]:text-xs">
                   <Clock3 className="h-3.5 w-3.5" />
                   <span>{formatDate(entry.created_at)}</span>
                 </span>
 
                 {entry.source_app && (
-                  <span className="inline-flex max-w-full items-center gap-1.5 rounded-full bg-secondary/70 px-2.5 py-0.5 text-[11px] text-muted-foreground min-[1200px]:text-xs">
+                  <span className="inline-flex min-w-0 max-w-[150px] items-center gap-1.5 overflow-hidden rounded-full bg-secondary/70 px-2.5 py-0.5 text-[11px] text-muted-foreground min-[1200px]:max-w-[180px] min-[1200px]:text-xs">
                     {appIconUrl ? (
                       <img src={appIconUrl} alt={entry.source_app} className="h-4 w-4 rounded-sm" />
                     ) : (
@@ -227,7 +272,7 @@ export const ClipboardItem: React.FC<ClipboardItemProps> = ({
                 {entry.copy_count > 1 && (
                   <Badge
                     variant="outline"
-                    className="rounded-full border-border/70 px-2.5 py-0.5 text-[11px]"
+                    className="shrink-0 rounded-full border-border/70 px-2.5 py-0.5 text-[11px]"
                   >
                     {t('clipboard:actions.copiedTimes', { count: entry.copy_count })}
                   </Badge>
@@ -307,28 +352,71 @@ export const ClipboardItem: React.FC<ClipboardItemProps> = ({
               </div>
             </div>
 
-            <div className="flex min-h-0 flex-1 overflow-hidden rounded-[18px] border border-border/60 bg-secondary/20 px-4 py-3">
-              <div className="flex min-w-0 flex-1 flex-col justify-between gap-2">
-                <p
+            <div className="flex min-h-[52px] overflow-hidden rounded-[18px] border border-border/60 bg-secondary/20 px-3 py-2">
+              <div className="grid min-w-0 flex-1 grid-rows-[auto_minmax(0,1fr)] gap-1 overflow-hidden">
+                <div
+                  title={previewHeadline}
                   className={cn(
-                    'line-clamp-1 text-sm font-semibold leading-5 text-foreground',
+                    'min-w-0 truncate text-sm font-semibold leading-5 text-foreground',
                     (usesWorkbenchSummary || usesStructuredMonoSummary) && 'font-mono text-[13px]'
                   )}
                 >
-                  {summary.headline}
-                </p>
+                  {previewHeadline}
+                </div>
 
-                <p
+                <div
+                  title={previewSecondary}
                   className={cn(
-                    'line-clamp-2 text-xs leading-5 text-muted-foreground',
+                    isRetrievalDensity
+                      ? 'truncate text-xs leading-5 text-muted-foreground'
+                      : 'max-h-10 overflow-hidden break-words text-xs leading-5 text-muted-foreground',
                     usesWorkbenchSummary && 'font-mono',
                     usesStructuredMonoSummary && 'font-mono text-[11px]'
                   )}
                 >
-                  {summary.secondarySummary}
-                </p>
+                  {previewSecondary}
+                </div>
               </div>
             </div>
+
+            {isRetrievalDensity && (retrievalSnippet || visibleRetrievalReasons.length > 0) && (
+              <div className="flex min-h-[42px] flex-col gap-2 rounded-[16px] border border-primary/10 bg-primary/[0.04] px-3 py-2">
+                {retrievalSnippet ? (
+                  <p
+                    title={retrievalSnippet}
+                    className={cn(
+                      'line-clamp-2 break-words text-[12px] leading-[1.5] text-muted-foreground',
+                      (usesWorkbenchSummary || usesStructuredMonoSummary) && 'font-mono'
+                    )}
+                  >
+                    {retrievalSnippet}
+                  </p>
+                ) : null}
+
+                {visibleRetrievalReasons.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {visibleRetrievalReasons.map((reason) => (
+                      <Badge
+                        key={reason}
+                        variant="secondary"
+                        className="rounded-full border border-primary/10 bg-background/80 px-2.5 py-0.5 text-[11px] font-normal text-muted-foreground"
+                      >
+                        {reason}
+                      </Badge>
+                    ))}
+
+                    {overflowRetrievalReasons > 0 && (
+                      <Badge
+                        variant="secondary"
+                        className="rounded-full border border-primary/10 bg-background/80 px-2.5 py-0.5 text-[11px] font-normal text-muted-foreground"
+                      >
+                        +{overflowRetrievalReasons}
+                      </Badge>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </Card>
       </ContextMenuTrigger>

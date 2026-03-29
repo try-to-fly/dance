@@ -116,6 +116,16 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install
 
+      - name: Run frontend tests
+        run: pnpm test
+
+      - name: Build frontend bundle
+        run: pnpm build
+
+      - name: Run Rust tests
+        working-directory: src-tauri
+        run: cargo test
+
       - name: Verify Aptabase Key is set
         run: |
           if [ -n "${{ secrets.APTABASE_APP_KEY }}" ]; then

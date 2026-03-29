@@ -50,6 +50,27 @@ const stringifyUnknown = (value: unknown) => {
   }
 };
 
+const shouldIncludeRawAlternateView = (
+  primaryKind: PreviewKind,
+  subType: ContentSubType
+): boolean => {
+  if (subType === 'base64') {
+    return true;
+  }
+
+  return !['plain_text', 'code', 'markdown'].includes(primaryKind);
+};
+
+const shouldIncludeResolvedJsonAlternateView = (
+  primaryKind: PreviewKind,
+  subType: ContentSubType
+): boolean => primaryKind !== 'json' && subType !== 'url';
+
+const shouldIncludeResolvedTextAlternateView = (
+  primaryKind: PreviewKind,
+  subType: ContentSubType
+): boolean => !['plain_text', 'code', 'markdown'].includes(primaryKind) && subType !== 'url';
+
 const buildUrlInspector = (metadata: ContentMetadata | null): PreviewInspectorSection | null => {
   if (!metadata?.url_parts) {
     return null;
@@ -152,7 +173,7 @@ const buildAnalysisInspector = (
   status: AnalysisStatus | null,
   diagnostics: AnalysisDiagnostic[]
 ): PreviewInspectorSection | null => {
-  if (!status && diagnostics.length === 0) {
+  if (status !== 'fallback' && diagnostics.length === 0) {
     return null;
   }
 
@@ -257,8 +278,9 @@ const resolveTypeLabel = (
   if (semanticType === 'base64') {
     return labels.base64;
   }
-  if (semanticType !== 'image' && semanticType !== 'file' && labels.subtypeLabels?.[semanticType]) {
-    return labels.subtypeLabels[semanticType] as string;
+  const subtypeLabel = labels.subtypeLabels?.[semanticType as ContentSubType];
+  if (subtypeLabel) {
+    return subtypeLabel;
   }
   return labels.text;
 };
@@ -285,7 +307,11 @@ export const buildPreviewDescriptor = ({
   const typeLabel = resolveTypeLabel(semantic.semanticType, labels);
 
   const alternateViews: PreviewDescriptor['alternateViews'] = [];
-  if (semantic.supportsRawView && semantic.rawContent) {
+  if (
+    semantic.supportsRawView &&
+    semantic.rawContent &&
+    shouldIncludeRawAlternateView(primaryKind, subType)
+  ) {
     alternateViews.push({
       key: 'raw',
       label: 'Raw',
@@ -293,7 +319,11 @@ export const buildPreviewDescriptor = ({
       payload: semantic.rawContent,
     });
   }
-  if (resolvedData?.textContent && resolvedData.textContent !== semantic.rawContent) {
+  if (
+    resolvedData?.textContent &&
+    resolvedData.textContent !== semantic.rawContent &&
+    shouldIncludeResolvedTextAlternateView(primaryKind, subType)
+  ) {
     alternateViews.push({
       key: 'resolved-text',
       label: 'Resolved',
@@ -301,7 +331,10 @@ export const buildPreviewDescriptor = ({
       payload: resolvedData.textContent,
     });
   }
-  if (resolvedData?.jsonContent !== undefined) {
+  if (
+    resolvedData?.jsonContent !== undefined &&
+    shouldIncludeResolvedJsonAlternateView(primaryKind, subType)
+  ) {
     alternateViews.push({
       key: 'resolved-json',
       label: 'JSON',

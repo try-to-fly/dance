@@ -2,6 +2,7 @@ import { render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useClipboardStore } from '../../stores/clipboardStore';
 import type { ClipboardEntry, EntryAnalysisSnapshot } from '../../types/clipboard';
+import * as previewSummaryModule from '../../lib/preview/previewSummary';
 import { buildPreviewSummary } from '../../lib/preview/previewSummary';
 import { ClipboardItem } from './ClipboardItem';
 
@@ -176,20 +177,20 @@ describe('ClipboardItem', () => {
     const { container, unmount } = renderItem(entry);
 
     const card = container.querySelector('.group');
-    expect(card).toHaveClass('h-[118px]');
+    expect(card).toHaveClass('min-h-[132px]');
 
     const headline = screen.getByText(summary.headline);
-    expect(headline).toHaveClass('line-clamp-1');
+    expect(headline).toHaveClass('truncate');
 
     const secondarySummary = screen.getByText(summary.secondarySummary);
-    expect(secondarySummary).toHaveClass('line-clamp-2');
+    expect(secondarySummary).toHaveClass('max-h-10', 'overflow-hidden');
 
     expect(getImageUrl).not.toHaveBeenCalled();
 
     unmount();
   });
 
-  it('对长内容保持固定高度，并为 headline/secondary summary 施加 line-clamp-1 和 line-clamp-2', () => {
+  it('对长内容保持稳定的最小高度，并为 headline/secondary summary 施加稳定截断样式', () => {
     const entry = createEntry({
       content_data:
         'const summaryHeadlineShouldStayOnOneLine = "summary shell should stay compact even when the clipboard item contains a deliberately verbose code sample for testing";\nconst secondarySummaryShouldClampToTwoLines = "Phase 03 keeps list density stable and never lets one entry expand the row height unexpectedly";',
@@ -207,9 +208,9 @@ describe('ClipboardItem', () => {
     const summary = buildPreviewSummary(entry, 'list');
     const { container } = renderItem(entry);
 
-    expect(container.querySelector('.group')).toHaveClass('h-[118px]');
-    expect(screen.getByText(summary.headline)).toHaveClass('line-clamp-1');
-    expect(screen.getByText(summary.secondarySummary)).toHaveClass('line-clamp-2');
+    expect(container.querySelector('.group')).toHaveClass('min-h-[132px]');
+    expect(screen.getByText(summary.headline)).toHaveClass('truncate');
+    expect(screen.getByText(summary.secondarySummary)).toHaveClass('max-h-10', 'overflow-hidden');
   });
 
   it('Image 条目也只消费同步 summary contract，不请求 getImageUrl 预览', () => {
@@ -233,5 +234,27 @@ describe('ClipboardItem', () => {
     expect(screen.getByText(summary.headline)).toBeInTheDocument();
     expect(screen.getByText(summary.secondarySummary)).toBeInTheDocument();
     expect(getImageUrl).not.toHaveBeenCalled();
+  });
+
+  it('当 summary contract 意外为空时，列表项会回退到原始文本预览而不是渲染空白区域', () => {
+    const summarySpy = vi.spyOn(previewSummaryModule, 'buildPreviewSummary').mockReturnValue({
+      density: 'list',
+      semanticType: 'plain_text',
+      previewIntent: 'plain_text_summary',
+      headline: '',
+      secondarySummary: '',
+    });
+
+    renderItem(
+      createEntry({
+        content_data: 'ANALYSIS should still render as visible fallback text',
+      })
+    );
+
+    expect(
+      screen.getAllByText('ANALYSIS should still render as visible fallback text').length
+    ).toBeGreaterThan(0);
+
+    summarySpy.mockRestore();
   });
 });

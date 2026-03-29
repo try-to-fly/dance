@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import {
   Base64PreviewResolution,
+  ClipboardHistoryQuery,
   ClipboardEntry,
   PreviewKind,
   ResolvedPreviewData,
@@ -21,6 +22,8 @@ type PreviewResolutionCacheEntry = {
 
 const DEFAULT_PREVIEW_CACHE_TTL_MS = 5 * 60 * 1000;
 const DEGRADED_PREVIEW_CACHE_TTL_MS = 30 * 1000;
+const DEFAULT_HISTORY_PAGE_SIZE = 50;
+const SOURCE_APP_OPTIONS_LIMIT = 24;
 
 const URL_MEDIA_RULES: Array<[RegExp, UrlPreviewCategory]> = [
   [/\.(jpg|jpeg|png|gif|webp|svg|bmp|ico)(\?|$)/i, 'image'],
@@ -256,6 +259,47 @@ const hasRenderableResolvedPreview = (resolved: ResolvedPreviewData) =>
   resolved.textContent !== undefined ||
   hasResolvedJsonContent(resolved);
 
+const hasActiveRetrievalQuery = (
+  state: Pick<
+    ClipboardStore,
+    'searchTerm' | 'selectedType' | 'selectedSourceApp' | 'favoritesOnly' | 'recencyDays'
+  >
+) =>
+  Boolean(state.searchTerm.trim()) ||
+  state.selectedType !== 'all' ||
+  state.selectedSourceApp !== 'all' ||
+  state.favoritesOnly ||
+  state.recencyDays !== null;
+
+const normalizeSourceAppOptions = (sourceApps: string[], selectedSourceApp: string) => {
+  const options = Array.from(
+    new Set(sourceApps.map((value) => value.trim()).filter(Boolean))
+  ).slice(0, SOURCE_APP_OPTIONS_LIMIT);
+
+  if (selectedSourceApp !== 'all' && !options.includes(selectedSourceApp)) {
+    options.unshift(selectedSourceApp);
+  }
+
+  return options;
+};
+
+const buildHistoryQuery = (
+  state: Pick<
+    ClipboardStore,
+    'searchTerm' | 'selectedType' | 'selectedSourceApp' | 'favoritesOnly' | 'recencyDays'
+  >,
+  limit: number,
+  offset: number
+): ClipboardHistoryQuery => ({
+  text: state.searchTerm.trim() || undefined,
+  selected_type: state.selectedType !== 'all' ? state.selectedType : undefined,
+  source_app: state.selectedSourceApp !== 'all' ? state.selectedSourceApp : undefined,
+  favorites_only: state.favoritesOnly || undefined,
+  recency_days: state.recencyDays ?? undefined,
+  limit,
+  offset,
+});
+
 export const copyToClipboard = async (content: string) => {
   await invoke('copy_to_clipboard', { content });
 };
@@ -351,6 +395,10 @@ interface ClipboardStore {
   loading: boolean;
   error: string | null;
   selectedType: string;
+  selectedSourceApp: string;
+  favoritesOnly: boolean;
+  recencyDays: number | null;
+  sourceAppOptions: string[];
   selectedEntry: ClipboardEntry | null;
   urlContentCache: Map<string, { content: string; timestamp: number }>;
   mediaMetadataCache: Map<string, { metadata: any; timestamp: number }>;
@@ -381,6 +429,11 @@ interface ClipboardStore {
   invalidatePreview?: (key?: string) => void;
   setSearchTerm: (term: string) => void;
   setSelectedType: (type: string) => void;
+  setSelectedSourceApp: (sourceApp: string) => void;
+  setFavoritesOnly: (favoritesOnly: boolean) => void;
+  setRecencyDays: (days: number | null) => void;
+  resetRetrievalFilters: () => void;
+  isRetrievalActive: () => boolean;
   setSelectedEntry: (entry: ClipboardEntry | null) => void;
   getFilteredEntries: () => ClipboardEntry[];
   setupEventListener: () => void;
@@ -394,6 +447,10 @@ export const useClipboardStore = create<ClipboardStore>((set, get) => ({
   loading: false,
   error: null,
   selectedType: 'all',
+  selectedSourceApp: 'all',
+  favoritesOnly: false,
+  recencyDays: null,
+  sourceAppOptions: [],
   selectedEntry: null,
   urlContentCache: new Map(),
   mediaMetadataCache: new Map(),
@@ -423,14 +480,23 @@ export const useClipboardStore = create<ClipboardStore>((set, get) => ({
     }
   },
 
-  fetchHistory: async (limit = 50, offset = 0) => {
+  fetchHistory: async (limit = DEFAULT_HISTORY_PAGE_SIZE, offset = 0) => {
     try {
       set({ loading: true, error: null });
-      const entries = await invoke<ClipboardEntry[]>('get_clipboard_history', {
-        limit,
-        offset,
-        search: get().searchTerm || undefined,
+      const historyQuery = buildHistoryQuery(get(), limit, offset);
+      const entries = await invoke<ClipboardEntry[]>('search_clipboard_history', {
+        query: historyQuery,
       });
+      const sourceAppOptions =
+        offset === 0
+          ? normalizeSourceAppOptions(
+              await invoke<string[]>('list_clipboard_source_apps', {
+                limit: SOURCE_APP_OPTIONS_LIMIT,
+              }),
+              get().selectedSourceApp
+            )
+          : get().sourceAppOptions;
+
       set((state) => {
         const selectedEntry =
           state.selectedEntry && entries.some((entry) => entry.id === state.selectedEntry?.id)
@@ -439,6 +505,7 @@ export const useClipboardStore = create<ClipboardStore>((set, get) => ({
 
         return {
           entries,
+          sourceAppOptions,
           hasMore: entries.length === limit,
           selectedEntry,
         };
@@ -458,15 +525,13 @@ export const useClipboardStore = create<ClipboardStore>((set, get) => ({
 
     try {
       set({ isLoadingMore: true, error: null });
-      const newEntries = await invoke<ClipboardEntry[]>('get_clipboard_history', {
-        limit: 50,
-        offset: state.entries.length,
-        search: state.searchTerm || undefined,
+      const newEntries = await invoke<ClipboardEntry[]>('search_clipboard_history', {
+        query: buildHistoryQuery(state, DEFAULT_HISTORY_PAGE_SIZE, state.entries.length),
       });
 
       set({
         entries: [...state.entries, ...newEntries],
-        hasMore: newEntries.length === 50,
+        hasMore: newEntries.length === DEFAULT_HISTORY_PAGE_SIZE,
         isLoadingMore: false,
       });
     } catch (error) {
@@ -477,12 +542,7 @@ export const useClipboardStore = create<ClipboardStore>((set, get) => ({
   toggleFavorite: async (id: string) => {
     try {
       await invoke('toggle_favorite', { id });
-      // 更新本地状态
-      set((state) => ({
-        entries: state.entries.map((entry) =>
-          entry.id === id ? { ...entry, is_favorite: !entry.is_favorite } : entry
-        ),
-      }));
+      await get().fetchHistory(Math.max(get().entries.length, DEFAULT_HISTORY_PAGE_SIZE), 0);
     } catch (error) {
       set({ error: String(error) });
     }
@@ -491,16 +551,7 @@ export const useClipboardStore = create<ClipboardStore>((set, get) => ({
   deleteEntry: async (id: string) => {
     try {
       await invoke('delete_entry', { id });
-      set((state) => {
-        const remainingEntries = state.entries.filter((entry) => entry.id !== id);
-        const selectedEntry =
-          state.selectedEntry?.id === id ? (remainingEntries[0] ?? null) : state.selectedEntry;
-
-        return {
-          entries: remainingEntries,
-          selectedEntry,
-        };
-      });
+      await get().fetchHistory(Math.max(get().entries.length - 1, DEFAULT_HISTORY_PAGE_SIZE), 0);
     } catch (error) {
       set({ error: String(error) });
     }
@@ -509,7 +560,12 @@ export const useClipboardStore = create<ClipboardStore>((set, get) => ({
   clearHistory: async () => {
     try {
       await invoke('clear_history');
-      set({ entries: [], selectedEntry: null });
+      set({
+        entries: [],
+        selectedEntry: null,
+        sourceAppOptions: [],
+        hasMore: false,
+      });
     } catch (error) {
       set({ error: String(error) });
     }
@@ -786,7 +842,7 @@ export const useClipboardStore = create<ClipboardStore>((set, get) => ({
     const resolved: ResolvedPreviewData = {};
     const contentType = entry.content_type.toLowerCase();
     const subType = getEntryAnalysisSubtype(entry);
-    let ttlMs = DEFAULT_PREVIEW_CACHE_TTL_MS;
+    const ttlMs = DEFAULT_PREVIEW_CACHE_TTL_MS;
 
     if (contentType.includes('image') && entry.file_path) {
       try {
@@ -838,70 +894,58 @@ export const useClipboardStore = create<ClipboardStore>((set, get) => ({
 
   setSearchTerm: (term: string) => {
     set({ searchTerm: term, hasMore: true });
-    get().fetchHistory();
+    void get().fetchHistory();
   },
 
   setSelectedType: (type: string) => {
-    set({ selectedType: type });
-    const filtered = get().getFilteredEntries();
-    set({ selectedEntry: filtered[0] ?? null });
+    set({ selectedType: type, hasMore: true });
+    void get().fetchHistory();
+  },
+
+  setSelectedSourceApp: (selectedSourceApp: string) => {
+    set({ selectedSourceApp, hasMore: true });
+    void get().fetchHistory();
+  },
+
+  setFavoritesOnly: (favoritesOnly: boolean) => {
+    set({ favoritesOnly, hasMore: true });
+    void get().fetchHistory();
+  },
+
+  setRecencyDays: (recencyDays: number | null) => {
+    set({ recencyDays, hasMore: true });
+    void get().fetchHistory();
+  },
+
+  resetRetrievalFilters: () => {
+    set({
+      searchTerm: '',
+      selectedType: 'all',
+      selectedSourceApp: 'all',
+      favoritesOnly: false,
+      recencyDays: null,
+      hasMore: true,
+    });
+    void get().fetchHistory();
+  },
+
+  isRetrievalActive: () => {
+    return hasActiveRetrievalQuery(get());
   },
 
   setSelectedEntry: (entry: ClipboardEntry | null) => {
     set({ selectedEntry: entry });
   },
 
-  getFilteredEntries: () => {
-    const state = get();
-    let filtered = state.entries;
-
-    if (state.selectedType !== 'all') {
-      filtered = filtered.filter((entry) => {
-        const type = entry.content_type.toLowerCase();
-
-        // 处理子类型筛选
-        if (state.selectedType.startsWith('text:')) {
-          if (!type.includes('text') && !type.includes('string')) {
-            return false;
-          }
-
-          const subtype = state.selectedType.replace('text:', '');
-          if (subtype === 'all') {
-            return true;
-          }
-
-          // 检查content_subtype字段
-          const entrySubtype = getEntryAnalysisSubtype(entry);
-
-          return entrySubtype === subtype;
-        }
-
-        // 处理主类型筛选
-        if (state.selectedType === 'text') {
-          return type.includes('text') || type.includes('string');
-        } else if (state.selectedType === 'image') {
-          return type.includes('image');
-        } else if (state.selectedType === 'file') {
-          return type.includes('file') && !type.includes('image');
-        }
-        return true;
-      });
-    }
-
-    if (state.searchTerm) {
-      const searchLower = state.searchTerm.toLowerCase();
-      filtered = filtered.filter(
-        (entry) =>
-          entry.content_data?.toLowerCase().includes(searchLower) ||
-          entry.source_app?.toLowerCase().includes(searchLower)
-      );
-    }
-
-    return filtered;
-  },
+  getFilteredEntries: () => get().entries,
 
   setupEventListener: () => {
     listen<ClipboardEntry>('clipboard-update', (event) => {
+      if (hasActiveRetrievalQuery(get())) {
+        void get().fetchHistory(Math.max(get().entries.length, DEFAULT_HISTORY_PAGE_SIZE), 0);
+        return;
+      }
+
       set((state) => {
         // 检查是否已存在
         const existingIndex = state.entries.findIndex(
@@ -930,6 +974,13 @@ export const useClipboardStore = create<ClipboardStore>((set, get) => ({
         // 自动选中最新的素材
         return {
           entries: newEntries,
+          sourceAppOptions: normalizeSourceAppOptions(
+            [
+              ...(event.payload.source_app ? [event.payload.source_app] : []),
+              ...state.sourceAppOptions,
+            ],
+            state.selectedSourceApp
+          ),
           selectedEntry: updatedEntry,
         };
       });

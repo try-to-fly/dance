@@ -677,8 +677,19 @@ impl ContentDetector {
                 return None;
             }
 
-            // 排除看起来像普通词汇的模式（只包含小写字母，没有数字和特殊字符）
-            if text.chars().all(|c| c.is_ascii_lowercase()) && text.len() >= 3 {
+            // 排除看起来像普通词汇的纯字母模式，避免把 ANALYSIS 之类的单词误报成 base64
+            let is_alpha_only = text.chars().all(|c| c.is_ascii_alphabetic());
+            let is_title_case = {
+                let mut chars = text.chars();
+                matches!(chars.next(), Some(first) if first.is_ascii_uppercase())
+                    && chars.all(|c| c.is_ascii_lowercase())
+            };
+            if is_alpha_only
+                && text.len() >= 3
+                && (text.chars().all(|c| c.is_ascii_lowercase())
+                    || text.chars().all(|c| c.is_ascii_uppercase())
+                    || is_title_case)
+            {
                 return None;
             }
 
@@ -1410,7 +1421,9 @@ mod tests {
         assert!(matches!(sub_type, ContentSubType::Code));
 
         // Common English words should not be detected as base64
-        let common_words = ["hello", "world", "test", "cat", "dog", "run", "yes"];
+        let common_words = [
+            "hello", "world", "test", "cat", "dog", "run", "yes", "ANALYSIS", "Analysis",
+        ];
         for word in common_words {
             let (sub_type, _) = ContentDetector::detect(word);
             assert!(

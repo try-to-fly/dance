@@ -1,13 +1,24 @@
 import {
+  AnalysisUrlMetadata,
   AnalysisDiagnostic,
   AnalysisStatus,
+  Base64Metadata,
   ClipboardEntry,
+  CodeAnalysisMetadata,
+  ColorFormats,
+  CommandAnalysisMetadata,
   ContentMetadata,
   ContentSubType,
+  EmailAnalysisMetadata,
   EntryAnalysisMetadata,
   EntryAnalysisSnapshot,
+  IpAddressAnalysisMetadata,
+  JsonAnalysisMetadata,
+  MarkdownAnalysisMetadata,
+  PlainTextAnalysisMetadata,
   PreviewIntent,
   SemanticPreviewModel,
+  TimestampFormats,
 } from '../../types/clipboard';
 
 const DEFAULT_HEADLINE_MAX_LENGTH = 120;
@@ -38,7 +49,6 @@ export interface EntrySemanticSummary {
 }
 
 type AnalysisKind = EntryAnalysisMetadata['kind'];
-type AnalysisData<K extends AnalysisKind> = Extract<EntryAnalysisMetadata, { kind: K }>['data'];
 
 const normalizeSubType = (value?: string | null): ContentSubType => {
   if (!value) {
@@ -151,16 +161,57 @@ export const normalizeContentPreview = (
     : normalized;
 };
 
-const getAnalysisMetadataOfKind = <K extends AnalysisKind>(
+function getAnalysisMetadataOfKind(
   metadata: EntryAnalysisMetadata | null,
-  kind: K
-): AnalysisData<K> | null => {
-  if (metadata?.kind !== kind) {
+  kind: 'plain_text'
+): PlainTextAnalysisMetadata | null;
+function getAnalysisMetadataOfKind(
+  metadata: EntryAnalysisMetadata | null,
+  kind: 'url'
+): AnalysisUrlMetadata | null;
+function getAnalysisMetadataOfKind(
+  metadata: EntryAnalysisMetadata | null,
+  kind: 'ip_address'
+): IpAddressAnalysisMetadata | null;
+function getAnalysisMetadataOfKind(
+  metadata: EntryAnalysisMetadata | null,
+  kind: 'email'
+): EmailAnalysisMetadata | null;
+function getAnalysisMetadataOfKind(
+  metadata: EntryAnalysisMetadata | null,
+  kind: 'color'
+): ColorFormats | null;
+function getAnalysisMetadataOfKind(
+  metadata: EntryAnalysisMetadata | null,
+  kind: 'code'
+): CodeAnalysisMetadata | null;
+function getAnalysisMetadataOfKind(
+  metadata: EntryAnalysisMetadata | null,
+  kind: 'command'
+): CommandAnalysisMetadata | null;
+function getAnalysisMetadataOfKind(
+  metadata: EntryAnalysisMetadata | null,
+  kind: 'timestamp'
+): TimestampFormats | null;
+function getAnalysisMetadataOfKind(
+  metadata: EntryAnalysisMetadata | null,
+  kind: 'json'
+): JsonAnalysisMetadata | null;
+function getAnalysisMetadataOfKind(
+  metadata: EntryAnalysisMetadata | null,
+  kind: 'markdown'
+): MarkdownAnalysisMetadata | null;
+function getAnalysisMetadataOfKind(
+  metadata: EntryAnalysisMetadata | null,
+  kind: 'base64'
+): Base64Metadata | null;
+function getAnalysisMetadataOfKind(metadata: EntryAnalysisMetadata | null, kind: AnalysisKind) {
+  if (!metadata || metadata.kind !== kind) {
     return null;
   }
 
-  return metadata.data as AnalysisData<K>;
-};
+  return metadata.data;
+}
 
 const joinSummaryParts = (parts: Array<string | null | undefined>): string =>
   parts.filter((value): value is string => Boolean(value)).join(' | ');

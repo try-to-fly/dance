@@ -2,87 +2,87 @@
 
 ## What This Is
 
-Dance 是一个面向开发者的本地桌面剪贴板管理工具，当前以客户端能力为中心，负责稳定监听剪贴板、持久化历史记录、识别复制内容的类型，并为不同内容提供合适的详情预览。它不是通用型云端协作产品，而是一个帮助开发者更高效查看、理解、筛选和回用剪贴板内容的工作台。
+Dance 是一个面向开发者的本地桌面剪贴板工作台。v1.0 已经把剪贴板监听、历史持久化、类型识别、结构化预览、本地检索和升级后的重建安全收口成一条完整本地链路。它不是通用内容平台，也不是云同步产品，而是帮助开发者更快查看、理解、筛选和回用剪贴板内容的桌面工具。
 
 ## Core Value
 
 开发者复制任意常见内容后，应用都能稳定记录、准确识别，并以最合适的结构化方式展示出来。
 
+## Current State
+
+- **Shipped milestone:** v1.0 MVP on 2026-03-29
+- **Archive:** `.planning/milestones/v1.0-ROADMAP.md`, `.planning/milestones/v1.0-REQUIREMENTS.md`, `.planning/milestones/v1.0-MILESTONE-AUDIT.md`
+- **Execution history:** `.planning/milestones/v1.0-phases/`
+- **Current focus:** 定义下一个 milestone，而不是继续扩张 v1.0 的执行文档
+
 ## Requirements
 
 ### Validated
 
-- ✓ 稳定记录本地剪贴板历史并支持启动/停止监听控制 — existing
-- ✓ 支持文本、图片、文件路径等多种剪贴板内容类型的基础采集与存储 — existing
-- ✓ 支持按关键字、内容类型、来源应用等维度浏览和筛选历史记录 — existing
-- ✓ 支持收藏、删除、清空历史和统计查看等基础管理能力 — existing
-- ✓ 支持 JSON、URL、代码、颜色等部分开发常见内容的详情预览与解析展示 — existing
-- ✓ 支持本地配置管理、自动更新、日志查看及桌面端偏好设置 — existing
-- ✓ 提升各类开发常见内容的类型识别稳定性，并让历史分析结果可以可靠重建 — Validated in Phase 02
+- ✓ 稳定记录本地剪贴板历史，并支持启动/停止监听控制与单一存储生命周期 — v1.0
+- ✓ Rust authoritative analysis contract、typed metadata、fallback diagnostics 与历史 rebuild — v1.0
+- ✓ JSON、URL、颜色、代码、命令等开发者内容的统一预览语义与 detail/list/retrieval 一致性 — v1.0
+- ✓ 本地检索能力，支持类型或 subtype、来源应用、收藏、时间窗口筛选，以及可解释的 snippet/match reason — v1.0
+- ✓ analysis/search rebuild safety 与 release/test-build 打包前自动化 gate — v1.0
 
 ### Active
 
-- [ ] 提升不同内容类型的预览质量，让 JSON、URL、颜色及其他已支持格式都能优先以最优视图展示
-- [ ] 强化搜索、筛选和模糊匹配能力，帮助用户快速定位目标剪贴板内容
-- [ ] 优先修复影响稳定性和可靠性的监听、存储与预览链路问题，保证日常开发使用可依赖
+- [ ] 为 JWT、TOML、XML、CSV/TSV、日志类内容提供专用 developer preview
+- [ ] 把桌面 smoke、packaged smoke 和 GitHub Actions release smoke 收敛成更稳定的自动化验证层
+- [ ] 基于真实大历史样本继续打磨 retrieval ranking、highlight 和 representative query benchmark
 
 ### Out of Scope
 
 - 云同步 — 当前只考虑本地客户端体验，避免引入账户、服务端和同步复杂度
-- 多设备同步 — 不属于本轮目标，优先把单机使用体验做稳定
+- 多设备同步 — 继续优先把单机体验打磨稳定
 - 移动端 — 当前产品边界是桌面客户端，不扩展到手机和平板端
 - 团队协作 — 当前主要服务个人开发者工作流，不做共享协作能力
-- 分享能力 — 不是当前核心价值的一部分，避免偏离“查看、理解、检索剪贴板内容”的主线
+- 分享能力 — 不属于“查看、理解、检索和回用本地内容”的核心主线
+- AI-first semantic search — 当前优先做可解释、可本地运行的确定性搜索与模糊匹配
 
 ## Context
 
-当前仓库已经具备明确的 brownfield 基础：主应用是基于 Tauri 2、React 18、TypeScript、Rust 和 SQLite 的桌面客户端，现有能力覆盖剪贴板监听、历史记录、类型过滤、详情预览、偏好设置、统计和自动更新。代码库中已经存在 URL、JSON、颜色、代码等开发相关内容的识别和展示链路，因此本项目并不是从零构建“剪贴板管理器”，而是在已有基础上把“开发者内容理解”做深。
+v1.0 以现有 Tauri + React + Rust + SQLite 架构为基础，先闭合 runtime capture、存储路径、authoritative analysis、semantic preview、retrieval 和 rebuild safety，再把 release/test-build 包装进自动化 gate。当前代码库已经不只是“基础剪贴板管理器”，而是一个具备开发者内容识别、结构化展示和本地回查能力的桌面工作台。
 
-从代码库映射结果看，当前最大的实现风险不在 UI 壳层，而在稳定性和一致性层面，包括监听生命周期控制、存储路径不统一、若干命令与预览链路过于集中、部分检索能力仍停留在基础匹配、以及若干测试和质量门禁缺口。这与本轮目标一致：优先把开发者日常会复制的内容识别准确、展示清楚、检索可靠，而不是扩展到云同步或多端体系。
+当前最明确的下一步不是扩张产品边界，而是继续加深 developer-specific content support，并把现在仍依赖人工 smoke 的桌面链路往自动化验证推进。v1.0 的 shipped 能力已经证明“本地优先 + Rust authority + React thin client”这条路线是成立的。
 
-当前状态已经推进到 Phase 02 完成：Rust authoritative analysis contract、history rebuild、analysis-first detail/store 消费以及 URL/JSON 两条 detail 回归都已闭合。下一阶段重点转向统一开发者预览体系，让列表、详情和后续检索场景共享一致的预览语义。
+## Next Milestone Goals
 
-用户最看重的使用场景是开发过程中的高频复制内容查看与理解。当前项目中已经覆盖的内容类型，就是用户最常处理的类型集合。对用户来说，“最优格式展示”不是表面 UI，而是复制后立即得到可读、可判断、可再次利用的结构化视图，例如 JSON 自动格式化并在代码编辑器中查看，URL 根据类型展示合理内容，颜色直接看到色块与其他色值表示，其他格式也能按语义化方式预览。
+- 把更多开发者常见格式从 generic text preview 提升为 dedicated structured preview
+- 继续提升 retrieval 的 explainability 和真实数据集下的 recall/ranking 质量
+- 缩小“自动化验证通过”和“真实桌面 smoke”之间的差距
 
 ## Constraints
 
-- **Platform**: 仅考虑桌面客户端能力 — 当前目标明确排除云端、同步和移动端扩展
-- **Primary Audience**: 面向开发者 — 功能优先围绕开发工作流中的内容识别、预览和检索
-- **Existing Stack**: 基于当前 Tauri + React + Rust + SQLite 架构演进 — 避免脱离现有代码基础重做产品
-- **Reliability**: 监听、存储、预览和检索链路必须可靠 — 这是用户持续使用该产品的前提
-- **Scope Control**: 不扩展到团队协作、分享和多设备体系 — 防止主线目标被平台化诉求稀释
+- **Platform**: 仅考虑桌面客户端能力，当前不扩张到云端、同步和移动端
+- **Primary Audience**: 面向开发者，优先围绕开发工作流中的内容识别、预览和检索
+- **Existing Stack**: 基于当前 Tauri + React + Rust + SQLite 架构演进
+- **Reliability**: 监听、存储、预览和检索链路必须可靠
+- **Scope Control**: 不扩展到团队协作、分享和多设备体系
 
 ## Key Decisions
 
-| Decision                                                              | Rationale                                                                  | Outcome               |
-| --------------------------------------------------------------------- | -------------------------------------------------------------------------- | --------------------- |
-| 继续把项目定位为开发者本地剪贴板工具，而不是通用内容平台              | 用户的核心诉求是开发过程中的内容理解与回用，不是泛社交或协作场景           | — Pending             |
-| 本轮优先级聚焦在识别准确率、预览质量与搜索检索能力                    | 这三项直接决定产品是否真正提升开发效率                                     | — Pending             |
-| 仅围绕客户端演进，不把云同步、多设备、移动端纳入当前主目标            | 先把单机体验打磨稳定，比提前扩展系统边界更有价值                           | — Pending             |
-| 现有已实现能力视为 Validated，后续迭代在此基础上持续收敛质量          | 仓库已经具备可运行产品形态，初始化应反映真实代码状态而不是假设 greenfield  | — Pending             |
-| Rust 继续作为 analysis、preview resolution 与 rebuild 语义的权威源    | 避免前端再次发散 subtype 语义，保证历史重建与详情预览使用同一份判定合同    | Validated in Phase 02 |
-| URL detail 采用 URL-first 主视图，远端 resolved 内容只进入备用视图    | 条目本身的语义优先于远端资源 MIME/preview kind，避免出现错误的 JSON 主预览 | Validated in Phase 02 |
-| 非 immersive JSON detail 必须保留 raw-only 入口并使用统一显式高度布局 | 保证长内容、Raw 切换与 Monaco 代码视图在真实桌面环境中稳定可见且可滚动     | Validated in Phase 02 |
+| Decision                                                                    | Rationale                                          | Outcome               |
+| --------------------------------------------------------------------------- | -------------------------------------------------- | --------------------- |
+| 继续把产品定位为开发者本地剪贴板工作台                                      | 用户核心诉求是本地内容理解与回用，不是平台化协作   | Validated in v1.0     |
+| Rust 继续作为 capture、analysis、retrieval 与 rebuild 语义的权威层          | 避免前端继续分裂 subtype、query 与 rebuild 语义    | Validated in v1.0     |
+| URL detail 采用 local-first 结构卡，远端 resolved 内容只进入备用视图        | 条目自身语义优先于远端资源 MIME                    | Validated in Phase 02 |
+| 统一 semantic preview core，让 list/detail/retrieval 只在密度上不同         | 避免不同 surface 各自解释同一条目                  | Validated in v1.0     |
+| retrieval 只允许一个 authoritative query path                               | backend 结果必须成为最终事实，不能被前端再二次裁剪 | Validated in v1.0     |
+| 不新开独立 search rebuild command                                           | 维护入口越少，analysis/search 一致性越容易保证     | Validated in v1.0     |
+| release/test-build 必须在打包前经过 `pnpm test`、`pnpm build`、`cargo test` | 把回归挡在产物生成前，而不是发布后                 | Validated in v1.0     |
 
 ## Evolution
 
-This document evolves at phase transitions and milestone boundaries.
+This document now evolves at milestone boundaries rather than in-phase execution.
 
-**After each phase transition** (via `$gsd-transition`):
+**When starting the next milestone:**
 
-1. Requirements invalidated? → Move to Out of Scope with reason
-2. Requirements validated? → Move to Validated with phase reference
-3. New requirements emerged? → Add to Active
-4. Decisions to log? → Add to Key Decisions
-5. "What This Is" still accurate? → Update if drifted
-
-**After each milestone** (via `$gsd-complete-milestone`):
-
-1. Full review of all sections
-2. Core Value check — still the right priority?
-3. Audit Out of Scope — reasons still valid?
-4. Update Context with current state
+1. Review `Validated` and keep only proven product truths
+2. Promote the highest-value items from `Active` into milestone requirements
+3. Re-check `Out of Scope` against new evidence
+4. Append new decisions only when they materially change architecture or product scope
 
 ---
 
-_Last updated: 2026-03-28 after Phase 2 completion_
+_Last updated: 2026-03-29 after v1.0 milestone completion_

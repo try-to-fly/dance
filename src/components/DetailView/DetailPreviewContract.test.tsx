@@ -129,7 +129,7 @@ describe('DetailPreview 契约 - Descriptor', () => {
               protocol: 'https',
               host: 'example.com',
               path: '/docs/guide',
-              query_params: [['tab', 'preview']],
+              query_params: [{ key: 'tab', value: 'preview' }],
             },
           },
         }),
@@ -219,10 +219,10 @@ describe('DetailPreview 契约 - Descriptor', () => {
 
     expect(descriptor.primaryKind).toBe<PreviewKind>('json');
     expect(descriptor.actions).toContain('copy_decoded');
-    expectAlternateKeys(descriptor, ['raw', 'resolved-json', 'decoded']);
+    expectAlternateKeys(descriptor, ['raw', 'decoded']);
   });
 
-  it('URL 远端 JSON 仍保持 URL 主预览，并保留 JSON 和文本备用视图', () => {
+  it('URL 远端 JSON 仍保持 URL 主预览，并优先保留 URL 结构视图', () => {
     const descriptor = createDescriptor(
       createEntry({
         content_subtype: 'url',
@@ -236,7 +236,7 @@ describe('DetailPreview 契约 - Descriptor', () => {
     );
 
     expect(descriptor.primaryKind).toBe<PreviewKind>('url_card');
-    expectAlternateKeys(descriptor, ['raw', 'resolved-text', 'resolved-json', 'url-structure']);
+    expectAlternateKeys(descriptor, ['raw', 'url-structure']);
   });
 
   it('URL 远端文本仍保持 URL 主预览，并保留文本备用视图', () => {
@@ -252,7 +252,7 @@ describe('DetailPreview 契约 - Descriptor', () => {
     );
 
     expect(descriptor.primaryKind).toBe<PreviewKind>('url_card');
-    expectAlternateKeys(descriptor, ['raw', 'resolved-text', 'url-structure']);
+    expectAlternateKeys(descriptor, ['raw', 'url-structure']);
   });
 
   it('Base64 图片条目优先进入图片主预览', () => {
@@ -345,9 +345,12 @@ describe('DetailPreview 契约 - Descriptor', () => {
         expect.objectContaining({ label: 'Path', value: '/docs' }),
       ])
     );
+    expect(descriptor.inspectorSections.some((section) => section.title === 'Analysis')).toBe(
+      false
+    );
   });
 
-  it('fallback analysis 会保留 raw 主视图并暴露 diagnostics inspector', () => {
+  it('fallback analysis 会保留原始文本主视图并暴露 diagnostics inspector，但不再重复提供 Raw tab', () => {
     const descriptor = createDescriptor(
       createEntry({
         content_subtype: 'json',
@@ -382,7 +385,7 @@ describe('DetailPreview 契约 - Descriptor', () => {
     expect(descriptor.badges).toEqual(
       expect.arrayContaining([expect.objectContaining({ label: 'Fallback', tone: 'warning' })])
     );
-    expectAlternateKeys(descriptor, ['raw']);
+    expectAlternateKeys(descriptor, []);
     expect(
       descriptor.inspectorSections.find((section) => section.title === 'Analysis')?.items
     ).toEqual(
@@ -391,6 +394,18 @@ describe('DetailPreview 契约 - Descriptor', () => {
         expect.objectContaining({ value: expect.stringContaining('json_malformed') }),
       ])
     );
+  });
+
+  it('plain_text 主视图不再重复提供 Raw 备用视图', () => {
+    const descriptor = createDescriptor(
+      createEntry({
+        content_subtype: 'plain_text',
+        content_data: 'ANALYSIS remains visible in the primary text renderer.',
+      })
+    );
+
+    expect(descriptor.primaryKind).toBe<PreviewKind>('plain_text');
+    expectAlternateKeys(descriptor, []);
   });
 });
 

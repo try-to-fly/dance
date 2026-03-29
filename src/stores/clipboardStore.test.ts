@@ -1,3 +1,4 @@
+import { waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ClipboardEntry } from '../types/clipboard';
 
@@ -45,6 +46,10 @@ describe('clipboardStore preview resolution', () => {
       loading: false,
       error: null,
       selectedType: 'all',
+      selectedSourceApp: 'all',
+      favoritesOnly: false,
+      recencyDays: null,
+      sourceAppOptions: [],
       selectedEntry: null,
       urlContentCache: new Map(),
       mediaMetadataCache: new Map(),
@@ -85,7 +90,24 @@ describe('clipboardStore preview resolution', () => {
     expect(cacheEntry?.ttlMs).toBe(30_000);
   });
 
-  it('setSelectedType 在过滤结果为空时会清空 selectedEntry', () => {
+  it('setSelectedType 会改走后端 retrieval query，而不是继续本地同步过滤', async () => {
+    invokeMock.mockImplementation((command: string, payload?: Record<string, unknown>) => {
+      if (command === 'search_clipboard_history') {
+        expect(payload).toEqual({
+          query: {
+            selected_type: 'image',
+            limit: 50,
+            offset: 0,
+          },
+        });
+        return Promise.resolve([]);
+      }
+      if (command === 'list_clipboard_source_apps') {
+        return Promise.resolve([]);
+      }
+      throw new Error(`unexpected command: ${command}`);
+    });
+
     useClipboardStore.setState({
       entries: [{ ...baseEntry, content_subtype: 'plain_text' }],
       selectedEntry: baseEntry,
@@ -93,7 +115,10 @@ describe('clipboardStore preview resolution', () => {
 
     useClipboardStore.getState().setSelectedType('image');
 
-    expect(useClipboardStore.getState().selectedEntry).toBeNull();
+    await waitFor(() => {
+      expect(useClipboardStore.getState().selectedType).toBe('image');
+      expect(useClipboardStore.getState().selectedEntry).toBeNull();
+    });
   });
 
   it('copyToClipboard 统一走 backend copy_to_clipboard 合同', async () => {
@@ -172,7 +197,7 @@ describe('clipboardStore preview resolution', () => {
             protocol: 'https',
             host: 'example.com',
             path: '/docs',
-            query_params: [['tab', 'preview']],
+            query_params: [{ key: 'tab', value: 'preview' }],
           },
         },
         diagnostics: [],

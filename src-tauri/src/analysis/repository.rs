@@ -173,7 +173,7 @@ pub async fn list_stale_entry_ids(
         .collect()
 }
 
-fn map_history_row(row: SqliteRow) -> Result<ClipboardEntry> {
+pub(crate) fn map_history_row(row: SqliteRow) -> Result<ClipboardEntry> {
     let mut entry = ClipboardEntry {
         id: row.try_get("id")?,
         content_hash: row.try_get("content_hash")?,
@@ -188,6 +188,7 @@ fn map_history_row(row: SqliteRow) -> Result<ClipboardEntry> {
         metadata: row.try_get("metadata")?,
         app_bundle_id: row.try_get("app_bundle_id")?,
         analysis: None,
+        retrieval: None,
     };
 
     if let Some(snapshot) = parse_analysis_snapshot(&row)? {
@@ -197,7 +198,7 @@ fn map_history_row(row: SqliteRow) -> Result<ClipboardEntry> {
     Ok(entry)
 }
 
-fn parse_analysis_snapshot(row: &SqliteRow) -> Result<Option<AnalysisSnapshot>> {
+pub(crate) fn parse_analysis_snapshot(row: &SqliteRow) -> Result<Option<AnalysisSnapshot>> {
     let subtype_raw: Option<String> = row.try_get("analysis_subtype")?;
     let status_raw: Option<String> = row.try_get("analysis_status")?;
     let metadata_json: Option<String> = row.try_get("analysis_metadata_json")?;

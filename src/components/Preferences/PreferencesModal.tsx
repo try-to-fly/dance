@@ -43,6 +43,8 @@ interface RebuildEntryAnalysisResult {
   updated: number;
   skipped: number;
   failed: number;
+  search_reindexed: number;
+  search_failed: number;
 }
 
 export function PreferencesModal() {
@@ -672,12 +674,12 @@ export function PreferencesModal() {
                       <Card data-testid="analysis-rebuild-card">
                         <CardHeader className="space-y-2 pb-3">
                           <CardTitle className="text-sm font-medium">
-                            {t('system.cache.rebuildTitle', '重建文本分析')}
+                            {t('system.cache.rebuildTitle', '重建分析与检索索引')}
                           </CardTitle>
                           <p className="text-sm text-muted-foreground">
                             {t(
                               'system.cache.rebuildDescription',
-                              '为已有历史补齐或重跑 authoritative analysis，不会改写原始内容。'
+                              '为已有历史补齐或重跑 authoritative analysis，并同步重建 retrieval search docs，不会改写原始内容。'
                             )}
                           </p>
                         </CardHeader>
@@ -696,7 +698,7 @@ export function PreferencesModal() {
                             <span className="text-xs text-muted-foreground">
                               {t(
                                 'system.cache.rebuildScope',
-                                '只处理本地文本历史，跳过图片等非文本条目。'
+                                'analysis 只处理本地文本历史；search index 会对现有历史做全量重建。'
                               )}
                             </span>
                           </div>
@@ -706,7 +708,7 @@ export function PreferencesModal() {
                               data-testid="analysis-rebuild-result"
                               className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700"
                             >
-                              {`已扫描 ${rebuildResult.scanned} 条，更新 ${rebuildResult.updated} 条，跳过 ${rebuildResult.skipped} 条，失败 ${rebuildResult.failed} 条。`}
+                              {`已扫描 ${rebuildResult.scanned} 条，更新 analysis ${rebuildResult.updated} 条，跳过 ${rebuildResult.skipped} 条，analysis 失败 ${rebuildResult.failed} 条；重建 search index ${rebuildResult.search_reindexed} 条，search 失败 ${rebuildResult.search_failed} 条。`}
                             </div>
                           )}
 

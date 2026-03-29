@@ -53,6 +53,16 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install
 
+      - name: Run frontend tests
+        run: pnpm test
+
+      - name: Build frontend bundle
+        run: pnpm build
+
+      - name: Run Rust tests
+        working-directory: src-tauri
+        run: cargo test
+
       - name: Create .env file for Tauri
         working-directory: src-tauri
         run: |
@@ -110,6 +120,16 @@ jobs:
 
       - name: Install frontend dependencies
         run: pnpm install
+
+      - name: Run frontend tests
+        run: pnpm test
+
+      - name: Build frontend bundle
+        run: pnpm build
+
+      - name: Run Rust tests
+        working-directory: src-tauri
+        run: cargo test
 
       - name: Create .env file for Tauri
         working-directory: src-tauri

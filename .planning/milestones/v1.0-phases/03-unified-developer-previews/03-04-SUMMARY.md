@@ -14,11 +14,7 @@ affects: [detail-preview, color-renderer, developer-preview]
 tech-stack:
   added: []
   patterns:
-    [
-      synchronous metadata-first renderer,
-      deterministic format ordering,
-      backend-only copy actions,
-    ]
+    [synchronous metadata-first renderer, deterministic format ordering, backend-only copy actions]
 key-files:
   created: [src/components/DetailView/ContentRenderers/ColorRenderer.test.tsx]
   modified: [src/components/DetailView/ContentRenderers/ColorRenderer.tsx]

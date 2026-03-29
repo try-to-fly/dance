@@ -1,6 +1,7 @@
 use super::repository::{list_stale_entry_ids, upsert_entry_analysis};
 use super::service::TextAnalysisService;
 use super::{ANALYSIS_CONTRACT_VERSION, TEXT_ANALYSIS_VERSION};
+use crate::retrieval::rebuild_search_documents;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use sqlx::{Pool, QueryBuilder, Row, Sqlite};
@@ -13,6 +14,8 @@ pub struct RebuildEntryAnalysisResult {
     pub updated: usize,
     pub skipped: usize,
     pub failed: usize,
+    pub search_reindexed: usize,
+    pub search_failed: usize,
 }
 
 #[derive(Debug)]
@@ -57,6 +60,8 @@ impl EntryAnalysisRebuilder {
             updated: 0,
             skipped,
             failed: 0,
+            search_reindexed: 0,
+            search_failed: 0,
         };
 
         for candidate in candidates {
@@ -82,6 +87,10 @@ impl EntryAnalysisRebuilder {
                 }
             }
         }
+
+        let search_rebuild = rebuild_search_documents(pool).await?;
+        result.search_reindexed = search_rebuild.reindexed;
+        result.search_failed = search_rebuild.failed;
 
         Ok(result)
     }

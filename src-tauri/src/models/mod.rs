@@ -2,6 +2,30 @@ use crate::analysis::AnalysisSnapshot;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ClipboardRetrievalMatchKind {
+    Content,
+    SourceApp,
+    UrlHost,
+    UrlPath,
+    UrlQuery,
+    JsonKey,
+    CommandName,
+    ColorValue,
+    Metadata,
+    Fuzzy,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ClipboardRetrievalMatch {
+    pub score: f64,
+    pub match_kind: ClipboardRetrievalMatchKind,
+    pub label: String,
+    pub snippet: Option<String>,
+    pub matched_terms: Vec<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct ClipboardEntry {
     pub id: String,
@@ -18,6 +42,8 @@ pub struct ClipboardEntry {
     pub app_bundle_id: Option<String>,
     #[sqlx(skip)]
     pub analysis: Option<AnalysisSnapshot>,
+    #[sqlx(skip)]
+    pub retrieval: Option<ClipboardRetrievalMatch>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -73,6 +99,7 @@ impl ClipboardEntry {
             metadata: None,
             app_bundle_id: None,
             analysis: None,
+            retrieval: None,
         }
     }
 

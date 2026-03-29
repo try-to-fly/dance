@@ -8,6 +8,7 @@ mod commands;
 mod config;
 mod database;
 mod models;
+mod retrieval;
 mod state;
 mod tray;
 mod updater;
@@ -36,6 +37,9 @@ mod capture_policy_tests;
 
 #[cfg(test)]
 mod analysis_contract_tests;
+
+#[cfg(test)]
+mod retrieval_tests;
 
 use app_paths::AppPaths;
 use commands::*;
@@ -367,6 +371,8 @@ pub fn run() {
             start_monitoring,
             stop_monitoring,
             get_clipboard_history,
+            search_clipboard_history,
+            list_clipboard_source_apps,
             rebuild_entry_analysis,
             toggle_favorite,
             delete_entry,

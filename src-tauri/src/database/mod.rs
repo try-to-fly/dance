@@ -176,6 +176,70 @@ impl Database {
         .execute(&self.pool)
         .await;
 
+        let _ = sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS entry_search_documents (
+                entry_id TEXT PRIMARY KEY,
+                content_hash TEXT NOT NULL,
+                content_type TEXT NOT NULL,
+                content_subtype TEXT,
+                source_app TEXT,
+                is_favorite INTEGER NOT NULL DEFAULT 0,
+                created_at INTEGER NOT NULL,
+                search_text TEXT NOT NULL,
+                structured_terms_json TEXT NOT NULL CHECK (json_valid(structured_terms_json)),
+                updated_at INTEGER NOT NULL,
+                FOREIGN KEY (entry_id) REFERENCES clipboard_entries(id) ON DELETE CASCADE
+            )
+            "#,
+        )
+        .execute(&self.pool)
+        .await;
+
+        let _ = sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_entry_search_documents_created_at ON entry_search_documents(created_at DESC)",
+        )
+        .execute(&self.pool)
+        .await;
+
+        let _ = sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_entry_search_documents_type ON entry_search_documents(content_type, content_subtype)",
+        )
+        .execute(&self.pool)
+        .await;
+
+        let _ = sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_entry_search_documents_filters ON entry_search_documents(source_app, is_favorite, created_at DESC)",
+        )
+        .execute(&self.pool)
+        .await;
+
+        let _ = sqlx::query(
+            r#"
+            CREATE VIRTUAL TABLE IF NOT EXISTS entry_search_fts
+            USING fts5(
+                entry_id UNINDEXED,
+                search_text,
+                tokenize = "unicode61 remove_diacritics 2 tokenchars '._-/:#@'"
+            )
+            "#,
+        )
+        .execute(&self.pool)
+        .await;
+
+        let _ = sqlx::query(
+            r#"
+            CREATE TRIGGER IF NOT EXISTS clipboard_entries_delete_search_docs
+            AFTER DELETE ON clipboard_entries
+            BEGIN
+                DELETE FROM entry_search_documents WHERE entry_id = OLD.id;
+                DELETE FROM entry_search_fts WHERE entry_id = OLD.id;
+            END
+            "#,
+        )
+        .execute(&self.pool)
+        .await;
+
         Ok(())
     }
 

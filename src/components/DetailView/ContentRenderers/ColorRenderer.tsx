@@ -25,19 +25,39 @@ const parseMetadataColorFormats = (metadata?: string | null): ColorFormats | nul
   }
 
   try {
-    const parsed = JSON.parse(metadata) as
-      | { color_formats?: ColorFormats; kind?: string; data?: ColorFormats }
-      | ColorFormats;
-
-    if ('color_formats' in parsed && parsed.color_formats) {
-      return parsed.color_formats;
+    const parsed = JSON.parse(metadata) as unknown;
+    if (!parsed || typeof parsed !== 'object') {
+      return null;
     }
 
-    if ('kind' in parsed && parsed.kind === 'color' && parsed.data) {
-      return parsed.data;
+    const normalized = parsed as {
+      color_formats?: ColorFormats;
+      kind?: string;
+      data?: ColorFormats;
+      hex?: string;
+      rgb?: string;
+      rgba?: string;
+      hsl?: string;
+    };
+
+    if (normalized.color_formats) {
+      return normalized.color_formats;
     }
 
-    return parsed;
+    if (normalized.kind === 'color' && normalized.data) {
+      return normalized.data;
+    }
+
+    if (normalized.hex || normalized.rgb || normalized.rgba || normalized.hsl) {
+      return {
+        hex: normalized.hex,
+        rgb: normalized.rgb,
+        rgba: normalized.rgba,
+        hsl: normalized.hsl,
+      };
+    }
+
+    return null;
   } catch {
     return null;
   }
@@ -142,7 +162,10 @@ const buildColorPresentation = (content: string, metadata?: string | null) => {
     metadataFormats?.hex ||
     metadataFormats?.hsl ||
     content;
-  const parsed = parseColorValue(parseSource) ?? { rgb: [0, 0, 0] as [number, number, number], alpha: 1 };
+  const parsed = parseColorValue(parseSource) ?? {
+    rgb: [0, 0, 0] as [number, number, number],
+    alpha: 1,
+  };
   const [red, green, blue] = parsed.rgb;
   const hsl = colorConvert.rgb.hsl(parsed.rgb);
 
@@ -157,7 +180,8 @@ const buildColorPresentation = (content: string, metadata?: string | null) => {
     formats: {
       hex: metadataFormats?.hex ?? `#${colorConvert.rgb.hex(parsed.rgb)}`,
       rgb: metadataFormats?.rgb ?? `rgb(${red}, ${green}, ${blue})`,
-      rgba: metadataFormats?.rgba ?? `rgba(${red}, ${green}, ${blue}, ${formatAlpha(parsed.alpha)})`,
+      rgba:
+        metadataFormats?.rgba ?? `rgba(${red}, ${green}, ${blue}, ${formatAlpha(parsed.alpha)})`,
       hsl: metadataFormats?.hsl ?? `hsl(${hsl[0]}, ${hsl[1]}%, ${hsl[2]}%)`,
     },
   };

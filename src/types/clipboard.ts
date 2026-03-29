@@ -12,6 +12,37 @@ export interface ClipboardEntry {
   metadata?: string | null;
   app_bundle_id?: string | null;
   analysis?: EntryAnalysisSnapshot | null;
+  retrieval?: ClipboardRetrievalMatch | null;
+}
+
+export type ClipboardRetrievalMatchKind =
+  | 'content'
+  | 'source_app'
+  | 'url_host'
+  | 'url_path'
+  | 'url_query'
+  | 'json_key'
+  | 'command_name'
+  | 'color_value'
+  | 'metadata'
+  | 'fuzzy';
+
+export interface ClipboardRetrievalMatch {
+  score: number;
+  match_kind: ClipboardRetrievalMatchKind;
+  label: string;
+  snippet?: string | null;
+  matched_terms: string[];
+}
+
+export interface ClipboardHistoryQuery {
+  text?: string;
+  selected_type?: string;
+  source_app?: string;
+  favorites_only?: boolean;
+  recency_days?: number;
+  limit?: number;
+  offset?: number;
 }
 
 export type ContentType = 'text' | 'image' | 'file' | 'unknown';

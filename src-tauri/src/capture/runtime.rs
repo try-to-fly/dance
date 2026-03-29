@@ -2,6 +2,7 @@ use crate::analysis::upsert_entry_analysis;
 use crate::clipboard::ClipboardMonitor;
 use crate::database::Database;
 use crate::models::ClipboardEntry;
+use crate::retrieval::upsert_entry_search_document;
 use chrono::Utc;
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
@@ -235,6 +236,8 @@ async fn persist_entry(db: &Database, entry: ClipboardEntry) -> anyhow::Result<C
         .await?;
         stored_entry.attach_analysis(snapshot);
     }
+
+    upsert_entry_search_document(&mut tx, &stored_entry).await?;
 
     tx.commit().await?;
 

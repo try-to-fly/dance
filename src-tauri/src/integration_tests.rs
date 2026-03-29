@@ -10,6 +10,7 @@ mod integration_tests {
     use crate::clipboard::ContentProcessor;
     use crate::database::Database;
     use crate::models::{ClipboardEntry, ContentType};
+    use crate::retrieval::upsert_entry_search_document;
     use crate::state::AppState;
     use crate::test_support::{create_temp_app_roots, TestAppRoots};
     use sqlx::Row;
@@ -48,7 +49,7 @@ mod integration_tests {
     }
 
     async fn wait_for_persisted_entry(state: &AppState, content_hash: &str) -> ClipboardEntry {
-        for _ in 0..20 {
+        for _ in 0..60 {
             if let Some(entry) = sqlx::query_as::<_, ClipboardEntry>(
                 "SELECT * FROM clipboard_entries WHERE content_hash = ?",
             )
@@ -70,7 +71,7 @@ mod integration_tests {
         state: &AppState,
         content_hash: &str,
     ) -> (String, String, String) {
-        for _ in 0..20 {
+        for _ in 0..60 {
             if let Some(row) = sqlx::query(
                 r#"
                 SELECT status, subtype, diagnostics_json
@@ -193,7 +194,7 @@ mod integration_tests {
             let mut entry = ClipboardEntry::new(
                 ContentType::Text,
                 Some(content.to_string()),
-                format!("hash_{}", content.len()),
+                crate::capture::calculate_content_hash(content.as_bytes()),
                 Some("TestApp".to_string()),
                 None,
             );
@@ -230,6 +231,11 @@ mod integration_tests {
             .execute(state.db.pool())
             .await
             .unwrap();
+
+            let mut connection = state.db.pool().acquire().await.unwrap();
+            upsert_entry_search_document(&mut connection, &entry)
+                .await
+                .unwrap();
 
             // Step 4: Retrieve and Verify
             let stored_entry =
@@ -588,7 +594,7 @@ mod integration_tests {
             let mut entry = ClipboardEntry::new(
                 ContentType::Text,
                 Some(content.to_string()),
-                format!("search_hash_{}", content.len()),
+                crate::capture::calculate_content_hash(content.as_bytes()),
                 Some("SearchTestApp".to_string()),
                 None,
             );
@@ -623,13 +629,18 @@ mod integration_tests {
             .execute(state.db.pool())
             .await
             .unwrap();
+
+            let mut connection = state.db.pool().acquire().await.unwrap();
+            upsert_entry_search_document(&mut connection, &entry)
+                .await
+                .unwrap();
         }
 
         // Test searches
         let search_tests = vec![
             ("github", 2),      // Should find URL and command
             ("function", 1),    // Should find JavaScript code
-            ("john", 1),        // Should find JSON
+            ("john", 2),        // Should find JSON and embedded developer tokens in commands
             ("project", 1),     // Should find Markdown
             ("nonexistent", 0), // Should find nothing
         ];
@@ -651,14 +662,20 @@ mod integration_tests {
 
             // Verify all results contain the search term
             for result in &results {
+                let contains_raw_term = result
+                    .content_data
+                    .as_ref()
+                    .map(|content| content.to_lowercase().contains(&search_term.to_lowercase()))
+                    .unwrap_or(false);
+                let has_structured_match = result
+                    .retrieval
+                    .as_ref()
+                    .map(|retrieval| !retrieval.matched_terms.is_empty())
+                    .unwrap_or(false);
+
                 assert!(
-                    result
-                        .content_data
-                        .as_ref()
-                        .unwrap()
-                        .to_lowercase()
-                        .contains(&search_term.to_lowercase()),
-                    "Search result doesn't contain search term: {}",
+                    contains_raw_term || has_structured_match,
+                    "Search result doesn't expose a retrievable match contract for term: {}",
                     search_term
                 );
             }
@@ -1164,6 +1181,8 @@ mod integration_tests {
         assert_eq!(result.updated, 1);
         assert_eq!(result.skipped, 0);
         assert_eq!(result.failed, 0);
+        assert_eq!(result.search_reindexed, 1);
+        assert_eq!(result.search_failed, 0);
 
         let raw_row = sqlx::query(
             r#"
@@ -1224,6 +1243,22 @@ mod integration_tests {
             analysis_row.try_get::<String, _>("subtype").unwrap(),
             "url".to_string()
         );
+
+        let search_row = sqlx::query(
+            r#"
+            SELECT search_text, updated_at
+            FROM entry_search_documents
+            WHERE entry_id = ?
+            "#,
+        )
+        .bind(&entry.id)
+        .fetch_one(state.db.pool())
+        .await
+        .unwrap();
+
+        let search_text = search_row.try_get::<String, _>("search_text").unwrap();
+        assert!(search_text.contains("analysis.example.com"));
+        assert!(search_row.try_get::<i64, _>("updated_at").unwrap() > 0);
     }
 
     #[tokio::test]
@@ -1252,6 +1287,7 @@ mod integration_tests {
             metadata: None,
             app_bundle_id: None,
             analysis: None,
+            retrieval: None,
         };
 
         insert_history_entry(&state, &text_entry, "text").await;

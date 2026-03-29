@@ -24,7 +24,7 @@ key-files:
   modified:
     [src/components/ClipboardList/ClipboardItem.tsx, src/components/ClipboardList/ClipboardList.tsx]
 key-decisions:
-  - '列表 preview 完全收口到 `buildPreviewSummary(entry, ''list'')`，不再为 image/color/timestamp 等 subtype 保留独立卡片分支。'
+  - "列表 preview 完全收口到 `buildPreviewSummary(entry, 'list')`，不再为 image/color/timestamp 等 subtype 保留独立卡片分支。"
   - '列表项高度固定为紧凑摘要壳，并同步锁定 virtualizer estimate 为 124，避免长内容破坏滚动稳定性。'
   - 'list surface 不再依赖 `getImageUrl()` 或 resolved preview；与 detail 至少共享相同 semantic type 与 preview intent。'
 patterns-established:

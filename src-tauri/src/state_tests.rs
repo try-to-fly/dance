@@ -4,6 +4,7 @@ mod tests {
     use crate::app_paths::AppPaths;
     use crate::database::Database;
     use crate::models::{ClipboardEntry, ContentType};
+    use crate::retrieval::upsert_entry_search_document;
     use crate::state::AppState;
     use crate::test_support::{create_temp_app_roots, TestAppRoots};
     use std::sync::Arc;
@@ -802,6 +803,11 @@ mod tests {
             .execute(state.db.pool())
             .await
             .unwrap();
+
+            let mut connection = state.db.pool().acquire().await.unwrap();
+            upsert_entry_search_document(&mut connection, &entry)
+                .await
+                .unwrap();
         }
 
         // Test pagination with large dataset

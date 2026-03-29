@@ -14,9 +14,21 @@ interface SearchBarProps {
 
 export const SearchBar: React.FC<SearchBarProps> = ({ compact = false, className }) => {
   const { t } = useTranslation(['common', 'clipboard']);
-  const { searchTerm, setSearchTerm, selectedType } = useClipboardStore();
+  const {
+    searchTerm,
+    setSearchTerm,
+    selectedType,
+    selectedSourceApp,
+    favoritesOnly,
+    recencyDays,
+    loading,
+  } = useClipboardStore();
   const [localSearchTerm, setLocalSearchTerm] = useState(searchTerm);
   const deferredSearchTerm = useDeferredValue(localSearchTerm);
+  const [showPendingIndicator, setShowPendingIndicator] = useState(false);
+  const hasActiveFilters =
+    selectedType !== 'all' || selectedSourceApp !== 'all' || favoritesOnly || recencyDays !== null;
+  const isRetrievalActive = Boolean(searchTerm.trim()) || hasActiveFilters;
 
   useEffect(() => {
     setLocalSearchTerm(searchTerm);
@@ -25,17 +37,38 @@ export const SearchBar: React.FC<SearchBarProps> = ({ compact = false, className
   useEffect(() => {
     const debounceTimer = window.setTimeout(() => {
       setSearchTerm(deferredSearchTerm);
-
-      if (deferredSearchTerm.trim()) {
-        analytics.track(ANALYTICS_EVENTS.SEARCH_PERFORMED, {
-          has_filter: selectedType !== 'all' ? 1 : 0,
-          filter_type: selectedType,
-        });
-      }
     }, 200);
 
     return () => window.clearTimeout(debounceTimer);
-  }, [deferredSearchTerm, selectedType, setSearchTerm]);
+  }, [deferredSearchTerm, setSearchTerm]);
+
+  useEffect(() => {
+    if (!deferredSearchTerm.trim()) {
+      return;
+    }
+
+    const analyticsTimer = window.setTimeout(() => {
+      analytics.track(ANALYTICS_EVENTS.SEARCH_PERFORMED, {
+        has_filter: hasActiveFilters ? 1 : 0,
+        filter_type: selectedType,
+      });
+    }, 200);
+
+    return () => window.clearTimeout(analyticsTimer);
+  }, [deferredSearchTerm, hasActiveFilters, selectedType]);
+
+  useEffect(() => {
+    if (!loading || !isRetrievalActive) {
+      setShowPendingIndicator(false);
+      return;
+    }
+
+    const spinnerTimer = window.setTimeout(() => {
+      setShowPendingIndicator(true);
+    }, 150);
+
+    return () => window.clearTimeout(spinnerTimer);
+  }, [loading, isRetrievalActive]);
 
   const handleClear = () => {
     setLocalSearchTerm('');
@@ -60,7 +93,9 @@ export const SearchBar: React.FC<SearchBarProps> = ({ compact = false, className
         type="search"
         inputMode="search"
         aria-label={t('common:search')}
-        placeholder={t('common:search')}
+        placeholder={t('clipboard:retrieval.searchPlaceholder', {
+          defaultValue: '搜索内容、URL host、JSON key、命令或应用...',
+        })}
         value={localSearchTerm}
         onChange={(e) => setLocalSearchTerm(e.target.value)}
         className={cn(
@@ -70,6 +105,19 @@ export const SearchBar: React.FC<SearchBarProps> = ({ compact = false, className
             : 'h-10 rounded-xl pl-10 pr-11 min-[1200px]:h-12 min-[1200px]:rounded-2xl min-[1200px]:pl-11 min-[1200px]:pr-12'
         )}
       />
+
+      {showPendingIndicator && (
+        <span
+          aria-hidden="true"
+          className={cn(
+            'absolute inline-flex items-center justify-center text-primary',
+            localSearchTerm ? 'right-9' : 'right-3',
+            compact ? 'h-4 w-4' : 'h-4 w-4 min-[1200px]:right-4'
+          )}
+        >
+          <span className="h-4 w-4 animate-spin rounded-full border-2 border-primary/60 border-t-transparent" />
+        </span>
+      )}
 
       {localSearchTerm && (
         <Button

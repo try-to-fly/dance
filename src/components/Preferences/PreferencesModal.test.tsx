@@ -83,6 +83,7 @@ vi.mock('../ui/tabs', () => ({
 const mockedUseConfigStore = vi.mocked(useConfigStore);
 const mockedInvoke = vi.mocked(invoke);
 const mockedClipboardStoreGetState = vi.mocked(useClipboardStore.getState);
+type ClipboardStoreState = ReturnType<typeof useClipboardStore.getState>;
 
 const baseConfig = {
   text: {
@@ -100,16 +101,16 @@ const baseConfig = {
 };
 
 let loadCacheStatistics: ReturnType<typeof vi.fn>;
-let fetchHistory: ReturnType<typeof vi.fn>;
-let invalidatePreview: ReturnType<typeof vi.fn>;
+let fetchHistory: ClipboardStoreState['fetchHistory'];
+let invalidatePreview: NonNullable<ClipboardStoreState['invalidatePreview']>;
 
 describe('PreferencesModal rebuild entry analysis action', () => {
   beforeEach(() => {
     vi.clearAllMocks();
 
     loadCacheStatistics = vi.fn().mockResolvedValue(undefined);
-    fetchHistory = vi.fn().mockResolvedValue(undefined);
-    invalidatePreview = vi.fn();
+    fetchHistory = vi.fn<ClipboardStoreState['fetchHistory']>().mockResolvedValue(undefined);
+    invalidatePreview = vi.fn<NonNullable<ClipboardStoreState['invalidatePreview']>>();
 
     mockedUseConfigStore.mockReturnValue({
       config: baseConfig,
@@ -140,7 +141,7 @@ describe('PreferencesModal rebuild entry analysis action', () => {
     mockedClipboardStoreGetState.mockReturnValue({
       fetchHistory,
       invalidatePreview,
-    });
+    } as ClipboardStoreState);
 
     mockedInvoke.mockImplementation(async (command) => {
       if (command === 'get_installed_applications') {
@@ -163,6 +164,8 @@ describe('PreferencesModal rebuild entry analysis action', () => {
           updated: 4,
           skipped: 1,
           failed: 0,
+          search_reindexed: 12,
+          search_failed: 0,
         };
       }
 
@@ -189,7 +192,7 @@ describe('PreferencesModal rebuild entry analysis action', () => {
     });
 
     expect(screen.getByTestId('analysis-rebuild-result')).toHaveTextContent(
-      '已扫描 5 条，更新 4 条，跳过 1 条，失败 0 条。'
+      '已扫描 5 条，更新 analysis 4 条，跳过 1 条，analysis 失败 0 条；重建 search index 12 条，search 失败 0 条。'
     );
   });
 

@@ -2,6 +2,7 @@ use crate::analysis::RebuildEntryAnalysisResult;
 use crate::app_paths::AppPaths;
 use crate::config::AppConfig;
 use crate::models::{ClipboardEntry, Statistics};
+use crate::retrieval::ClipboardHistoryQuery;
 use crate::state::AppState;
 use crate::updater::{UpdateInfo, UpdateManager};
 use crate::utils::app_icon_extractor::AppIconExtractor;
@@ -161,6 +162,28 @@ pub async fn get_clipboard_history(
 ) -> Result<Vec<ClipboardEntry>, String> {
     state
         .get_clipboard_history(limit, offset, search)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn search_clipboard_history(
+    state: State<'_, AppState>,
+    query: ClipboardHistoryQuery,
+) -> Result<Vec<ClipboardEntry>, String> {
+    state
+        .search_clipboard_history(query)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn list_clipboard_source_apps(
+    state: State<'_, AppState>,
+    limit: Option<i32>,
+) -> Result<Vec<String>, String> {
+    state
+        .list_clipboard_source_apps(limit)
         .await
         .map_err(|e| e.to_string())
 }
