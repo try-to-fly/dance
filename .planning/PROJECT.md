@@ -15,6 +15,16 @@ Dance 是一个面向开发者的本地桌面剪贴板工作台。v1.0 已经把
 - **Execution history:** `.planning/milestones/v1.0-phases/`
 - **Current focus:** 定义下一个 milestone，而不是继续扩张 v1.0 的执行文档
 
+## Current Milestone: v1.1 Developer Preview, Retrieval & Smoke Automation
+
+**Goal:** 把更多开发者常见内容从 generic preview 提升为结构化专用预览，同时用更可靠的自动化验证和更真实的数据集继续提升 retrieval 质量。
+
+**Target features:**
+
+- JWT、TOML、XML、CSV/TSV、日志类内容的专用 developer preview
+- 桌面 smoke、packaged smoke 与 GitHub Actions release smoke 的稳定自动化收口
+- 基于真实历史样本的 retrieval ranking、highlight 与 representative query benchmark 强化
+
 ## Requirements
 
 ### Validated
@@ -27,9 +37,9 @@ Dance 是一个面向开发者的本地桌面剪贴板工作台。v1.0 已经把
 
 ### Active
 
-- [ ] 为 JWT、TOML、XML、CSV/TSV、日志类内容提供专用 developer preview
-- [ ] 把桌面 smoke、packaged smoke 和 GitHub Actions release smoke 收敛成更稳定的自动化验证层
-- [ ] 基于真实大历史样本继续打磨 retrieval ranking、highlight 和 representative query benchmark
+- [ ] 为 JWT、TOML、XML、CSV/TSV、日志类内容提供专用 developer preview，并让 list/detail/search surface 共享一致语义
+- [ ] 把桌面 smoke、packaged smoke 和 GitHub Actions release smoke 收敛成更稳定的自动化验证层，缩小 CI 通过与真实桌面行为之间的差距
+- [ ] 基于真实大历史样本继续打磨 retrieval ranking、highlight 和 representative query benchmark，提升 recall、解释性与回归可观测性
 
 ### Out of Scope
 
@@ -74,15 +84,23 @@ v1.0 以现有 Tauri + React + Rust + SQLite 架构为基础，先闭合 runtime
 
 ## Evolution
 
-This document now evolves at milestone boundaries rather than in-phase execution.
+This document evolves at phase transitions and milestone boundaries.
 
-**When starting the next milestone:**
+**After each phase transition** (via `$gsd-transition`):
 
-1. Review `Validated` and keep only proven product truths
-2. Promote the highest-value items from `Active` into milestone requirements
-3. Re-check `Out of Scope` against new evidence
-4. Append new decisions only when they materially change architecture or product scope
+1. Requirements invalidated? -> Move to Out of Scope with reason
+2. Requirements validated? -> Move to Validated with phase reference
+3. New requirements emerged? -> Add to Active
+4. Decisions to log? -> Add to Key Decisions
+5. "What This Is" still accurate? -> Update if drifted
+
+**After each milestone** (via `$gsd-complete-milestone`):
+
+1. Full review of all sections
+2. Core Value check -> still the right priority?
+3. Audit Out of Scope -> reasons still valid?
+4. Update Context with current state
 
 ---
 
-_Last updated: 2026-03-29 after v1.0 milestone completion_
+_Last updated: 2026-03-29 after starting v1.1 milestone_
