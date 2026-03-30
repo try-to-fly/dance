@@ -64,34 +64,34 @@ Explicitly excluded from the current roadmap.
 
 ## Traceability
 
-Which phases cover which requirements. Will be finalized during roadmap creation.
+Which phases cover which requirements.
 
-| Requirement | Phase | Status  |
-| ----------- | ----- | ------- |
-| PREV-06     | TBD   | Pending |
-| PREV-07     | TBD   | Pending |
-| PREV-08     | TBD   | Pending |
-| PREV-09     | TBD   | Pending |
-| PREV-10     | TBD   | Pending |
-| PREV-11     | TBD   | Pending |
-| RETR-06     | TBD   | Pending |
-| RETR-07     | TBD   | Pending |
-| RETR-08     | TBD   | Pending |
-| RETR-09     | TBD   | Pending |
-| RELY-03     | TBD   | Pending |
-| RELY-04     | TBD   | Pending |
-| RELY-05     | TBD   | Pending |
-| RELY-06     | TBD   | Pending |
+| Requirement | Phase   | Status  |
+| ----------- | ------- | ------- |
+| PREV-06     | Phase 7 | Pending |
+| PREV-07     | Phase 7 | Pending |
+| PREV-08     | Phase 7 | Pending |
+| PREV-09     | Phase 7 | Pending |
+| PREV-10     | Phase 7 | Pending |
+| PREV-11     | Phase 7 | Pending |
+| RETR-06     | Phase 6 | Pending |
+| RETR-07     | Phase 8 | Pending |
+| RETR-08     | Phase 8 | Pending |
+| RETR-09     | Phase 8 | Pending |
+| RELY-03     | Phase 9 | Pending |
+| RELY-04     | Phase 9 | Pending |
+| RELY-05     | Phase 9 | Pending |
+| RELY-06     | Phase 6 | Pending |
 
 **Coverage:**
 
 - v1.1 requirements: 14 total
-- Mapped exactly once: 0
-- Unmapped: 14
+- Mapped exactly once: 14
+- Unmapped: 0
 - Duplicate mappings: 0
-- Coverage status: roadmap pending
+- Coverage status: 100% mapped ✓
 
 ---
 
 _Requirements defined: 2026-03-29_  
-_Last updated: 2026-03-29 after milestone v1.1 requirement definition_
+_Last updated: 2026-03-30 after milestone v1.1 roadmap creation_

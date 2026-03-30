@@ -2,12 +2,12 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Developer Preview, Retrieval & Smoke Automation
-status: defining_requirements
-stopped_at: Defining milestone v1.1 requirements and roadmap
-last_updated: '2026-03-29T22:47:34+08:00'
-last_activity: 2026-03-29
+status: roadmap_ready
+stopped_at: Roadmap created for milestone v1.1; next step is discuss or plan Phase 6
+last_updated: '2026-03-30T17:03:06+08:00'
+last_activity: 2026-03-30
 progress:
-  total_phases: 0
+  total_phases: 4
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -21,15 +21,15 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-29)
 
 **Core value:** 开发者复制任意常见内容后，应用都能稳定记录、准确识别，并以最合适的结构化方式展示出来。  
-**Current focus:** v1.1 需求定义与 roadmap 规划
+**Current focus:** Phase 6 讨论与规划准备
 
 ## Current Position
 
 Milestone: v1.1 Developer Preview, Retrieval & Smoke Automation  
-Phase: Not started (defining requirements)  
+Phase: 6 Developer Type Analysis & Search Tokens  
 Plan: —  
-Status: Defining requirements  
-Last activity: 2026-03-29 — Milestone v1.1 started
+Status: Roadmap ready  
+Last activity: 2026-03-30 — Roadmap created for milestone v1.1
 
 Progress: [----------] 0%
 
@@ -44,11 +44,12 @@ Progress: [----------] 0%
 
 - v1.0 证明了 “Rust authority + React thin client + local-first desktop scope” 是当前产品的正确主线。
 - v1.1 默认聚焦 developer-specific previews、retrieval quality 和 smoke automation，而不是扩张平台边界。
-- 现有 root `ROADMAP.md` 与 `REQUIREMENTS.md` 处于待新里程碑初始化的占位状态。
+- v1.1 roadmap 继续沿用 phase numbering，从 Phase 6 开始而不是重置到 Phase 1。
+- 当前 roadmap 分为 4 个 phase：analysis/search token、dedicated previews、retrieval benchmark、desktop/release smoke。
 - 上一轮仍有验证 follow-ups：补跑桌面 retrieval smoke、preview smoke 与 rebuild smoke，并至少执行一次远端 GitHub Actions release/test-build smoke，确认 gate 顺序和 secrets 环境。
 
 ## Session Continuity
 
-Last session: 2026-03-29T22:47:34+08:00  
-Stopped at: Defining milestone v1.1 scope and awaiting requirements/roadmap generation  
+Last session: 2026-03-30T17:03:06+08:00  
+Stopped at: Milestone v1.1 initialized; next step is `$gsd-discuss-phase 6` or `$gsd-plan-phase 6`  
 Resume file: None
