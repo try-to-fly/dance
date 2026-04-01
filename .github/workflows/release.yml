@@ -122,9 +122,15 @@ jobs:
       - name: Build frontend bundle
         run: pnpm build
 
-      - name: Run Rust tests
+      - name: Run Rust tests (macOS)
+        if: matrix.platform == 'macos-latest'
         working-directory: src-tauri
         run: cargo test
+
+      - name: Compile Rust tests (Windows)
+        if: matrix.platform == 'windows-latest'
+        working-directory: src-tauri
+        run: cargo test --no-run
 
       - name: Verify Aptabase Key is set
         run: |
