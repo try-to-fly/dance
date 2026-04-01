@@ -430,6 +430,7 @@ pub fn run() {
                 tauri::RunEvent::Exit => {
                     let _ = app_handle.track_event("app_exited", None);
                 }
+                #[cfg(target_os = "macos")]
                 tauri::RunEvent::Reopen {
                     has_visible_windows,
                     ..
