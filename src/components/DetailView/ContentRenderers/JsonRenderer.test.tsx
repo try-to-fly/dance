@@ -23,7 +23,12 @@ const mockedJsonRendererDeps = vi.hoisted(() => ({
     }) => {
       beforeMount?.({});
       return (
-        <div data-height={height} data-language={language} data-testid="json-monaco-editor">
+        <div
+          data-height={height}
+          data-language={language}
+          data-testid="json-monaco-editor"
+          data-value={value}
+        >
           {value}
         </div>
       );
@@ -88,34 +93,36 @@ vi.mock('@monaco-editor/react', () => ({
 vi.mock('monaco-editor', () => ({}));
 
 describe('JsonRenderer', () => {
-  it('JSON 内容默认进入结构化树视图', () => {
+  it('JSON 内容默认进入格式化代码视图', () => {
     render(<JsonRenderer content='{"profile":{"name":"dance","id":1}}' />);
 
     expect(screen.getByText('JSON')).toBeInTheDocument();
-    expect(screen.getByText('树形视图')).toBeInTheDocument();
-    expect(screen.getByTestId('json-tree-view')).toHaveTextContent('"name":"dance"');
-    expect(screen.getByTestId('json-content-shell')).toHaveStyle({ height: contentHeight });
-    expect(screen.getByTestId('json-tree-scroll-region')).toHaveClass('overflow-auto');
-    expect(screen.queryByTestId('json-monaco-editor')).not.toBeInTheDocument();
-  });
-
-  it('切换到代码视图后渲染 JSON 代码编辑器', () => {
-    render(<JsonRenderer content='{"enabled":true}' />);
-
-    fireEvent.click(screen.getByTitle('切换到代码视图'));
-
     expect(screen.getByText('代码视图')).toBeInTheDocument();
     expect(screen.getByTestId('json-content-shell')).toHaveStyle({ height: contentHeight });
     expect(screen.getByTestId('json-monaco-editor')).toHaveAttribute('data-language', 'json');
-    expect(screen.getByTestId('json-monaco-editor')).toHaveAttribute('data-height', contentHeight);
-    expect(mockedJsonRendererDeps.defineMonacoThemes).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('json-monaco-editor')).toHaveAttribute(
+      'data-value',
+      '{\n  "profile": {\n    "name": "dance",\n    "id": 1\n  }\n}'
+    );
   });
 
-  it('无效 JSON 提示也落在显式高度容器中', () => {
+  it('切换到树形视图后渲染 JSON 结构树', () => {
+    render(<JsonRenderer content='{"enabled":true}' />);
+
+    fireEvent.click(screen.getByTitle('切换到树形视图'));
+
+    expect(screen.getByText('树形视图')).toBeInTheDocument();
+    expect(screen.getByTestId('json-content-shell')).toHaveStyle({ height: contentHeight });
+    expect(screen.getByTestId('json-tree-view')).toHaveTextContent('"enabled":true');
+    expect(screen.getByTestId('json-tree-scroll-region')).toHaveClass('overflow-auto');
+  });
+
+  it('默认代码视图下遇到无效 JSON 仍显示错误提示', () => {
     render(<JsonRenderer content="{broken-json" />);
 
     expect(screen.getByText('无效的 JSON 格式')).toBeInTheDocument();
     expect(screen.getByTestId('json-content-shell')).toHaveStyle({ height: contentHeight });
+    expect(screen.queryByTestId('json-monaco-editor')).not.toBeInTheDocument();
   });
 
   it('复制按钮走 backend copy_to_clipboard 合同', () => {
@@ -127,5 +134,12 @@ describe('JsonRenderer', () => {
       content: '{\n  "enabled": true\n}',
     });
     expect(mockedJsonRendererDeps.writeText).not.toHaveBeenCalled();
+  });
+
+  it('默认代码视图会初始化 Monaco 主题', () => {
+    render(<JsonRenderer content='{"enabled":true}' />);
+
+    expect(mockedJsonRendererDeps.defineMonacoThemes).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('json-monaco-editor')).toHaveAttribute('data-height', contentHeight);
   });
 });

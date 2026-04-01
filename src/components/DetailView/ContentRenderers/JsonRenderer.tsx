@@ -21,7 +21,7 @@ type ViewMode = 'tree' | 'code';
 
 export function JsonRenderer({ content }: JsonRendererProps) {
   const { t } = useTranslation(['common']);
-  const [viewMode, setViewMode] = useState<ViewMode>('tree');
+  const [viewMode, setViewMode] = useState<ViewMode>('code');
   const [isCopied, setIsCopied] = useState(false);
   const resolvedTheme = useResolvedTheme();
 
@@ -84,20 +84,18 @@ export function JsonRenderer({ content }: JsonRendererProps) {
         className="min-h-0 flex-1 overflow-hidden"
         style={{ height: contentHeight }}
       >
-        {viewMode === 'tree' ? (
-          isValidJson && parsedJson !== null ? (
-            <div data-testid="json-tree-scroll-region" className="h-full overflow-auto p-4">
-              <JsonView
-                data={parsedJson}
-                shouldExpandNode={(level) => level < 3}
-                style={jsonViewStyle}
-              />
-            </div>
-          ) : (
-            <div className="flex h-full items-center justify-center overflow-auto p-4 text-sm text-muted-foreground">
-              {t('jsonView.invalidJson')}
-            </div>
-          )
+        {!isValidJson || parsedJson === null ? (
+          <div className="flex h-full items-center justify-center overflow-auto p-4 text-sm text-muted-foreground">
+            {t('jsonView.invalidJson')}
+          </div>
+        ) : viewMode === 'tree' ? (
+          <div data-testid="json-tree-scroll-region" className="h-full overflow-auto p-4">
+            <JsonView
+              data={parsedJson}
+              shouldExpandNode={(level) => level < 3}
+              style={jsonViewStyle}
+            />
+          </div>
         ) : (
           <MonacoEditor
             key={`json-${resolvedTheme}`}
