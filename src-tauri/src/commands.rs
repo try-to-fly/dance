@@ -1640,14 +1640,31 @@ pub async fn check_for_update(
     app_handle: tauri::AppHandle,
     state: State<'_, AppState>,
 ) -> Result<UpdateInfo, String> {
-    log::info!("[check_for_update] Manual update check requested");
+    log::info!("[check_for_update] Update check requested");
 
-    // Update last check time in config
-    let mut config = state.get_config().await.map_err(|e| e.to_string())?;
-    config.last_update_check = Some(UpdateManager::get_current_timestamp());
-    let _ = state.update_config(config).await;
+    let result = UpdateManager::check_for_updates(&app_handle).await;
 
-    match UpdateManager::check_for_updates(&app_handle).await {
+    if result.is_ok() {
+        match state.get_config().await {
+            Ok(mut config) => {
+                config.last_update_check = Some(UpdateManager::get_current_timestamp());
+                if let Err(error) = state.update_config(config).await {
+                    log::warn!(
+                        "[check_for_update] Failed to persist last_update_check: {}",
+                        error
+                    );
+                }
+            }
+            Err(error) => {
+                log::warn!(
+                    "[check_for_update] Failed to load config for last_update_check: {}",
+                    error
+                );
+            }
+        }
+    }
+
+    match result {
         Ok(Some(update_info)) => {
             log::info!("[check_for_update] Check completed successfully - update available");
             Ok(update_info)
@@ -1681,13 +1698,26 @@ pub async fn should_check_for_updates(state: State<'_, AppState>) -> Result<bool
 
     // Check if auto-update is enabled
     if !config.auto_update {
+        log::info!("[should_check_for_updates] Auto update is disabled in config");
         return Ok(false);
     }
 
     // Check if enough time has passed since last check
-    Ok(UpdateManager::should_check_for_updates(
-        config.last_update_check.as_deref(),
-    ))
+    let should_check = UpdateManager::should_check_for_updates(config.last_update_check.as_deref());
+
+    if should_check {
+        log::info!(
+            "[should_check_for_updates] Proceeding with auto update check; last_update_check={:?}",
+            config.last_update_check
+        );
+    } else {
+        log::info!(
+            "[should_check_for_updates] Skipping auto update check because the last successful check was within 24 hours; last_update_check={:?}",
+            config.last_update_check
+        );
+    }
+
+    Ok(should_check)
 }
 
 #[tauri::command]

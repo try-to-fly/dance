@@ -81,8 +81,27 @@ jobs:
     runs-on: ${{ matrix.platform }}
 
     steps:
+      - name: Determine release tag and version
+        id: release_meta
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            release_tag="${{ needs.get-latest-tag.outputs.latest_tag }}"
+          else
+            release_tag="${{ github.ref_name }}"
+          fi
+
+          release_version="${release_tag#v}"
+
+          echo "tag=$release_tag" >> "$GITHUB_OUTPUT"
+          echo "version=$release_version" >> "$GITHUB_OUTPUT"
+          echo "Using release tag $release_tag"
+          echo "Using release version $release_version"
+
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.release_meta.outputs.tag }}
 
       - name: Install dependencies (macOS only)
         if: matrix.platform == 'macos-latest'
@@ -115,6 +134,12 @@ jobs:
 
       - name: Install frontend dependencies
         run: pnpm install
+
+      - name: Sync version files to release tag
+        run: node scripts/sync-version.js --version "${{ steps.release_meta.outputs.version }}"
+
+      - name: Verify version consistency
+        run: node scripts/sync-version.js --check --version "${{ steps.release_meta.outputs.version }}"
 
       - name: Run frontend tests
         run: pnpm test

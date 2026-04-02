@@ -53,12 +53,21 @@ function updateTauriConfig(newVersion) {
 // Function to update Cargo.lock
 function updateCargoLock(newVersion) {
   const cargoLockPath = path.join(process.cwd(), 'src-tauri', 'Cargo.lock');
+  const cargoTomlPath = path.join(process.cwd(), 'src-tauri', 'Cargo.toml');
   try {
+    const cargoTomlContent = fs.readFileSync(cargoTomlPath, 'utf8');
+    const packageNameMatch = cargoTomlContent.match(/^name = "(.+)"$/m);
+
+    if (!packageNameMatch) {
+      throw new Error('Could not determine Cargo package name');
+    }
+
+    const packageName = packageNameMatch[1];
     let cargoLockContent = fs.readFileSync(cargoLockPath, 'utf8');
     // Update the main package version in Cargo.lock
     cargoLockContent = cargoLockContent.replace(
-      /^name = "clipboard-app"\nversion = ".*"$/m,
-      `name = "clipboard-app"\nversion = "${newVersion}"`
+      new RegExp(`^name = "${packageName}"\\nversion = ".*"$`, 'm'),
+      `name = "${packageName}"\nversion = "${newVersion}"`
     );
     fs.writeFileSync(cargoLockPath, cargoLockContent);
     console.log(`✅ Updated Cargo.lock to version ${newVersion}`);
