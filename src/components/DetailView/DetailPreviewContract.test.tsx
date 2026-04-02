@@ -345,7 +345,7 @@ describe('DetailPreview 契约 - Descriptor', () => {
         expect.objectContaining({ label: 'Path', value: '/docs' }),
       ])
     );
-    expect(descriptor.inspectorSections.some((section) => section.title === 'Analysis')).toBe(
+    expect(descriptor.inspectorSections.some((section) => section.title === 'Detection')).toBe(
       false
     );
   });
@@ -403,11 +403,14 @@ describe('DetailPreview 契约 - Descriptor', () => {
     );
     expectAlternateKeys(descriptor, []);
     expect(
-      descriptor.inspectorSections.find((section) => section.title === 'Analysis')?.items
+      descriptor.inspectorSections.find((section) => section.title === 'Detection')?.items
     ).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ label: 'Status', value: 'Fallback' }),
-        expect.objectContaining({ value: expect.stringContaining('json_malformed') }),
+        expect.objectContaining({ label: 'Status', value: 'Shown as plain text' }),
+        expect.objectContaining({
+          label: 'Reason',
+          value: 'Looks like JSON, but the format is incomplete',
+        }),
       ])
     );
   });

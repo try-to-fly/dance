@@ -10,6 +10,10 @@ import {
   getEntryAnalysisStatus,
   getEntryAnalysisSubtype,
 } from '../../lib/preview/entryPresentation';
+import {
+  formatAnalysisReasonCopy,
+  formatAnalysisStatusCopy,
+} from '../../lib/preview/analysisPresentation';
 import { AIAssistantDialog } from '../AI/AIAssistantDialog';
 import { DetailEmptyState, DetailScene } from './scene/DetailScene';
 
@@ -222,8 +226,8 @@ export function DetailView() {
             key: 'analysis-status',
             icon: AlertTriangle,
             label: normalizeMetaLabel(resolveLabel('detail.analysisStatus', '分析')),
-            value: analysisDiagnostics[0]?.code || 'Fallback',
-            fullValue: analysisDiagnostics[0]?.message || 'Fallback',
+            value: formatAnalysisStatusCopy(analysisStatus),
+            fullValue: formatAnalysisReasonCopy(analysisDiagnostics[0]),
           },
         ]
       : []),

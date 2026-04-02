@@ -332,8 +332,9 @@ describe('DetailView', () => {
       'plain_text:{broken-json'
     );
     expect(screen.getAllByText('Fallback').length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByText('Analysis')).toBeInTheDocument();
-    expect(screen.getAllByText(/json_malformed/i).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText('Detection')).toBeInTheDocument();
+    expect(screen.getAllByText('Shown as plain text').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText('Looks like JSON, but the format is incomplete')).toBeInTheDocument();
   });
 
   it('为图片条目异步加载预览内容和元数据', async () => {

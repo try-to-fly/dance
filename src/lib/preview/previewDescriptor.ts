@@ -16,6 +16,7 @@ import {
   getEntryAnalysisSubtype,
   getEntryPresentationMetadata,
 } from './entryPresentation';
+import { formatAnalysisReasonCopy, formatAnalysisStatusCopy } from './analysisPresentation';
 
 export interface PreviewLabelSet {
   unknown: string;
@@ -167,12 +168,6 @@ const buildBase64Inspector = (
   return { title: 'Base64', items };
 };
 
-const formatAnalysisStatus = (status: AnalysisStatus): string =>
-  status === 'fallback' ? 'Fallback' : 'Matched';
-
-const formatDiagnosticValue = (diagnostic: AnalysisDiagnostic): string =>
-  `${diagnostic.severity.toUpperCase()} | ${diagnostic.code} | ${diagnostic.message}`;
-
 const URL_CONTENT_PRIMARY_KINDS = new Set<PreviewKind>([
   'image',
   'audio',
@@ -242,19 +237,18 @@ const buildAnalysisInspector = (
   if (status) {
     items.push({
       label: 'Status',
-      value: formatAnalysisStatus(status),
-      mono: true,
+      value: formatAnalysisStatusCopy(status),
     });
   }
 
   diagnostics.forEach((diagnostic, index) => {
     items.push({
-      label: `Diagnostic ${index + 1}`,
-      value: formatDiagnosticValue(diagnostic),
+      label: diagnostics.length > 1 ? `Reason ${index + 1}` : 'Reason',
+      value: formatAnalysisReasonCopy(diagnostic),
     });
   });
 
-  return items.length > 0 ? { title: 'Analysis', items } : null;
+  return items.length > 0 ? { title: 'Detection', items } : null;
 };
 
 const resolvePrimaryKind = (
