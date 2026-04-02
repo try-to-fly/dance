@@ -1,7 +1,7 @@
 use crate::analysis::RebuildEntryAnalysisResult;
 use crate::app_paths::AppPaths;
-use crate::config::AppConfig;
-use crate::llm::{process_text, ProcessTextRequest, ProcessTextResponse};
+use crate::config::{AppConfig, LlmConfig};
+use crate::llm::{process_text, test_config, ProcessTextRequest, ProcessTextResponse};
 use crate::models::{ClipboardEntry, Statistics};
 use crate::retrieval::ClipboardHistoryQuery;
 use crate::shortcuts::{normalize_shortcut, parse_shortcut_string};
@@ -1516,6 +1516,11 @@ pub async fn process_text_with_llm(
     process_text(&config.llm, request)
         .await
         .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn test_llm_config(config: LlmConfig) -> Result<ProcessTextResponse, String> {
+    test_config(&config).await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]

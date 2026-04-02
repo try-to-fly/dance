@@ -15,6 +15,7 @@ mod state;
 mod tray;
 mod updater;
 mod utils;
+mod window_activation;
 
 #[cfg(test)]
 mod state_tests;
@@ -179,24 +180,7 @@ pub fn run() {
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, shortcut, _event| {
                     log::info!("Global shortcut triggered: {:?}", shortcut);
-
-                    // Show/focus the main window when global shortcut is pressed
-                    if let Some(window) = app.get_webview_window("main") {
-                        let _ = window.show();
-                        let _ = window.unminimize();
-                        let _ = window.set_focus();
-
-                        #[cfg(target_os = "macos")]
-                        {
-                            if window.set_always_on_top(true).is_ok() {
-                                let window_clone = window.clone();
-                                tauri::async_runtime::spawn(async move {
-                                    tokio::time::sleep(std::time::Duration::from_millis(120)).await;
-                                    let _ = window_clone.set_always_on_top(false);
-                                });
-                            }
-                        }
-                    }
+                    window_activation::show_main_window(app);
 
                     // Also emit event to frontend
                     let _ = app.emit("global-shortcut", shortcut);
@@ -424,7 +408,8 @@ pub fn run() {
             clear_logs,
             set_log_level,
             get_current_log_level,
-            process_text_with_llm
+            process_text_with_llm,
+            test_llm_config
         ])
         .build(tauri::generate_context!())
         .expect("error while running tauri application")
@@ -453,20 +438,7 @@ pub fn run() {
                         "App reopened from dock, showing main window (has_visible_windows: {})",
                         has_visible_windows
                     );
-                    // Show the main window when dock icon is clicked
-                    if let Some(window) = app_handle.get_webview_window("main") {
-                        if let Err(e) = window.show() {
-                            log::error!("Failed to show window: {}", e);
-                        }
-                        if let Err(e) = window.set_focus() {
-                            log::error!("Failed to set window focus: {}", e);
-                        }
-                        if let Err(e) = window.unminimize() {
-                            log::error!("Failed to unminimize window: {}", e);
-                        }
-                    } else {
-                        log::error!("Main window not found");
-                    }
+                    window_activation::show_main_window(app_handle);
                 }
                 _ => {}
             }

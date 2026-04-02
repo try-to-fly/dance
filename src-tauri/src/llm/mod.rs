@@ -10,6 +10,10 @@ const DEFAULT_LLM_BASE_URL: &str = "https://api.openai.com/v1";
 const MAX_SOURCE_CHARS: usize = 20_000;
 const MAX_PROMPT_CHARS: usize = 4_000;
 const MAX_CONTEXT_MESSAGES: usize = 16;
+const CONNECTION_TEST_SOURCE_TEXT: &str =
+    "Dance preferences connection test. 这是一条来自 Dance 偏好设置的连通性测试文本。";
+const CONNECTION_TEST_PROMPT: &str =
+    "Reply with a short confirmation to indicate the request succeeded.";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -296,6 +300,18 @@ pub async fn process_text(
         content,
         model: parsed.model.unwrap_or_else(|| model.to_string()),
     })
+}
+
+pub async fn test_config(config: &LlmConfig) -> Result<ProcessTextResponse> {
+    process_text(
+        config,
+        ProcessTextRequest {
+            source_text: CONNECTION_TEST_SOURCE_TEXT.to_string(),
+            conversation: vec![],
+            user_prompt: CONNECTION_TEST_PROMPT.to_string(),
+        },
+    )
+    .await
 }
 
 #[cfg(test)]

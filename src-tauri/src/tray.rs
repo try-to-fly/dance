@@ -1,7 +1,8 @@
+use crate::window_activation;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Manager,
+    AppHandle,
 };
 
 pub fn create_tray_icon(app: &AppHandle) -> tauri::Result<()> {
@@ -36,34 +37,7 @@ fn handle_tray_event(tray: &tauri::tray::TrayIcon, event: TrayIconEvent) {
     {
         // 左键点击直接显示应用
         let app = tray.app_handle().clone();
-        tauri::async_runtime::spawn(async move {
-            show_window(&app).await;
-        });
+        window_activation::show_main_window(&app);
     }
     // 右键点击会自动显示菜单，无需特殊处理
-}
-
-async fn show_window(app: &AppHandle) {
-    if let Some(window) = app.get_webview_window("main") {
-        // 总是显示窗口并带到前台
-        if let Err(e) = window.show() {
-            log::error!("Failed to show window: {}", e);
-        }
-        if let Err(e) = window.unminimize() {
-            log::error!("Failed to unminimize window: {}", e);
-        }
-        if let Err(e) = window.set_focus() {
-            log::error!("Failed to focus window: {}", e);
-        }
-        // 确保窗口在最前面
-        #[cfg(target_os = "macos")]
-        {
-            if let Err(e) = window.set_always_on_top(true) {
-                log::error!("Failed to set always on top: {}", e);
-            }
-            // 立即取消always on top，只是为了确保窗口显示在前面
-            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-            let _ = window.set_always_on_top(false);
-        }
-    }
 }
