@@ -123,7 +123,16 @@
     "baseUrlPlaceholder": "https://api.openai.com/v1",
     "model": "模型",
     "modelPlaceholder": "gpt-4.1-mini",
-    "note": "支持标准 OpenAI Chat Completions 接口。若使用兼容服务，请填写对应的 Base URL 与模型名。"
+    "note": "支持标准 OpenAI Chat Completions 接口。若使用兼容服务，请填写对应的 Base URL 与模型名。",
+    "testTitle": "连接测试",
+    "testDescription": "使用当前表单中的 API Key、Base URL 和模型发起一次轻量请求，无需先保存即可快速验证配置是否可用。",
+    "testButton": "测试配置",
+    "testing": "测试中...",
+    "testHint": "先填写 API Key 和模型名称，再进行测试。",
+    "testSuccess": "测试成功",
+    "testSuccessDetail": "已收到模型响应，当前配置可正常使用。",
+    "testResponseModel": "返回模型",
+    "testFailed": "测试失败"
   },
   "analytics": {
     "title": "使用统计",

@@ -36,11 +36,14 @@ import { getSystemLanguage } from '../../i18n/config';
 import { LogViewer } from '../LogViewer/LogViewer';
 import { useTheme } from '../theme-provider';
 import { cn } from '../../lib/utils';
+import type { ProcessTextResponse } from '../../types/ai';
 
 type AppTheme = 'dark' | 'light' | 'system';
 const DEFAULT_REBUILD_BATCH_SIZE = 250;
 const PREFERENCES_TAB_CONTENT_CLASSNAME =
   'flex-1 overflow-y-auto pr-2 data-[state=active]:flex data-[state=active]:flex-col focus-visible:ring-0 focus-visible:ring-offset-0';
+
+type LlmTestStatus = 'idle' | 'loading' | 'success' | 'error';
 
 interface RebuildEntryAnalysisResult {
   scanned: number;
@@ -50,6 +53,26 @@ interface RebuildEntryAnalysisResult {
   search_reindexed: number;
   search_failed: number;
 }
+
+interface LlmTestState {
+  status: LlmTestStatus;
+  message: string | null;
+  model: string | null;
+}
+
+const createIdleLlmTestState = (): LlmTestState => ({
+  status: 'idle',
+  message: null,
+  model: null,
+});
+
+const formatErrorMessage = (error: unknown) => {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return String(error);
+};
 
 export function PreferencesModal() {
   const { t, i18n } = useTranslation(['preferences', 'common']);
@@ -91,6 +114,7 @@ export function PreferencesModal() {
   const [rebuildLoading, setRebuildLoading] = useState(false);
   const [rebuildResult, setRebuildResult] = useState<RebuildEntryAnalysisResult | null>(null);
   const [rebuildError, setRebuildError] = useState<string | null>(null);
+  const [llmTestState, setLlmTestState] = useState<LlmTestState>(createIdleLlmTestState);
 
   useEffect(() => {
     if (showPreferences) {
@@ -108,6 +132,7 @@ export function PreferencesModal() {
       setAutoUpdateEnabled(config.auto_update ?? true);
       // Set language selection based on config, defaulting to system if not set
       setSelectedLanguage(config.language || 'system');
+      setLlmTestState(createIdleLlmTestState());
     }
   }, [config]);
 
@@ -122,6 +147,12 @@ export function PreferencesModal() {
   useEffect(() => {
     setSelectedTheme(theme);
   }, [theme, showPreferences]);
+
+  useEffect(() => {
+    if (showPreferences) {
+      setLlmTestState(createIdleLlmTestState());
+    }
+  }, [showPreferences]);
 
   const loadAvailableApps = async () => {
     try {
@@ -142,6 +173,21 @@ export function PreferencesModal() {
       console.error('Failed to validate shortcut:', error);
       return false;
     }
+  };
+
+  const handleLlmConfigChange = (field: 'api_key' | 'base_url' | 'model', value: string) => {
+    setLocalConfig((prev) =>
+      prev
+        ? {
+            ...prev,
+            llm: {
+              ...prev.llm,
+              [field]: value,
+            },
+          }
+        : prev
+    );
+    setLlmTestState(createIdleLlmTestState());
   };
 
   const handleSave = async () => {
@@ -194,6 +240,7 @@ export function PreferencesModal() {
     setSelectedLanguage(config?.language || 'system');
     setSelectedTheme(theme);
     setShortcutError(null);
+    setLlmTestState(createIdleLlmTestState());
     setShowPreferences(false);
   };
 
@@ -220,9 +267,41 @@ export function PreferencesModal() {
     }
   };
 
+  const handleTestLlmConfig = async () => {
+    if (!localConfig) {
+      return;
+    }
+
+    setLlmTestState({
+      status: 'loading',
+      message: null,
+      model: null,
+    });
+
+    try {
+      const response = await invoke<ProcessTextResponse>('test_llm_config', {
+        config: localConfig.llm,
+      });
+
+      setLlmTestState({
+        status: 'success',
+        message: t('ai.testSuccessDetail'),
+        model: response.model,
+      });
+    } catch (error) {
+      setLlmTestState({
+        status: 'error',
+        message: formatErrorMessage(error),
+        model: null,
+      });
+    }
+  };
+
   if (!localConfig) {
     return null;
   }
+
+  const canTestLlmConfig = Boolean(localConfig.llm.api_key.trim() && localConfig.llm.model.trim());
 
   return (
     <>
@@ -1035,17 +1114,7 @@ export function PreferencesModal() {
                               spellCheck={false}
                               value={localConfig.llm.api_key}
                               onChange={(event) =>
-                                setLocalConfig((prev) =>
-                                  prev
-                                    ? {
-                                        ...prev,
-                                        llm: {
-                                          ...prev.llm,
-                                          api_key: event.target.value,
-                                        },
-                                      }
-                                    : prev
-                                )
+                                handleLlmConfigChange('api_key', event.target.value)
                               }
                               placeholder={t('ai.apiKeyPlaceholder')}
                             />
@@ -1064,17 +1133,7 @@ export function PreferencesModal() {
                                 spellCheck={false}
                                 value={localConfig.llm.base_url}
                                 onChange={(event) =>
-                                  setLocalConfig((prev) =>
-                                    prev
-                                      ? {
-                                          ...prev,
-                                          llm: {
-                                            ...prev.llm,
-                                            base_url: event.target.value,
-                                          },
-                                        }
-                                      : prev
-                                  )
+                                  handleLlmConfigChange('base_url', event.target.value)
                                 }
                                 placeholder={t('ai.baseUrlPlaceholder')}
                               />
@@ -1090,17 +1149,7 @@ export function PreferencesModal() {
                                 spellCheck={false}
                                 value={localConfig.llm.model}
                                 onChange={(event) =>
-                                  setLocalConfig((prev) =>
-                                    prev
-                                      ? {
-                                          ...prev,
-                                          llm: {
-                                            ...prev.llm,
-                                            model: event.target.value,
-                                          },
-                                        }
-                                      : prev
-                                  )
+                                  handleLlmConfigChange('model', event.target.value)
                                 }
                                 placeholder={t('ai.modelPlaceholder')}
                               />
@@ -1109,6 +1158,71 @@ export function PreferencesModal() {
 
                           <div className="rounded-xl border border-dashed border-border/80 bg-background/80 px-3 py-3 text-xs leading-6 text-muted-foreground">
                             {t('ai.note')}
+                          </div>
+
+                          <div className="space-y-3 rounded-xl border border-border/80 bg-background/70 px-4 py-4">
+                            <div className="space-y-1">
+                              <p className="text-sm font-medium">{t('ai.testTitle')}</p>
+                              <p className="text-xs leading-6 text-muted-foreground">
+                                {t('ai.testDescription')}
+                              </p>
+                            </div>
+
+                            <div className="flex flex-wrap items-center gap-3">
+                              <Button
+                                type="button"
+                                variant="secondary"
+                                onClick={handleTestLlmConfig}
+                                disabled={!canTestLlmConfig || llmTestState.status === 'loading'}
+                                data-testid="llm-test-button"
+                              >
+                                {llmTestState.status === 'loading'
+                                  ? t('ai.testing')
+                                  : t('ai.testButton')}
+                              </Button>
+
+                              {!canTestLlmConfig ? (
+                                <p className="text-xs text-muted-foreground">{t('ai.testHint')}</p>
+                              ) : null}
+                            </div>
+
+                            {llmTestState.status === 'success' ? (
+                              <div
+                                className={cn(
+                                  'flex items-start gap-3 rounded-lg border px-3 py-3 text-sm',
+                                  'border-green-500/30 bg-green-500/10 text-green-700 dark:text-green-300'
+                                )}
+                                data-testid="llm-test-success"
+                              >
+                                <CheckCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                                <div className="space-y-1">
+                                  <p className="font-medium">{t('ai.testSuccess')}</p>
+                                  <p>{llmTestState.message}</p>
+                                  {llmTestState.model ? (
+                                    <p data-testid="llm-test-model">
+                                      {t('ai.testResponseModel')}: {llmTestState.model}
+                                    </p>
+                                  ) : null}
+                                </div>
+                              </div>
+                            ) : null}
+
+                            {llmTestState.status === 'error' ? (
+                              <div
+                                className={cn(
+                                  'flex items-start gap-3 rounded-lg border px-3 py-3 text-sm',
+                                  'border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-300'
+                                )}
+                                data-testid="llm-test-error"
+                                role="alert"
+                              >
+                                <X className="mt-0.5 h-4 w-4 shrink-0" />
+                                <div className="space-y-1">
+                                  <p className="font-medium">{t('ai.testFailed')}</p>
+                                  <p>{llmTestState.message}</p>
+                                </div>
+                              </div>
+                            ) : null}
                           </div>
                         </CardContent>
                       </Card>

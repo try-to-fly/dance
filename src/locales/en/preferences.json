@@ -129,7 +129,16 @@
     "baseUrlPlaceholder": "https://api.openai.com/v1",
     "model": "Model",
     "modelPlaceholder": "gpt-4.1-mini",
-    "note": "Uses the standard OpenAI Chat Completions API. For compatible providers, fill in the matching Base URL and model name."
+    "note": "Uses the standard OpenAI Chat Completions API. For compatible providers, fill in the matching Base URL and model name.",
+    "testTitle": "Connection Test",
+    "testDescription": "Send a lightweight request with the current API Key, Base URL, and model so you can verify the configuration before saving.",
+    "testButton": "Test Config",
+    "testing": "Testing...",
+    "testHint": "Fill in the API Key and model before running the test.",
+    "testSuccess": "Connection succeeded",
+    "testSuccessDetail": "A model response was received and the current configuration is usable.",
+    "testResponseModel": "Responding model",
+    "testFailed": "Connection failed"
   },
   "analytics": {
     "title": "Usage Analytics",

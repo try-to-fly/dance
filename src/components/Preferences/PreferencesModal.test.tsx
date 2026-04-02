@@ -124,7 +124,7 @@ let invalidatePreview: NonNullable<ClipboardStoreState['invalidatePreview']>;
 let updateConfig: ReturnType<typeof vi.fn>;
 let registerGlobalShortcut: ReturnType<typeof vi.fn>;
 
-describe('PreferencesModal rebuild entry analysis action', () => {
+describe('PreferencesModal actions', () => {
   beforeEach(() => {
     vi.clearAllMocks();
 
@@ -267,5 +267,83 @@ describe('PreferencesModal rebuild entry analysis action', () => {
     expect(registerGlobalShortcut.mock.invocationCallOrder[0]).toBeLessThan(
       updateConfig.mock.invocationCallOrder[0]
     );
+  });
+
+  it('AI 配置测试会使用当前表单值调用测试命令并显示成功状态', async () => {
+    mockedInvoke.mockImplementation(async (command, args) => {
+      if (command === 'get_installed_applications') {
+        return [];
+      }
+
+      if (command === 'test_llm_config') {
+        expect(args).toEqual({
+          config: {
+            api_key: 'sk-test',
+            base_url: 'https://api.openai.com/v1',
+            model: 'gpt-4.1',
+          },
+        });
+
+        return {
+          content: 'OK',
+          model: 'gpt-4.1',
+        };
+      }
+
+      throw new Error(`Unexpected invoke: ${command}`);
+    });
+
+    render(<PreferencesModal />);
+
+    await waitFor(() => expect(loadCacheStatistics).toHaveBeenCalledTimes(1));
+
+    fireEvent.change(screen.getByPlaceholderText('ai.apiKeyPlaceholder'), {
+      target: { value: 'sk-test' },
+    });
+    fireEvent.change(screen.getByPlaceholderText('ai.modelPlaceholder'), {
+      target: { value: 'gpt-4.1' },
+    });
+    fireEvent.click(screen.getByTestId('llm-test-button'));
+
+    await waitFor(() => {
+      expect(mockedInvoke).toHaveBeenCalledWith('test_llm_config', {
+        config: {
+          api_key: 'sk-test',
+          base_url: 'https://api.openai.com/v1',
+          model: 'gpt-4.1',
+        },
+      });
+    });
+
+    expect(screen.getByTestId('llm-test-success')).toHaveTextContent('ai.testSuccess');
+    expect(screen.getByTestId('llm-test-model')).toHaveTextContent('gpt-4.1');
+    expect(updateConfig).not.toHaveBeenCalled();
+  });
+
+  it('AI 配置测试失败时显示错误信息', async () => {
+    mockedInvoke.mockImplementation(async (command) => {
+      if (command === 'get_installed_applications') {
+        return [];
+      }
+
+      if (command === 'test_llm_config') {
+        throw new Error('invalid api key');
+      }
+
+      throw new Error(`Unexpected invoke: ${command}`);
+    });
+
+    render(<PreferencesModal />);
+
+    await waitFor(() => expect(loadCacheStatistics).toHaveBeenCalledTimes(1));
+
+    fireEvent.change(screen.getByPlaceholderText('ai.apiKeyPlaceholder'), {
+      target: { value: 'sk-test' },
+    });
+    fireEvent.click(screen.getByTestId('llm-test-button'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('llm-test-error')).toHaveTextContent('invalid api key');
+    });
   });
 });
