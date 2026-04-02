@@ -588,6 +588,7 @@ export const useClipboardStore = create<ClipboardStore>((set, get) => ({
         await invoke('paste_text', { content: entry.content_data });
       }
     } catch (error) {
+      console.error('[ClipboardStore] 粘贴失败:', error);
       set({ error: String(error) });
     }
   },

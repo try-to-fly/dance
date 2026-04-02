@@ -25,57 +25,162 @@ use tokio::sync::Mutex;
 use tokio::sync::{broadcast, RwLock};
 
 #[cfg(target_os = "macos")]
-fn escape_applescript_string(value: &str) -> String {
-    value.replace('\\', "\\\\").replace('"', "\\\"")
+use core_graphics::event::{CGEvent, CGEventFlags, CGEventTapLocation, KeyCode};
+#[cfg(target_os = "macos")]
+use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
+
+#[cfg(target_os = "macos")]
+const MACOS_KEYCODE_V: u16 = 0x09;
+
+#[cfg(target_os = "macos")]
+struct FrontmostApplication {
+    pid: i32,
+    name: String,
 }
 
 #[cfg(target_os = "macos")]
-fn build_macos_paste_script(current_process_id: u32, label: &str) -> String {
-    let escaped_label = escape_applescript_string(label);
+#[link(name = "ApplicationServices", kind = "framework")]
+unsafe extern "C" {
+    fn AXIsProcessTrusted() -> bool;
+}
 
-    format!(
-        r#"
-            tell application "System Events"
-                set appProcessName to name of first application process whose unix id is {current_process_id}
-                set frontAppName to ""
+#[cfg(target_os = "macos")]
+fn ensure_macos_accessibility_permission() -> Result<()> {
+    let is_trusted = unsafe { AXIsProcessTrusted() };
+    if is_trusted {
+        return Ok(());
+    }
 
-                repeat 20 times
-                    set frontApp to first application process whose frontmost is true
-                    set frontAppName to name of frontApp
+    let current_exe = std::env::current_exe()
+        .map(|path| path.display().to_string())
+        .unwrap_or_else(|_| "unknown".to_string());
+    log::error!(
+        "[paste] 当前进程未通过辅助功能校验，executable={}",
+        current_exe
+    );
 
-                    if frontAppName is not appProcessName then
-                        exit repeat
-                    end if
+    let settings_url =
+        "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility";
+    if let Err(error) = std::process::Command::new("open")
+        .arg(settings_url)
+        .output()
+    {
+        log::error!("[paste] 打开辅助功能设置页失败: {}", error);
+    } else {
+        log::error!("[paste] Dance 缺少辅助功能权限，已尝试打开辅助功能设置页");
+    }
 
-                    delay 0.05
-                end repeat
+    Err(anyhow::anyhow!(
+        "Dance 缺少辅助功能权限，无法向其他应用发送粘贴按键。当前实际执行文件是：{}。如果你在用 tauri dev，请在“系统设置 > 隐私与安全性 > 辅助功能”里允许这个可执行文件，而不只是安装版 Dance.app。已尝试打开设置页。",
+        current_exe
+    ))
+}
 
-                if frontAppName is appProcessName then
-                    error "No target app became frontmost after hiding " & appProcessName
-                end if
+#[cfg(target_os = "macos")]
+fn get_frontmost_application() -> Option<FrontmostApplication> {
+    use cocoa::base::{id, nil};
+    use objc::{class, msg_send, sel, sel_impl};
 
-                keystroke "v" using {{command down}}
-                return "Pasted {escaped_label} to: " & frontAppName
-            end tell
-        "#
-    )
+    std::panic::catch_unwind(|| unsafe {
+        let workspace: id = msg_send![class!(NSWorkspace), sharedWorkspace];
+        if workspace == nil {
+            return None;
+        }
+
+        let active_app: id = msg_send![workspace, frontmostApplication];
+        if active_app == nil {
+            return None;
+        }
+
+        let pid: i32 = msg_send![active_app, processIdentifier];
+
+        let localized_name: id = msg_send![active_app, localizedName];
+        let name = if localized_name != nil {
+            let name_c_str: *const i8 = msg_send![localized_name, UTF8String];
+            if name_c_str.is_null() {
+                "Unknown".to_string()
+            } else {
+                std::ffi::CStr::from_ptr(name_c_str)
+                    .to_str()
+                    .map(|value| value.to_string())
+                    .unwrap_or_else(|_| "Unknown".to_string())
+            }
+        } else {
+            "Unknown".to_string()
+        };
+
+        Some(FrontmostApplication { pid, name })
+    })
+    .unwrap_or_else(|_| {
+        log::error!("[paste] 读取前台应用失败，已安全回退");
+        None
+    })
+}
+
+#[cfg(target_os = "macos")]
+fn wait_for_macos_paste_target(current_process_id: i32) -> Result<FrontmostApplication> {
+    for _ in 0..20 {
+        if let Some(frontmost_app) = get_frontmost_application() {
+            if frontmost_app.pid != current_process_id {
+                return Ok(frontmost_app);
+            }
+        }
+
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+
+    Err(anyhow::anyhow!(
+        "隐藏 Dance 后没有检测到可接收粘贴的目标应用"
+    ))
+}
+
+#[cfg(target_os = "macos")]
+fn create_keyboard_event(
+    source: &CGEventSource,
+    keycode: u16,
+    keydown: bool,
+    flags: CGEventFlags,
+) -> Result<CGEvent> {
+    let event = CGEvent::new_keyboard_event(source.clone(), keycode, keydown)
+        .map_err(|_| anyhow::anyhow!("Failed to create macOS keyboard event"))?;
+    event.set_flags(flags);
+    Ok(event)
 }
 
 #[cfg(target_os = "macos")]
 fn run_macos_paste(current_process_id: u32, label: &str, log_prefix: &str) -> Result<()> {
-    use std::process::Command;
+    let target_app = wait_for_macos_paste_target(current_process_id as i32)?;
+    let source = CGEventSource::new(CGEventSourceStateID::CombinedSessionState)
+        .map_err(|_| anyhow::anyhow!("Failed to create macOS event source"))?;
+    let command_flags = CGEventFlags::CGEventFlagCommand;
 
-    let script = build_macos_paste_script(current_process_id, label);
-    let output = Command::new("osascript").arg("-e").arg(script).output()?;
+    let command_down = create_keyboard_event(&source, KeyCode::COMMAND, true, command_flags)?;
+    let v_down = create_keyboard_event(&source, MACOS_KEYCODE_V, true, command_flags)?;
+    let v_up = create_keyboard_event(&source, MACOS_KEYCODE_V, false, command_flags)?;
+    let command_up = create_keyboard_event(
+        &source,
+        KeyCode::COMMAND,
+        false,
+        CGEventFlags::CGEventFlagNull,
+    )?;
 
-    if output.status.success() {
-        let result_msg = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        log::info!("[{}] {}", log_prefix, result_msg);
-        return Ok(());
-    }
+    command_down.post(CGEventTapLocation::HID);
+    std::thread::sleep(std::time::Duration::from_millis(10));
+    v_down.post(CGEventTapLocation::HID);
+    std::thread::sleep(std::time::Duration::from_millis(10));
+    v_up.post(CGEventTapLocation::HID);
+    std::thread::sleep(std::time::Duration::from_millis(10));
+    command_up.post(CGEventTapLocation::HID);
 
-    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-    Err(anyhow::anyhow!(stderr))
+    log::info!(
+        "[{}] Pasted {} to: {} (pid={})",
+        log_prefix,
+        label,
+        target_app.name,
+        target_app.pid
+    );
+
+    Ok(())
 }
 
 pub struct AppState {
@@ -402,6 +507,8 @@ impl AppState {
         content: String,
         app_handle: Option<tauri::AppHandle>,
     ) -> Result<()> {
+        log::info!("[paste_text] 收到粘贴请求");
+
         tokio::task::spawn_blocking(move || -> Result<()> {
             let mut clipboard = Clipboard::new()?;
             clipboard.set_text(content)?;
@@ -412,6 +519,11 @@ impl AppState {
         // 切换应用焦点并粘贴（macOS）
         #[cfg(target_os = "macos")]
         {
+            if let Err(error) = ensure_macos_accessibility_permission() {
+                log::error!("[paste_text] 权限检查失败: {}", error);
+                return Err(error);
+            }
+
             let current_process_id = std::process::id();
 
             if let Some(handle) = app_handle.as_ref() {
@@ -420,11 +532,16 @@ impl AppState {
                     .map_err(|e| anyhow::anyhow!("Failed to hide app before pasting: {}", e))?;
             }
 
-            tokio::task::spawn_blocking(move || -> Result<()> {
+            let paste_result = tokio::task::spawn_blocking(move || -> Result<()> {
                 log::info!("[paste_text] 开始执行粘贴流程");
                 run_macos_paste(current_process_id, "text", "paste_text")
             })
-            .await??;
+            .await?;
+
+            if let Err(error) = paste_result {
+                log::error!("[paste_text] 执行失败: {}", error);
+                return Err(error);
+            }
         }
 
         Ok(())
@@ -435,6 +552,8 @@ impl AppState {
         file_path: String,
         app_handle: Option<tauri::AppHandle>,
     ) -> Result<()> {
+        log::info!("[paste_image] 收到粘贴请求");
+
         use std::fs;
         use std::path::PathBuf;
 
@@ -480,6 +599,11 @@ impl AppState {
         // 切换应用焦点并粘贴（macOS）
         #[cfg(target_os = "macos")]
         {
+            if let Err(error) = ensure_macos_accessibility_permission() {
+                log::error!("[paste_image] 权限检查失败: {}", error);
+                return Err(error);
+            }
+
             let current_process_id = std::process::id();
 
             if let Some(handle) = app_handle.as_ref() {
@@ -488,11 +612,16 @@ impl AppState {
                     .map_err(|e| anyhow::anyhow!("Failed to hide app before pasting: {}", e))?;
             }
 
-            tokio::task::spawn_blocking(move || -> Result<()> {
+            let paste_result = tokio::task::spawn_blocking(move || -> Result<()> {
                 log::info!("[paste_image] 开始执行图片粘贴流程");
                 run_macos_paste(current_process_id, "image", "paste_image")
             })
-            .await??;
+            .await?;
+
+            if let Err(error) = paste_result {
+                log::error!("[paste_image] 执行失败: {}", error);
+                return Err(error);
+            }
         }
 
         Ok(())
@@ -761,6 +890,20 @@ impl AppState {
 
     fn calculate_directory_size(&self, path: &PathBuf) -> Result<u64> {
         calculate_directory_size_impl(path)
+    }
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod macos_paste_permission_tests {
+    use super::ensure_macos_accessibility_permission;
+
+    #[test]
+    fn accessibility_error_message_is_actionable() {
+        if let Err(error) = ensure_macos_accessibility_permission() {
+            let message = error.to_string();
+            assert!(message.contains("辅助功能"));
+            assert!(message.contains("Dance"));
+        }
     }
 }
 
