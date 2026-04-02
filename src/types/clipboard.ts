@@ -350,6 +350,7 @@ export interface ResolvedPreviewData {
     contentType?: string;
     contentLength?: number;
     title?: string;
+    description?: string;
     previewKind?: PreviewKind;
     error?: string;
   };
@@ -360,6 +361,8 @@ export interface UrlPreviewResolution {
   status?: number;
   content_type?: string;
   content_length?: number;
+  title?: string;
+  description?: string;
   preview_kind?: PreviewKind;
   resolved?: {
     source_kind?: string;

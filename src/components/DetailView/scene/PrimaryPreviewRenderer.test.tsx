@@ -126,4 +126,42 @@ describe('PrimaryPreviewRenderer', () => {
     expect(screen.getByTestId('json-renderer')).toHaveTextContent('{"name":"dance"}');
     expect(screen.queryByTestId('text-renderer')).not.toBeInTheDocument();
   });
+
+  it('普通网页 URL 已经生成截图时，主预览直接展示截图', () => {
+    render(
+      <PrimaryPreviewRenderer
+        kind="image"
+        payload={{
+          entry: baseEntry,
+          subType: 'url',
+          metadata: {
+            url_parts: {
+              protocol: 'https',
+              host: 'example.com',
+              path: '/docs',
+              query_params: [],
+            },
+          },
+          resolvedData: {
+            imageUrl: 'data:image/png;base64,preview-screenshot',
+            url: {
+              finalUrl: 'https://example.com/docs',
+              previewKind: 'url_card',
+              title: 'Dance Documentation',
+              description: 'Clipboard preview documentation for developers.',
+              status: 200,
+              contentType: 'text/html',
+            },
+          },
+        }}
+        onOpenFile={vi.fn()}
+      />
+    );
+
+    expect(screen.getByAltText('preview')).toHaveAttribute(
+      'src',
+      'data:image/png;base64,preview-screenshot'
+    );
+    expect(screen.queryByTestId('text-renderer')).not.toBeInTheDocument();
+  });
 });

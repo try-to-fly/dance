@@ -9,12 +9,17 @@ use crate::state::AppState;
 use crate::updater::{UpdateInfo, UpdateManager};
 use crate::utils::app_icon_extractor::AppIconExtractor;
 use crate::utils::app_list::{AppListManager, InstalledApp};
+use crate::utils::webpage_preview::{
+    get_cached_webpage_preview_data_url, get_or_create_webpage_preview_data_url,
+};
 use anyhow::Result;
 use base64::{engine::general_purpose, Engine as _};
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::PathBuf;
-use tauri::{State, Window};
+use std::sync::OnceLock;
+use tauri::{AppHandle, State, Window};
 use tauri_plugin_aptabase::EventTracker;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -111,6 +116,8 @@ pub struct UrlPreviewResolution {
     pub status: Option<u16>,
     pub content_type: Option<String>,
     pub content_length: Option<u64>,
+    pub title: Option<String>,
+    pub description: Option<String>,
     pub preview_kind: PreviewKind,
     pub resolved: ResolvedPreviewData,
     pub error: Option<String>,
@@ -723,6 +730,29 @@ fn preview_kind_from_mime(mime: &str) -> PreviewKind {
     PreviewKind::UrlCard
 }
 
+fn is_html_content_type(mime: &str) -> bool {
+    let mime = normalize_mime(mime);
+    mime.starts_with("text/html") || mime == "application/xhtml+xml"
+}
+
+fn preview_kind_from_url_content_type(mime: &str) -> PreviewKind {
+    let mime = normalize_mime(mime);
+    if mime.starts_with("image/") {
+        return PreviewKind::Image;
+    }
+    if mime.starts_with("video/") {
+        return PreviewKind::Video;
+    }
+    if mime.starts_with("audio/") {
+        return PreviewKind::Audio;
+    }
+    if mime == "application/json" || mime.ends_with("+json") {
+        return PreviewKind::Json;
+    }
+
+    PreviewKind::UrlCard
+}
+
 fn preview_kind_from_url_path(url: &url::Url) -> PreviewKind {
     let path = url.path().to_lowercase();
     if path.ends_with(".png")
@@ -752,20 +782,109 @@ fn preview_kind_from_url_path(url: &url::Url) -> PreviewKind {
     if path.ends_with(".json") {
         return PreviewKind::Json;
     }
-    if path.ends_with(".md") || path.ends_with(".markdown") {
-        return PreviewKind::Markdown;
-    }
-    if path.ends_with(".js")
-        || path.ends_with(".ts")
-        || path.ends_with(".tsx")
-        || path.ends_with(".jsx")
-        || path.ends_with(".css")
-        || path.ends_with(".html")
-        || path.ends_with(".xml")
-    {
-        return PreviewKind::Code;
-    }
     PreviewKind::UrlCard
+}
+
+fn html_title_regex() -> &'static Regex {
+    static TITLE_RE: OnceLock<Regex> = OnceLock::new();
+    TITLE_RE.get_or_init(|| Regex::new(r"(?is)<title[^>]*>(.*?)</title>").unwrap())
+}
+
+fn html_meta_tag_regex() -> &'static Regex {
+    static META_TAG_RE: OnceLock<Regex> = OnceLock::new();
+    META_TAG_RE.get_or_init(|| Regex::new(r"(?is)<meta\b[^>]*>").unwrap())
+}
+
+fn html_attr_regex() -> &'static Regex {
+    static ATTR_RE: OnceLock<Regex> = OnceLock::new();
+    ATTR_RE.get_or_init(|| {
+        Regex::new(
+            r#"(?is)([a-zA-Z_:][-a-zA-Z0-9_:.]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))"#,
+        )
+        .unwrap()
+    })
+}
+
+fn html_tag_regex() -> &'static Regex {
+    static TAG_RE: OnceLock<Regex> = OnceLock::new();
+    TAG_RE.get_or_init(|| Regex::new(r"(?is)<[^>]+>").unwrap())
+}
+
+fn decode_basic_html_entities(value: &str) -> String {
+    value
+        .replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&apos;", "'")
+        .replace("&nbsp;", " ")
+}
+
+fn normalize_html_summary_text(value: &str, max_chars: usize) -> Option<String> {
+    let without_tags = html_tag_regex().replace_all(value, " ");
+    let decoded = decode_basic_html_entities(&without_tags);
+    let collapsed = decoded.split_whitespace().collect::<Vec<_>>().join(" ");
+    if collapsed.is_empty() {
+        return None;
+    }
+
+    Some(truncate_by_chars(&collapsed, max_chars))
+}
+
+fn extract_html_preview_summary(html: &str) -> (Option<String>, Option<String>) {
+    let title = html_title_regex()
+        .captures(html)
+        .and_then(|captures| captures.get(1))
+        .and_then(|value| normalize_html_summary_text(value.as_str(), 160));
+
+    let mut description = None;
+    for tag_match in html_meta_tag_regex().find_iter(html) {
+        let tag = tag_match.as_str();
+        let mut attr_name = None::<String>;
+        let mut attr_property = None::<String>;
+        let mut attr_content = None::<String>;
+
+        for attr_match in html_attr_regex().captures_iter(tag) {
+            let Some(key_match) = attr_match.get(1) else {
+                continue;
+            };
+            let key = key_match.as_str().to_ascii_lowercase();
+            let value = attr_match
+                .get(2)
+                .or_else(|| attr_match.get(3))
+                .or_else(|| attr_match.get(4))
+                .map(|capture| capture.as_str().to_string())
+                .unwrap_or_default();
+
+            match key.as_str() {
+                "name" => attr_name = Some(value.to_ascii_lowercase()),
+                "property" => attr_property = Some(value.to_ascii_lowercase()),
+                "content" => attr_content = Some(value),
+                _ => {}
+            }
+        }
+
+        let is_description_tag = matches!(
+            attr_name.as_deref().or(attr_property.as_deref()),
+            Some("description" | "og:description" | "twitter:description")
+        );
+
+        if is_description_tag {
+            description = attr_content
+                .as_deref()
+                .and_then(|value| normalize_html_summary_text(value, 280));
+            if description.is_some() {
+                break;
+            }
+        }
+    }
+
+    if title.is_some() && title == description {
+        return (title, None);
+    }
+
+    (title, description)
 }
 
 fn parse_base64_input(input: &str) -> Result<ParsedBase64Input, String> {
@@ -1063,7 +1182,11 @@ async fn inspect_media_source_internal(
 }
 
 #[tauri::command]
-pub async fn resolve_url_preview(url: String) -> Result<UrlPreviewResolution, String> {
+pub async fn resolve_url_preview(
+    app_handle: AppHandle,
+    url: String,
+    state: State<'_, AppState>,
+) -> Result<UrlPreviewResolution, String> {
     use std::time::Duration;
 
     let parsed_url = url::Url::parse(url.trim())
@@ -1083,6 +1206,8 @@ pub async fn resolve_url_preview(url: String) -> Result<UrlPreviewResolution, St
         status: None,
         content_type: None,
         content_length: None,
+        title: None,
+        description: None,
         preview_kind: PreviewKind::UrlCard,
         resolved: ResolvedPreviewData {
             source_kind: "remote".to_string(),
@@ -1091,9 +1216,21 @@ pub async fn resolve_url_preview(url: String) -> Result<UrlPreviewResolution, St
         error: None,
     };
 
+    if let Ok(Some(cached_preview)) =
+        get_cached_webpage_preview_data_url(state.paths.as_ref(), parsed_url.as_str())
+    {
+        resolution.resolved.image_url = Some(cached_preview);
+    }
+
     let mut response = match client.get(parsed_url.clone()).send().await {
         Ok(resp) => resp,
-        Err(err) => return Err(format!("Network request failed: {}", err)),
+        Err(err) => {
+            if resolution.resolved.image_url.is_some() {
+                resolution.error = Some(format!("Network request failed: {}", err));
+                return Ok(resolution);
+            }
+            return Err(format!("Network request failed: {}", err));
+        }
     };
 
     let final_url = response.url().clone();
@@ -1108,7 +1245,7 @@ pub async fn resolve_url_preview(url: String) -> Result<UrlPreviewResolution, St
     let fallback_kind = preview_kind_from_url_path(&final_url);
     let preview_kind = content_type
         .as_deref()
-        .map(preview_kind_from_mime)
+        .map(preview_kind_from_url_content_type)
         .filter(|kind| *kind != PreviewKind::UrlCard)
         .unwrap_or(fallback_kind);
 
@@ -1136,7 +1273,17 @@ pub async fn resolve_url_preview(url: String) -> Result<UrlPreviewResolution, St
         .filter(|name| !name.is_empty())
         .map(ToString::to_string);
 
+    if let Ok(Some(cached_preview)) =
+        get_cached_webpage_preview_data_url(state.paths.as_ref(), final_url.as_str())
+    {
+        resolution.resolved.image_url = Some(cached_preview);
+    }
+
     if !status.is_success() {
+        if resolution.resolved.image_url.is_some() {
+            resolution.error = Some(format!("HTTP error: {}", status));
+            return Ok(resolution);
+        }
         return Err(format!("HTTP error: {}", status));
     }
 
@@ -1174,18 +1321,43 @@ pub async fn resolve_url_preview(url: String) -> Result<UrlPreviewResolution, St
                 .await,
             );
         }
-        PreviewKind::Json | PreviewKind::Markdown | PreviewKind::PlainText | PreviewKind::Code => {
+        PreviewKind::Json => {
             let (text, truncated) =
                 read_response_text_limited(&mut response, URL_PREVIEW_MAX_BYTES).await?;
             resolution.resolved.text_content = Some(text.clone());
-            if preview_kind == PreviewKind::Json {
-                resolution.resolved.json_content = parse_json_if_possible(&text);
-            }
+            resolution.resolved.json_content = parse_json_if_possible(&text);
             if truncated {
                 resolution.error = Some(format!(
                     "Content truncated to {} bytes for preview",
                     URL_PREVIEW_MAX_BYTES
                 ));
+            }
+        }
+        PreviewKind::UrlCard => {
+            if content_type.as_deref().is_some_and(is_html_content_type) {
+                let (text, _) =
+                    read_response_text_limited(&mut response, URL_PREVIEW_MAX_BYTES).await?;
+                let (title, description) = extract_html_preview_summary(&text);
+                resolution.title = title;
+                resolution.description = description;
+            }
+
+            if resolution.resolved.image_url.is_none() {
+                match get_or_create_webpage_preview_data_url(
+                    &app_handle,
+                    state.paths.clone(),
+                    final_url.as_str(),
+                )
+                .await
+                {
+                    Ok(Some(image_url)) => {
+                        resolution.resolved.image_url = Some(image_url);
+                    }
+                    Ok(None) => {}
+                    Err(error) => {
+                        resolution.error = Some(error.to_string());
+                    }
+                }
             }
         }
         _ => {}
@@ -1852,6 +2024,44 @@ mod tests {
         assert_eq!(preview_kind_from_mime("image/webp"), PreviewKind::Image);
         assert_eq!(preview_kind_from_mime("audio/mpeg"), PreviewKind::Audio);
         assert_eq!(preview_kind_from_mime("video/mp4"), PreviewKind::Video);
+    }
+
+    #[test]
+    fn test_url_preview_kind_treats_html_as_web_page_card() {
+        assert_eq!(
+            preview_kind_from_url_content_type("text/html; charset=utf-8"),
+            PreviewKind::UrlCard
+        );
+        assert_eq!(
+            preview_kind_from_url_content_type("text/plain"),
+            PreviewKind::UrlCard
+        );
+        assert_eq!(
+            preview_kind_from_url_path(&url::Url::parse("https://example.com/index.html").unwrap()),
+            PreviewKind::UrlCard
+        );
+    }
+
+    #[test]
+    fn test_extract_html_preview_summary_reads_title_and_description() {
+        let html = r#"
+            <!doctype html>
+            <html>
+              <head>
+                <title>Dance &amp; Docs</title>
+                <meta name="description" content="Clipboard preview guide for developers." />
+              </head>
+              <body>hello</body>
+            </html>
+        "#;
+
+        let (title, description) = extract_html_preview_summary(html);
+
+        assert_eq!(title.as_deref(), Some("Dance & Docs"));
+        assert_eq!(
+            description.as_deref(),
+            Some("Clipboard preview guide for developers.")
+        );
     }
 
     #[test]

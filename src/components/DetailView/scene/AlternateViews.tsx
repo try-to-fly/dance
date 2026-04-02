@@ -36,6 +36,7 @@ const normalizeUrlCardPayload = (payload: unknown): UrlCardRendererProps => {
       return {
         raw: candidate.raw,
         parts: candidate.parts ?? null,
+        preview: candidate.preview ?? null,
       };
     }
   }
@@ -43,6 +44,7 @@ const normalizeUrlCardPayload = (payload: unknown): UrlCardRendererProps => {
   return {
     raw: normalizeToText(payload),
     parts: null,
+    preview: null,
   };
 };
 

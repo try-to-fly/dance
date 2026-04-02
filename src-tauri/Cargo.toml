@@ -55,6 +55,7 @@ unicode-normalization = "0.1"
 cocoa = "0.25"
 objc = "0.2.7"
 core-graphics = "0.24"
+block = "0.1"
 
 # Windows-specific dependencies
 [target.'cfg(target_os = "windows")'.dependencies]

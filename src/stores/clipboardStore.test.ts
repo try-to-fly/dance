@@ -89,6 +89,44 @@ describe('clipboardStore preview resolution', () => {
     expect(cacheEntry?.ttlMs).toBe(30_000);
   });
 
+  it('普通网页解析结果优先展示后端生成的截图预览', async () => {
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'resolve_url_preview') {
+        return Promise.resolve({
+          final_url: 'https://example.com/docs',
+          status: 200,
+          content_type: 'text/html',
+          preview_kind: 'url_card',
+          title: 'Dance Documentation',
+          description: 'Clipboard preview documentation for developers.',
+          resolved: {
+            source_kind: 'remote',
+            image_url: 'data:image/png;base64,preview-screenshot',
+            file_name: 'docs',
+          },
+        });
+      }
+
+      throw new Error(`unexpected command: ${command}`);
+    });
+
+    const result = await useClipboardStore
+      .getState()
+      .resolveUrlPreview?.('https://example.com/docs');
+
+    expect(result).toMatchObject({
+      imageUrl: 'data:image/png;base64,preview-screenshot',
+      url: {
+        finalUrl: 'https://example.com/docs',
+        previewKind: 'url_card',
+        title: 'Dance Documentation',
+        description: 'Clipboard preview documentation for developers.',
+        contentType: 'text/html',
+      },
+    });
+    expect(result?.textContent).toBeUndefined();
+  });
+
   it('setSelectedType 会改走后端 retrieval query，而不是继续本地同步过滤', async () => {
     invokeMock.mockImplementation((command: string, payload?: Record<string, unknown>) => {
       if (command === 'search_clipboard_history') {

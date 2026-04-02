@@ -5,14 +5,13 @@ import {
   Base64PreviewResolution,
   ClipboardHistoryQuery,
   ClipboardEntry,
-  PreviewKind,
   ResolvedPreviewData,
   Statistics,
   UrlPreviewResolution,
 } from '../types/clipboard';
 import { getEntryAnalysisSubtype } from '../lib/preview/entryPresentation';
 
-type UrlPreviewCategory = 'none' | 'image' | 'video' | 'audio' | 'text' | 'json';
+type UrlPreviewCategory = 'none' | 'image' | 'video' | 'audio' | 'json';
 
 type PreviewResolutionCacheEntry = {
   data: ResolvedPreviewData;
@@ -30,10 +29,6 @@ const URL_MEDIA_RULES: Array<[RegExp, UrlPreviewCategory]> = [
   [/\.(mp4|webm|ogg|avi|mov|mkv|flv)(\?|$)/i, 'video'],
   [/\.(mp3|wav|flac|aac|m4a)(\?|$)/i, 'audio'],
   [/\.(json)(\?|$)/i, 'json'],
-  [
-    /\.(xml|html|htm|css|js|ts|jsx|tsx|py|java|cpp|c|h|php|rb|go|rs|sql|md|txt|log|csv|yaml|yml|toml|ini|conf|sh|bat)(\?|$)/i,
-    'text',
-  ],
 ];
 
 const normalizeUrlString = (value: string): string => {
@@ -69,28 +64,7 @@ const guessUrlPreviewCategory = (url: string): UrlPreviewCategory => {
   if (matched) {
     return matched[1];
   }
-  if (lower.includes('/api/')) {
-    return 'json';
-  }
   return 'none';
-};
-
-const inferUrlTextPreviewKind = (url: string): PreviewKind => {
-  const lower = url.toLowerCase();
-  if (/\.(json)(\?|$)/i.test(lower) || lower.includes('/api/')) {
-    return 'json';
-  }
-  if (/\.(md|markdown)(\?|$)/i.test(lower)) {
-    return 'markdown';
-  }
-  if (/\.(sh|bat)(\?|$)/i.test(lower)) {
-    return 'code';
-  }
-  if (/\.(html|htm|css|js|jsx|ts|tsx|py|java|cpp|c|h|php|rb|go|rs|sql|xml)(\?|$)/i.test(lower)) {
-    return 'code';
-  }
-
-  return 'plain_text';
 };
 
 const decodeBase64String = (input: string) => {
@@ -323,9 +297,7 @@ const applyUrlPreviewFallback = async ({
           ? 'audio'
           : category === 'json'
             ? 'json'
-            : category === 'text'
-              ? inferUrlTextPreviewKind(finalUrl)
-              : 'url_card';
+            : 'url_card';
 
   const nextResolved: ResolvedPreviewData = {
     ...resolved,
@@ -343,18 +315,14 @@ const applyUrlPreviewFallback = async ({
     nextResolved.videoUrl = finalUrl;
   } else if (category === 'audio') {
     nextResolved.audioUrl = finalUrl;
-  } else if (category === 'text' || category === 'json') {
+  } else if (category === 'json') {
     try {
       const content = await fetchUrlContent(finalUrl);
-      if (category === 'json') {
-        try {
-          const parsed = JSON.parse(content);
-          nextResolved.jsonContent = parsed;
-          nextResolved.textContent = JSON.stringify(parsed, null, 2);
-        } catch {
-          nextResolved.textContent = content;
-        }
-      } else {
+      try {
+        const parsed = JSON.parse(content);
+        nextResolved.jsonContent = parsed;
+        nextResolved.textContent = JSON.stringify(parsed, null, 2);
+      } catch {
         nextResolved.textContent = content;
       }
     } catch (fetchError) {
@@ -723,7 +691,8 @@ export const useClipboardStore = create<ClipboardStore>((set, get) => ({
           status: response.status,
           contentType: response.content_type,
           contentLength: response.content_length,
-          title: resolvedFromBackend.fileName,
+          title: response.title ?? resolvedFromBackend.fileName,
+          description: response.description,
           previewKind: response.preview_kind,
           error: response.error,
         },

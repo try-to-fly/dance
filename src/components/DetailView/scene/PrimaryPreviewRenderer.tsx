@@ -188,7 +188,13 @@ export function PrimaryPreviewRenderer({ kind, payload, onOpenFile }: PrimaryPre
   }
 
   if (kind === 'url_card') {
-    return <UrlCardRenderer raw={content} parts={data?.metadata?.url_parts ?? null} />;
+    return (
+      <UrlCardRenderer
+        raw={content}
+        parts={data?.metadata?.url_parts ?? null}
+        preview={resolvedData?.url ?? null}
+      />
+    );
   }
 
   if (kind === 'file_card') {

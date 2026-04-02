@@ -9,6 +9,13 @@ export interface UrlCardRendererProps {
     path: string;
     query_params: Array<[string, string]>;
   } | null;
+  preview?: {
+    title?: string;
+    description?: string;
+    finalUrl?: string;
+    status?: number;
+    contentType?: string;
+  } | null;
 }
 
 const parseUrlParts = (raw: string): UrlCardRendererProps['parts'] => {
@@ -17,9 +24,10 @@ const parseUrlParts = (raw: string): UrlCardRendererProps['parts'] => {
     return null;
   }
 
-  const candidates = trimmed.startsWith('http://') || trimmed.startsWith('https://')
-    ? [trimmed]
-    : [trimmed, `https://${trimmed}`];
+  const candidates =
+    trimmed.startsWith('http://') || trimmed.startsWith('https://')
+      ? [trimmed]
+      : [trimmed, `https://${trimmed}`];
 
   for (const candidate of candidates) {
     try {
@@ -40,13 +48,12 @@ const parseUrlParts = (raw: string): UrlCardRendererProps['parts'] => {
 
 const readOnlyFallback = 'Not available';
 
-const InfoRow = ({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}) => (
+const normalizePreviewText = (value?: string | null) => {
+  const normalized = value?.replace(/\s+/g, ' ').trim();
+  return normalized || '';
+};
+
+const InfoRow = ({ label, value }: { label: string; value: string }) => (
   <div className="space-y-1 rounded-xl border border-border/60 bg-background/70 p-3">
     <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
       {label}
@@ -55,11 +62,21 @@ const InfoRow = ({
   </div>
 );
 
-export function UrlCardRenderer({ raw, parts }: UrlCardRendererProps) {
+export function UrlCardRenderer({ raw, parts, preview }: UrlCardRendererProps) {
   const resolvedParts = parts ?? parseUrlParts(raw);
   const queryParams = resolvedParts?.query_params ?? [];
   const pathValue = resolvedParts?.path || '/';
   const queryCountLabel = queryParams.length === 1 ? '1 param' : `${queryParams.length} params`;
+  const pageTitle = normalizePreviewText(preview?.title);
+  const pageDescription = normalizePreviewText(preview?.description);
+  const responseStatus =
+    typeof preview?.status === 'number' && Number.isFinite(preview.status)
+      ? `HTTP ${preview.status}`
+      : '';
+  const contentType = normalizePreviewText(preview?.contentType);
+  const redirectedUrl =
+    preview?.finalUrl && preview.finalUrl !== raw ? normalizePreviewText(preview.finalUrl) : '';
+  const summaryBadges = [responseStatus, contentType].filter(Boolean);
 
   return (
     <div className="space-y-4 rounded-[16px] border border-border/70 bg-background/70 p-4 shadow-none">
@@ -71,11 +88,32 @@ export function UrlCardRenderer({ raw, parts }: UrlCardRendererProps) {
         <Badge variant="outline">{queryCountLabel}</Badge>
       </div>
 
+      {(pageTitle || pageDescription || summaryBadges.length > 0) && (
+        <div className="space-y-3 rounded-2xl border border-border/60 bg-muted/20 p-3.5">
+          {pageTitle ? (
+            <div className="text-base font-semibold leading-6 text-foreground">{pageTitle}</div>
+          ) : null}
+          {pageDescription ? (
+            <p className="text-sm leading-6 text-muted-foreground">{pageDescription}</p>
+          ) : null}
+          {summaryBadges.length > 0 ? (
+            <div className="flex flex-wrap items-center gap-2">
+              {summaryBadges.map((badge) => (
+                <Badge key={badge} variant="outline" className="bg-background/80">
+                  {badge}
+                </Badge>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      )}
+
       <div className="grid gap-3 min-[900px]:grid-cols-2">
         <InfoRow label="Protocol" value={resolvedParts?.protocol || readOnlyFallback} />
         <InfoRow label="Host" value={resolvedParts?.host || readOnlyFallback} />
         <InfoRow label="Path" value={pathValue} />
         <InfoRow label="Params" value={queryCountLabel} />
+        {redirectedUrl ? <InfoRow label="Resolved URL" value={redirectedUrl} /> : null}
       </div>
 
       <div className="space-y-2 rounded-xl border border-border/60 bg-muted/20 p-3">
