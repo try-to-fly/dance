@@ -3,6 +3,7 @@ use crate::analysis::{
 };
 use crate::app_paths::AppPaths;
 use crate::capture::{calculate_content_hash, CaptureRuntime};
+use crate::clipboard::content_detector::ContentDetector;
 use crate::clipboard::{ClipboardMonitor, ContentProcessor};
 use crate::commands::{CacheStatistics, CleanupResult};
 use crate::config::{AppConfig, ConfigManager};
@@ -422,7 +423,8 @@ impl AppState {
     }
 
     pub async fn register_suppression_for_text(&self, content: &str, ttl_ms: i64) -> String {
-        let content_hash = calculate_content_hash(content.as_bytes());
+        let normalized = ContentDetector::normalize_clipboard_text(content);
+        let content_hash = calculate_content_hash(normalized.as_ref().as_bytes());
 
         let runtime_guard = self.capture_runtime.read().await;
         if let Some(runtime) = runtime_guard.as_ref() {

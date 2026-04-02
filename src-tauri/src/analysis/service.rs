@@ -27,7 +27,8 @@ impl TextAnalysisService {
     }
 
     pub fn analyze(&self, text: &str) -> AnalysisSnapshot {
-        let trimmed = text.trim();
+        let normalized = ContentDetector::normalize_clipboard_text(text);
+        let trimmed = normalized.as_ref();
         if let Some(diagnostic) = detect_explicit_fallback(trimmed) {
             return self.fallback_plain_text(trimmed, vec![diagnostic]);
         }

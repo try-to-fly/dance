@@ -61,6 +61,22 @@ mod analysis_contract_tests {
     }
 
     #[test]
+    fn test_text_analysis_contract_normalizes_dominant_url_noise() {
+        let service = TextAnalysisService::new();
+        let snapshot = service.analyze(r#"("https://www.right.codes/dashboard")"#);
+
+        assert_eq!(snapshot.subtype, AnalysisSubtype::Url);
+        match snapshot.metadata {
+            crate::analysis::AnalysisMetadata::Url(metadata) => {
+                assert_eq!(metadata.protocol, "https");
+                assert_eq!(metadata.host, "www.right.codes");
+                assert_eq!(metadata.path, "/dashboard");
+            }
+            other => panic!("expected url metadata, got {:?}", other),
+        }
+    }
+
+    #[test]
     fn test_text_analysis_contract_failure_fallback_serializes_diagnostics() {
         let service = TextAnalysisService::new();
         let snapshot = service.fallback_plain_text(

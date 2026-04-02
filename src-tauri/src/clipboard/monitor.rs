@@ -9,6 +9,7 @@ use crate::capture::{
     calculate_content_hash, consume_suppression_key, decide_capture, remember_observed_hash,
     CaptureDisposition, PasteboardMarkers, SuppressionEntry,
 };
+use crate::clipboard::content_detector::ContentDetector;
 use crate::clipboard::processor::ContentProcessor;
 use crate::config::ConfigManager;
 use crate::models::{ClipboardEntry, ContentType};
@@ -136,7 +137,17 @@ impl ClipboardMonitor {
     where
         F: FnOnce(&str) -> AnalysisSnapshot,
     {
-        let hash = calculate_content_hash(trimmed_text.as_bytes());
+        let normalized_text = ContentDetector::normalize_clipboard_text(trimmed_text);
+        let captured_text = normalized_text.as_ref();
+        if captured_text != trimmed_text {
+            log::debug!(
+                "[ClipboardMonitor] 归一化高占比URL文本: '{}' -> '{}'",
+                trimmed_text,
+                captured_text
+            );
+        }
+
+        let hash = calculate_content_hash(captured_text.as_bytes());
         log::debug!("[ClipboardMonitor] 计算内容Hash: {}", &hash[..8]);
 
         if consume_suppression_key(suppression_registry, &hash).await {
@@ -146,7 +157,7 @@ impl ClipboardMonitor {
         }
 
         let disposition = self
-            .text_capture_disposition(markers, app_info, trimmed_text)
+            .text_capture_disposition(markers, app_info, captured_text)
             .await;
         if disposition != CaptureDisposition::Persist {
             remember_observed_hash(last_observed_hash, hash).await;
@@ -162,7 +173,7 @@ impl ClipboardMonitor {
             return Ok(None);
         }
 
-        let snapshot = analyzer(trimmed_text);
+        let snapshot = analyzer(captured_text);
         log::debug!(
             "[ClipboardMonitor] authoritative analysis 结果: {:?} ({:?})",
             snapshot.subtype,
@@ -171,7 +182,7 @@ impl ClipboardMonitor {
 
         let mut entry = ClipboardEntry::new(
             ContentType::Text,
-            Some(trimmed_text.to_string()),
+            Some(captured_text.to_string()),
             hash,
             app_info.map(|info| info.name.clone()),
             None,
@@ -182,10 +193,10 @@ impl ClipboardMonitor {
 
         log::info!(
             "[ClipboardMonitor] 发现新文本内容: {} | 来源: {} | 类型: {:?} | 状态: {:?}",
-            if trimmed_text.chars().count() > 50 {
-                format!("{}...", trimmed_text.chars().take(50).collect::<String>())
+            if captured_text.chars().count() > 50 {
+                format!("{}...", captured_text.chars().take(50).collect::<String>())
             } else {
-                trimmed_text.to_string()
+                captured_text.to_string()
             },
             app_info
                 .map(|info| info.name.as_str())
@@ -437,8 +448,16 @@ impl ClipboardMonitor {
 #[cfg(test)]
 mod tests {
     use super::ClipboardMonitor;
-    use crate::capture::PasteboardMarkers;
+    use crate::app_paths::AppPaths;
+    use crate::capture::{
+        calculate_content_hash, CaptureDisposition, PasteboardMarkers, SuppressionEntry,
+    };
+    use crate::clipboard::ContentProcessor;
+    use crate::config::ConfigManager;
+    use crate::test_support::create_temp_app_roots;
     use crate::utils::app_detector::AppInfo;
+    use std::sync::Arc;
+    use tokio::sync::{broadcast, Mutex};
 
     #[test]
     fn test_resolve_source_bundle_id_prefers_markers() {
@@ -462,5 +481,50 @@ mod tests {
         assert!(ClipboardMonitor::is_self_generated(Some("com.dance.app")));
         assert!(!ClipboardMonitor::is_self_generated(Some("com.other.app")));
         assert!(!ClipboardMonitor::is_self_generated(None));
+    }
+
+    #[tokio::test]
+    async fn test_process_text_capture_with_analysis_normalizes_dominant_url_before_emit() {
+        let roots = create_temp_app_roots();
+        let paths = Arc::new(AppPaths::from_roots(
+            roots.config_root.clone(),
+            roots.data_root.clone(),
+            roots.cache_root.clone(),
+            roots.log_root.clone(),
+        ));
+        let processor =
+            Arc::new(ContentProcessor::new_in(paths.clone()).expect("create processor"));
+        let config_manager = Arc::new(Mutex::new(
+            ConfigManager::new_in(paths)
+                .await
+                .expect("create config manager"),
+        ));
+        let (tx, mut rx) = broadcast::channel(1);
+        let monitor = ClipboardMonitor::new(tx, processor, config_manager).expect("create monitor");
+        let last_observed_hash = Arc::new(Mutex::new(None));
+        let suppression_registry = Arc::new(Mutex::new(Vec::<SuppressionEntry>::new()));
+
+        let disposition = monitor
+            .process_text_capture_with_analysis(
+                &last_observed_hash,
+                &suppression_registry,
+                None,
+                &PasteboardMarkers::default(),
+                r#"https://www.right.codes/dashboard""#,
+                |text| monitor.analysis_service.analyze(text),
+            )
+            .await
+            .expect("process normalized url capture");
+
+        assert_eq!(disposition, Some(CaptureDisposition::Persist));
+
+        let entry = rx.recv().await.expect("receive normalized clipboard entry");
+        let normalized_url = "https://www.right.codes/dashboard";
+        assert_eq!(entry.content_data.as_deref(), Some(normalized_url));
+        assert_eq!(
+            entry.content_hash,
+            calculate_content_hash(normalized_url.as_bytes())
+        );
+        assert_eq!(entry.content_subtype.as_deref(), Some("url"));
     }
 }

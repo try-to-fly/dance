@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use base64::{engine::general_purpose, Engine as _};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -62,8 +64,11 @@ pub struct Base64Metadata {
 pub struct ContentDetector;
 
 impl ContentDetector {
+    const DOMINANT_URL_RATIO_THRESHOLD: f32 = 0.8;
+
     pub fn detect(text: &str) -> (ContentSubType, Option<ContentMetadata>) {
-        let trimmed = text.trim();
+        let normalized = Self::normalize_clipboard_text(text);
+        let trimmed = normalized.as_ref();
         log::debug!(
             "[ContentDetector] 开始检测内容类型，长度: {}字符",
             trimmed.len()
@@ -179,6 +184,20 @@ impl ContentDetector {
         (ContentSubType::PlainText, None)
     }
 
+    // 只在 URL 几乎占满整个 token，且移除内容仅限首尾噪声标点/包裹符时才做归一化。
+    pub fn normalize_clipboard_text<'a>(text: &'a str) -> Cow<'a, str> {
+        let trimmed = text.trim();
+        if trimmed.is_empty() {
+            return Cow::Borrowed(trimmed);
+        }
+
+        if let Some(candidate) = Self::extract_dominant_url_candidate(trimmed) {
+            return Cow::Borrowed(candidate);
+        }
+
+        Cow::Borrowed(trimmed)
+    }
+
     fn is_url(text: &str) -> bool {
         if text.is_empty() || text.chars().any(char::is_whitespace) {
             return false;
@@ -195,6 +214,141 @@ impl ContentDetector {
         }
 
         Self::normalize_bare_http_url(text).is_some()
+    }
+
+    fn extract_dominant_url_candidate(text: &str) -> Option<&str> {
+        if text.is_empty() || text.chars().any(char::is_whitespace) {
+            return None;
+        }
+
+        let sanitized = Self::sanitize_url_candidate(text);
+        if sanitized != text
+            && Self::url_candidate_ratio(sanitized, text) >= Self::DOMINANT_URL_RATIO_THRESHOLD
+            && Self::is_url(sanitized)
+        {
+            return Some(sanitized);
+        }
+
+        if Self::is_url(text) {
+            return Some(text);
+        }
+
+        None
+    }
+
+    fn sanitize_url_candidate(mut text: &str) -> &str {
+        loop {
+            if let Some(unwrapped) = Self::strip_matching_url_wrapper(text) {
+                text = unwrapped;
+                continue;
+            }
+
+            let without_leading_noise = Self::strip_leading_url_noise(text);
+            if without_leading_noise != text {
+                text = without_leading_noise;
+                continue;
+            }
+
+            let without_trailing_noise = Self::strip_trailing_url_noise(text);
+            if without_trailing_noise != text {
+                text = without_trailing_noise;
+                continue;
+            }
+
+            break;
+        }
+
+        text
+    }
+
+    fn strip_matching_url_wrapper(text: &str) -> Option<&str> {
+        let first = text.chars().next()?;
+        let last = text.chars().next_back()?;
+        let expected_closer = match first {
+            '"' => '"',
+            '\'' => '\'',
+            '(' => ')',
+            '[' => ']',
+            '{' => '}',
+            '<' => '>',
+            '“' => '”',
+            '‘' => '’',
+            '（' => '）',
+            '【' => '】',
+            '《' => '》',
+            '「' => '」',
+            '『' => '』',
+            _ => return None,
+        };
+
+        if last != expected_closer || text.chars().count() < 3 {
+            return None;
+        }
+
+        Some(&text[first.len_utf8()..text.len() - last.len_utf8()])
+    }
+
+    fn strip_leading_url_noise(mut text: &str) -> &str {
+        while let Some(first) = text.chars().next() {
+            if !Self::is_leading_url_noise(first) {
+                break;
+            }
+            text = &text[first.len_utf8()..];
+        }
+
+        text
+    }
+
+    fn strip_trailing_url_noise(mut text: &str) -> &str {
+        while let Some(last) = text.chars().next_back() {
+            if !Self::is_trailing_url_noise(last) {
+                break;
+            }
+            text = &text[..text.len() - last.len_utf8()];
+        }
+
+        text
+    }
+
+    fn is_leading_url_noise(ch: char) -> bool {
+        matches!(
+            ch,
+            '"' | '\''
+                | '`'
+                | ','
+                | ';'
+                | ':'
+                | '，'
+                | '；'
+                | '：'
+                | '('
+                | '['
+                | '{'
+                | '<'
+                | '“'
+                | '‘'
+                | '（'
+                | '【'
+                | '《'
+                | '「'
+                | '『'
+        )
+    }
+
+    fn is_trailing_url_noise(ch: char) -> bool {
+        matches!(
+            ch,
+            '"' | '\'' | '`' | ',' | ';' | ':' | '，' | '；' | '：' | '”' | '’'
+        )
+    }
+
+    fn url_candidate_ratio(candidate: &str, original: &str) -> f32 {
+        let original_chars = original.chars().count();
+        if original_chars == 0 {
+            return 0.0;
+        }
+
+        candidate.chars().count() as f32 / original_chars as f32
     }
 
     fn parse_url_metadata(url: &str) -> ContentMetadata {
@@ -930,6 +1084,65 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn test_normalize_clipboard_text_strips_dominant_url_wrappers_and_noise() {
+        let cases = vec![
+            (
+                r#"https://www.right.codes/dashboard""#,
+                "https://www.right.codes/dashboard",
+            ),
+            (
+                ";https://www.right.codes/dashboard",
+                "https://www.right.codes/dashboard",
+            ),
+            (
+                r#"("https://example.com/docs?tab=api")"#,
+                "https://example.com/docs?tab=api",
+            ),
+            ("，github.com/user/repo；", "github.com/user/repo"),
+            ("《https://example.com/path》", "https://example.com/path"),
+            (" https://example.com/docs ", "https://example.com/docs"),
+        ];
+
+        for (input, expected) in cases {
+            assert_eq!(
+                ContentDetector::normalize_clipboard_text(input).as_ref(),
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn test_normalize_clipboard_text_preserves_non_url_inputs_and_low_ratio_cases() {
+        let cases = vec![
+            r#"README.md""#,
+            "git clone https://example.com/repo.git",
+            "ordinary clipboard note",
+            "((((((https://example.com))))))",
+            "https://en.wikipedia.org/wiki/Function_(mathematics))",
+        ];
+
+        for input in cases {
+            assert_eq!(
+                ContentDetector::normalize_clipboard_text(input).as_ref(),
+                input
+            );
+        }
+    }
+
+    #[test]
+    fn test_url_detection_uses_normalized_dominant_url_candidate() {
+        let (sub_type, metadata) = ContentDetector::detect(r#"("https://example.com/docs")"#);
+        assert!(matches!(sub_type, ContentSubType::Url));
+
+        let url_parts = metadata
+            .and_then(|meta| meta.url_parts)
+            .expect("expected normalized url metadata");
+        assert_eq!(url_parts.protocol, "https");
+        assert_eq!(url_parts.host, "example.com");
+        assert_eq!(url_parts.path, "/docs");
     }
 
     #[test]

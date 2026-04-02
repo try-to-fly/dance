@@ -148,6 +148,27 @@ mod capture_runtime_tests {
     }
 
     #[tokio::test]
+    async fn test_register_suppression_for_text_uses_normalized_url_hash() {
+        let (state, _roots) = create_test_state().await;
+        state.start_monitoring().await.expect("start monitoring");
+
+        let suppression_hash = state
+            .register_suppression_for_text(r#"https://example.com/docs""#, 1500)
+            .await;
+
+        assert_eq!(
+            suppression_hash,
+            crate::capture::calculate_content_hash("https://example.com/docs".as_bytes())
+        );
+
+        let runtime_guard = state.capture_runtime.read().await;
+        let runtime = runtime_guard
+            .as_ref()
+            .expect("capture runtime should exist while monitoring");
+        assert!(runtime.has_suppression_key(&suppression_hash).await);
+    }
+
+    #[tokio::test]
     async fn test_capture_runtime_restart_is_single_owner() {
         let (state, _roots) = create_test_state().await;
         let baseline_receivers = state.tx.receiver_count();
