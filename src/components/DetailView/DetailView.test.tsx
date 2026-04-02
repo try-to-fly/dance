@@ -199,7 +199,7 @@ describe('DetailView', () => {
     expect(screen.getByText('请选择一条内容')).toBeInTheDocument();
   });
 
-  it('将类型放到紧凑标签中，并为来源/时间/次数保留压缩元信息展示', () => {
+  it('将类型放到紧凑标签中，并统一元信息 pills 为仅图标和值', () => {
     mockedUseClipboardStore.mockReturnValue(
       createStoreState({
         ...baseEntry,
@@ -221,12 +221,16 @@ describe('DetailView', () => {
     ).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText('12').length).toBeGreaterThanOrEqual(1);
     expect(screen.queryByText('类型')).not.toBeInTheDocument();
+    expect(screen.queryByText('来源')).not.toBeInTheDocument();
+    expect(screen.queryByText('时间')).not.toBeInTheDocument();
+    expect(screen.queryByText('复制次数')).not.toBeInTheDocument();
     expect(document.getElementById('detail-view-actions')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'AI' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '翻译成中文' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '对话' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '更多操作' })).toBeInTheDocument();
   });
 
-  it('AI 操作按钮会带着当前原始文本打开工作台', async () => {
+  it('翻译和对话按钮会带着当前原始文本打开工作台', async () => {
     mockedUseClipboardStore.mockReturnValue(
       createStoreState({
         ...baseEntry,
@@ -236,10 +240,8 @@ describe('DetailView', () => {
 
     render(<DetailView />);
 
-    fireEvent.pointerDown(screen.getByRole('button', { name: 'AI' }));
-    fireEvent.click(await screen.findByRole('menuitem', { name: '翻译成中文' }));
-    fireEvent.pointerDown(screen.getByRole('button', { name: 'AI' }));
-    fireEvent.click(await screen.findByRole('menuitem', { name: '对话' }));
+    fireEvent.click(screen.getByRole('button', { name: '翻译成中文' }));
+    fireEvent.click(screen.getByRole('button', { name: '对话' }));
 
     await waitFor(() => {
       expect(mockedComponents.openAiDialog).toHaveBeenNthCalledWith(1, {

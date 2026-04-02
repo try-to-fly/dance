@@ -1,6 +1,5 @@
 import {
   AppWindow,
-  Bot,
   ClipboardPaste,
   Copy,
   ExternalLink,
@@ -10,8 +9,9 @@ import {
   FolderClosed,
   FolderOpen,
   Heart,
+  Languages,
+  MessageSquareText,
   MoreHorizontal,
-  Trash2,
 } from 'lucide-react';
 import { ComponentType } from 'react';
 import {
@@ -27,7 +27,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '../../ui/dropdown-menu';
 import { cn } from '../../../lib/utils';
@@ -46,36 +45,6 @@ const denseHeaderPreviewKinds = new Set<PreviewKind>([
   'base64_text',
   'base64_binary',
 ]);
-
-const copyActions: PreviewAction[] = ['copy_raw', 'copy_decoded'];
-const openActions: PreviewAction[] = ['open_url', 'open_file'];
-
-const pickPrimaryActions = (actions: PreviewAction[]) => {
-  const primary: PreviewAction[] = [];
-  const copyAction = actions.find((action) => copyActions.includes(action));
-  const openAction = actions.find((action) => openActions.includes(action));
-
-  if (copyAction) {
-    primary.push(copyAction);
-  }
-
-  if (openAction) {
-    primary.push(openAction);
-  }
-
-  if (primary.length === 0 && actions[0]) {
-    primary.push(actions[0]);
-  }
-
-  if (primary.length === 1) {
-    const fallbackAction = actions.find((action) => !primary.includes(action));
-    if (fallbackAction) {
-      primary.push(fallbackAction);
-    }
-  }
-
-  return primary;
-};
 
 interface DetailSceneProps {
   entry: ClipboardEntry;
@@ -123,7 +92,6 @@ export function DetailScene({
   onCopy,
   onCopyDecoded,
   onPaste,
-  onDelete,
   onToggleFavorite,
   onOpenUrl,
   onOpenFile,
@@ -143,9 +111,8 @@ export function DetailScene({
   const showAlternateViews =
     descriptor.alternateViews.length > 0 && !(hasImmersivePreview && hasRawOnlyAlternateView);
   const layoutMode = hasImmersivePreview ? 'immersive' : useDenseHeader ? 'dense' : 'default';
-  const primaryActions = pickPrimaryActions(descriptor.actions);
-  const overflowActions = descriptor.actions.filter((action) => !primaryActions.includes(action));
-  const hasAiMenu = showAiActions && Boolean(onTranslate || onOpenChat);
+  const visibleActions = descriptor.actions;
+  const hasAiButtons = showAiActions && Boolean(onTranslate || onOpenChat);
   const iconButtonClassName = cn(
     'h-[30px] w-[30px] rounded-[11px]',
     useDenseHeader ? 'min-[1200px]:rounded-xl' : 'min-[1200px]:rounded-2xl'
@@ -229,58 +196,6 @@ export function DetailScene({
           >
             <FolderOpen className="h-4 w-4" />
           </Button>
-        );
-      default:
-        return null;
-    }
-  };
-
-  const renderOverflowAction = (action: PreviewAction) => {
-    switch (action) {
-      case 'copy_raw':
-        return (
-          <DropdownMenuItem
-            key={action}
-            disabled={!entry.content_data}
-            onClick={onCopy}
-            className="gap-2"
-          >
-            <Copy className="h-4 w-4" />
-            <span>{labels.copy}</span>
-          </DropdownMenuItem>
-        );
-      case 'copy_decoded':
-        return (
-          <DropdownMenuItem
-            key={action}
-            disabled={!canCopyDecoded}
-            onClick={onCopyDecoded}
-            className="gap-2"
-          >
-            <FileCode2 className="h-4 w-4" />
-            <span>{labels.copyDecoded}</span>
-          </DropdownMenuItem>
-        );
-      case 'paste':
-        return (
-          <DropdownMenuItem key={action} onClick={onPaste} className="gap-2">
-            <ClipboardPaste className="h-4 w-4" />
-            <span>{labels.paste}</span>
-          </DropdownMenuItem>
-        );
-      case 'open_url':
-        return (
-          <DropdownMenuItem key={action} onClick={onOpenUrl} className="gap-2">
-            <ExternalLink className="h-4 w-4" />
-            <span>{labels.openUrl}</span>
-          </DropdownMenuItem>
-        );
-      case 'open_file':
-        return (
-          <DropdownMenuItem key={action} onClick={onOpenFile} className="gap-2">
-            <FolderOpen className="h-4 w-4" />
-            <span>{labels.openFile}</span>
-          </DropdownMenuItem>
         );
       default:
         return null;
@@ -382,7 +297,6 @@ export function DetailScene({
                   )}
                 >
                   <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                  {!useDenseHeader && <span className="shrink-0 text-[10px]">{item.label}</span>}
                   <span className="min-w-0 truncate font-medium text-foreground/90">
                     {item.value}
                   </span>
@@ -396,37 +310,37 @@ export function DetailScene({
               id="detail-view-actions"
               className="inline-flex flex-wrap items-center justify-end gap-1 rounded-[14px] border border-border/60 bg-background/78 p-1 shadow-[0_6px_18px_rgba(15,23,42,0.04)]"
             >
-              {primaryActions.map(renderActionButton)}
+              {visibleActions.map(renderActionButton)}
 
-              {hasAiMenu ? (
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
+              {hasAiButtons ? (
+                <>
+                  {onTranslate && labels.translate ? (
                     <Button
                       type="button"
                       variant="outline"
                       size="icon"
-                      aria-label={labels.aiTools}
-                      title={labels.aiTools}
+                      onClick={onTranslate}
+                      aria-label={labels.translate}
+                      title={labels.translate}
                       className={iconButtonClassName}
                     >
-                      <Bot className="h-4 w-4" />
+                      <Languages className="h-4 w-4" />
                     </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    {onTranslate && labels.translate ? (
-                      <DropdownMenuItem onClick={onTranslate} className="gap-2">
-                        <Bot className="h-4 w-4" />
-                        <span>{labels.translate}</span>
-                      </DropdownMenuItem>
-                    ) : null}
-                    {onOpenChat && labels.chat ? (
-                      <DropdownMenuItem onClick={onOpenChat} className="gap-2">
-                        <Bot className="h-4 w-4" />
-                        <span>{labels.chat}</span>
-                      </DropdownMenuItem>
-                    ) : null}
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                  ) : null}
+                  {onOpenChat && labels.chat ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      onClick={onOpenChat}
+                      aria-label={labels.chat}
+                      title={labels.chat}
+                      className={iconButtonClassName}
+                    >
+                      <MessageSquareText className="h-4 w-4" />
+                    </Button>
+                  ) : null}
+                </>
               ) : null}
 
               <DropdownMenu>
@@ -446,18 +360,9 @@ export function DetailScene({
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
-                  {overflowActions.map(renderOverflowAction)}
-                  {overflowActions.length > 0 ? <DropdownMenuSeparator /> : null}
                   <DropdownMenuItem onClick={onToggleFavorite} className="gap-2">
                     <Heart className="h-4 w-4" fill={entry.is_favorite ? 'currentColor' : 'none'} />
                     <span>{entry.is_favorite ? labels.unfavorite : labels.favorite}</span>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onClick={onDelete}
-                    className="gap-2 text-destructive focus:text-destructive"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                    <span>{labels.delete}</span>
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>

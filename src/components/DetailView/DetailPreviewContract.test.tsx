@@ -431,7 +431,7 @@ describe('DetailPreview 契约 - Scene', () => {
     expect(screen.getByText('请选择内容')).toBeInTheDocument();
   });
 
-  it('DetailScene 在有 inspector 数据时渲染 inspector 并触发操作', () => {
+  it('DetailScene 在有 inspector 数据时渲染 inspector，并将上下文动作直接展开显示', () => {
     const descriptor: PreviewDescriptor = {
       headline: 'example.com/a.png',
       typeLabel: 'URL',
@@ -445,7 +445,6 @@ describe('DetailPreview 契约 - Scene', () => {
 
     const onCopy = vi.fn();
     const onPaste = vi.fn();
-    const onDelete = vi.fn();
     const onToggleFavorite = vi.fn();
     const onOpenUrl = vi.fn();
     const onOpenFile = vi.fn();
@@ -479,7 +478,7 @@ describe('DetailPreview 契约 - Scene', () => {
         onCopy={onCopy}
         onCopyDecoded={vi.fn()}
         onPaste={onPaste}
-        onDelete={onDelete}
+        onDelete={vi.fn()}
         onToggleFavorite={onToggleFavorite}
         onOpenUrl={onOpenUrl}
         onOpenFile={onOpenFile}
@@ -491,14 +490,15 @@ describe('DetailPreview 契约 - Scene', () => {
     expect(screen.getByTestId('inspector-panel')).toHaveTextContent('URL');
 
     fireEvent.click(screen.getByRole('button', { name: '复制' }));
+    fireEvent.click(screen.getByRole('button', { name: '粘贴' }));
     fireEvent.pointerDown(screen.getByRole('button', { name: '更多操作' }));
-    fireEvent.click(screen.getByRole('menuitem', { name: '粘贴' }));
-    fireEvent.pointerDown(screen.getByRole('button', { name: '更多操作' }));
-    fireEvent.click(screen.getByRole('menuitem', { name: '删除' }));
+    expect(screen.getByRole('menuitem', { name: '收藏' })).toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: '删除' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('menuitem', { name: '收藏' }));
 
     expect(onCopy).toHaveBeenCalledTimes(1);
     expect(onPaste).toHaveBeenCalledTimes(1);
-    expect(onDelete).toHaveBeenCalledTimes(1);
+    expect(onToggleFavorite).toHaveBeenCalledTimes(1);
   });
 
   it('DetailScene 只渲染 descriptor.actions 中声明的上下文动作', () => {
