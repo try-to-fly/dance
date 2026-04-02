@@ -29,7 +29,7 @@ export const ClipboardList: React.FC = () => {
   const [showNumbers, setShowNumbers] = React.useState(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const retrievalActive = isRetrievalActive();
-  const estimatedRowSize = retrievalActive ? 172 : 140;
+  const estimatedRowSize = retrievalActive ? 134 : 108;
   const activeFilterReasons = React.useMemo(() => {
     const reasons: string[] = [];
 
@@ -196,8 +196,8 @@ export const ClipboardList: React.FC = () => {
 
   if (loading && entries.length === 0) {
     return (
-      <Card className="flex h-full min-h-[280px] flex-col items-center justify-center rounded-[22px] border border-border/70 bg-card/85 p-6 shadow-[0_16px_50px_rgba(15,23,42,0.08)] backdrop-blur-xl min-[1200px]:min-h-[320px] min-[1200px]:rounded-[26px] min-[1200px]:p-8">
-        <div className="mb-4 h-9 w-9 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+      <Card className="flex h-full min-h-[220px] flex-col items-center justify-center rounded-[18px] border border-border/70 bg-card/85 p-4 shadow-[0_16px_50px_rgba(15,23,42,0.08)] backdrop-blur-xl min-[1200px]:min-h-[240px] min-[1200px]:rounded-[20px] min-[1200px]:p-5">
+        <div className="mb-3 h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
         <p className="text-sm text-muted-foreground">
           {retrievalActive ? '正在搜索剪贴板...' : '加载中...'}
         </p>
@@ -214,25 +214,25 @@ export const ClipboardList: React.FC = () => {
   return (
     <Card
       id="clipboard-list"
-      className="flex h-full min-h-0 flex-col overflow-hidden rounded-[22px] border border-border/70 bg-card/88 shadow-[0_16px_50px_rgba(15,23,42,0.08)] backdrop-blur-xl min-[1200px]:rounded-[26px]"
+      className="flex h-full min-h-0 flex-col overflow-hidden rounded-[18px] border border-border/70 bg-card/88 shadow-[0_16px_50px_rgba(15,23,42,0.08)] backdrop-blur-xl min-[1200px]:rounded-[20px]"
     >
       <RetrievalFilterBar />
 
       {entries.length === 0 ? (
-        <div className="flex min-h-0 flex-1 p-3 min-[1200px]:p-3.5">
+        <div className="flex min-h-0 flex-1 p-2 min-[1200px]:p-2.5">
           <EmptyState mode="no-results" onResetFilters={resetRetrievalFilters} />
         </div>
       ) : (
         <div
           ref={scrollContainerRef}
           id="clipboard-list-scroll"
-          className="flex-1 overflow-y-auto overflow-x-hidden px-1.5 pb-1 pt-1.5 min-[1200px]:px-2 min-[1200px]:pb-1.5 min-[1200px]:pt-2"
+          className="flex-1 overflow-y-auto overflow-x-hidden px-1 pb-1 pt-1 min-[1200px]:px-1 min-[1200px]:pb-1 min-[1200px]:pt-1"
         >
           <div
             id="clipboard-list-items"
             className="relative"
             style={{
-              height: `${virtualizer.getTotalSize() + (isLoadingMore ? 68 : 0)}px`,
+              height: `${virtualizer.getTotalSize() + (isLoadingMore ? 52 : 0)}px`,
             }}
           >
             {virtualItems.map((virtualItem, visibleIndex) => {
@@ -249,7 +249,7 @@ export const ClipboardList: React.FC = () => {
                     left: 0,
                     width: '100%',
                     transform: `translateY(${virtualItem.start}px)`,
-                    padding: '0 6px 8px',
+                    padding: '0 4px 5px',
                   }}
                 >
                   <ClipboardItem
@@ -273,7 +273,7 @@ export const ClipboardList: React.FC = () => {
                   top: virtualizer.getTotalSize(),
                   left: 0,
                   width: '100%',
-                  height: '68px',
+                  height: '52px',
                 }}
               >
                 <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />

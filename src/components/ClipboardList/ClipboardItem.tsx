@@ -212,8 +212,8 @@ export const ClipboardItem: React.FC<ClipboardItemProps> = ({
           data-preview-intent={summary.previewIntent}
           data-density={density}
           className={cn(
-            'group relative min-h-[132px] cursor-pointer overflow-hidden rounded-[18px] border border-border/70 bg-background/72 px-3 py-2.5 shadow-[0_8px_24px_rgba(15,23,42,0.06)] transition-all duration-200 hover:border-primary/20 hover:bg-background/88 hover:shadow-[0_16px_36px_rgba(15,23,42,0.1)] min-[1200px]:min-h-[138px] min-[1200px]:rounded-[20px] min-[1200px]:px-3.5 min-[1200px]:py-3',
-            isRetrievalDensity && 'min-h-[156px] min-[1200px]:min-h-[164px]',
+            'group relative min-h-[100px] cursor-pointer overflow-hidden rounded-[14px] border border-border/70 bg-background/76 px-2 py-1.5 shadow-[0_6px_18px_rgba(15,23,42,0.045)] transition-all duration-200 hover:border-primary/20 hover:bg-background/92 hover:shadow-[0_12px_24px_rgba(15,23,42,0.08)] min-[1200px]:min-h-[104px] min-[1200px]:rounded-[16px] min-[1200px]:px-2.5 min-[1200px]:py-2',
+            isRetrievalDensity && 'min-h-[122px] min-[1200px]:min-h-[128px]',
             {
               'border-primary/30 bg-primary/8 shadow-[0_18px_42px_rgba(13,148,136,0.14)] ring-1 ring-primary/15':
                 isSelected,
@@ -222,25 +222,25 @@ export const ClipboardItem: React.FC<ClipboardItemProps> = ({
           onClick={onClick}
           onDoubleClick={handlePaste}
         >
-          <div className="absolute inset-y-3 left-0 w-1 rounded-r-full bg-primary/70 opacity-0 transition-opacity duration-200 group-hover:opacity-60 min-[1200px]:inset-y-3.5" />
+          <div className="absolute inset-y-2 left-0 w-1 rounded-r-full bg-primary/70 opacity-0 transition-opacity duration-200 group-hover:opacity-60 min-[1200px]:inset-y-2.5" />
           {isSelected && (
-            <div className="absolute inset-y-3 left-0 w-1 rounded-r-full bg-primary min-[1200px]:inset-y-3.5" />
+            <div className="absolute inset-y-2 left-0 w-1 rounded-r-full bg-primary min-[1200px]:inset-y-2.5" />
           )}
 
           <div
             className={cn(
-              'grid h-full min-w-0 gap-2',
+              'grid h-full min-w-0 gap-1',
               isRetrievalDensity
-                ? 'grid-rows-[auto_auto_minmax(0,1fr)] gap-2.5'
-                : 'grid-rows-[auto_minmax(52px,1fr)]'
+                ? 'grid-rows-[auto_auto_minmax(0,1fr)] gap-1.5'
+                : 'grid-rows-[auto_minmax(38px,1fr)]'
             )}
           >
-            <div className="flex items-start justify-between gap-3">
-              <div className="flex min-w-0 items-center gap-1.5 overflow-hidden min-[1200px]:gap-2">
+            <div className="flex items-start justify-between gap-1.5">
+              <div className="flex min-w-0 items-center gap-1 overflow-hidden">
                 <Badge
                   variant="secondary"
                   className={cn(
-                    'shrink-0 rounded-full border px-2.5 py-0.5 text-[10px] font-medium min-[1200px]:text-[11px]',
+                    'shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] font-medium',
                     isSelected
                       ? 'border-primary/20 bg-primary/10 text-primary'
                       : 'border-border/70 bg-secondary/70 text-foreground'
@@ -249,21 +249,25 @@ export const ClipboardItem: React.FC<ClipboardItemProps> = ({
                   {typeLabel}
                 </Badge>
 
-                <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-secondary/70 px-2.5 py-0.5 text-[11px] text-muted-foreground min-[1200px]:text-xs">
-                  <Clock3 className="h-3.5 w-3.5" />
+                <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-secondary/70 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                  <Clock3 className="h-3 w-3" />
                   <span>{formatDate(entry.created_at)}</span>
                 </span>
 
                 {entry.source_app && (
-                  <span className="inline-flex min-w-0 max-w-[150px] items-center gap-1.5 overflow-hidden rounded-full bg-secondary/70 px-2.5 py-0.5 text-[11px] text-muted-foreground min-[1200px]:max-w-[180px] min-[1200px]:text-xs">
+                  <span className="inline-flex min-w-0 max-w-[136px] items-center gap-1 overflow-hidden rounded-full bg-secondary/70 px-1.5 py-0.5 text-[10px] text-muted-foreground min-[1200px]:max-w-[150px]">
                     {appIconUrl ? (
-                      <img src={appIconUrl} alt={entry.source_app} className="h-4 w-4 rounded-sm" />
+                      <img
+                        src={appIconUrl}
+                        alt={entry.source_app}
+                        className="h-3.5 w-3.5 rounded-sm"
+                      />
                     ) : (
-                      <span className="flex h-4 w-4 items-center justify-center rounded-sm bg-background/80 text-[9px] font-semibold uppercase text-foreground">
+                      <span className="flex h-3.5 w-3.5 items-center justify-center rounded-sm bg-background/80 text-[8px] font-semibold uppercase text-foreground">
                         {entry.source_app.charAt(0)}
                       </span>
                     )}
-                    <span className="max-w-[120px] truncate min-[1200px]:max-w-[160px]">
+                    <span className="max-w-[108px] truncate min-[1200px]:max-w-[132px]">
                       {entry.source_app}
                     </span>
                   </span>
@@ -272,14 +276,14 @@ export const ClipboardItem: React.FC<ClipboardItemProps> = ({
                 {entry.copy_count > 1 && (
                   <Badge
                     variant="outline"
-                    className="shrink-0 rounded-full border-border/70 px-2.5 py-0.5 text-[11px]"
+                    className="shrink-0 rounded-full border-border/70 px-1.5 py-0.5 text-[10px]"
                   >
                     {t('clipboard:actions.copiedTimes', { count: entry.copy_count })}
                   </Badge>
                 )}
               </div>
 
-              <div className="flex shrink-0 items-center gap-1.5 min-[1200px]:gap-2">
+              <div className="flex shrink-0 items-center gap-1">
                 {entry.is_favorite && (
                   <Star
                     className={cn(
@@ -293,7 +297,7 @@ export const ClipboardItem: React.FC<ClipboardItemProps> = ({
                 {showNumber && number && number <= 9 && (
                   <Badge
                     variant="default"
-                    className="h-6 w-6 rounded-full p-0 text-[10px] font-semibold shadow-sm min-[1200px]:h-7 min-[1200px]:w-7 min-[1200px]:text-[11px]"
+                    className="h-5 w-5 rounded-full p-0 text-[10px] font-semibold shadow-sm min-[1200px]:h-[22px] min-[1200px]:w-[22px]"
                   >
                     {number}
                   </Badge>
@@ -306,7 +310,7 @@ export const ClipboardItem: React.FC<ClipboardItemProps> = ({
                       size="icon"
                       aria-label="More actions"
                       className={cn(
-                        'h-7 w-7 rounded-full border border-transparent bg-transparent text-muted-foreground transition-all duration-200 min-[1200px]:h-8 min-[1200px]:w-8',
+                        'h-6 w-6 rounded-full border border-transparent bg-transparent text-muted-foreground transition-all duration-200',
                         isSelected
                           ? 'hover:border-primary/20 hover:bg-primary/10 hover:text-primary'
                           : 'hover:border-border/70 hover:bg-secondary/80 hover:text-foreground'
@@ -352,12 +356,12 @@ export const ClipboardItem: React.FC<ClipboardItemProps> = ({
               </div>
             </div>
 
-            <div className="flex min-h-[52px] overflow-hidden rounded-[18px] border border-border/60 bg-secondary/20 px-3 py-2">
-              <div className="grid min-w-0 flex-1 grid-rows-[auto_minmax(0,1fr)] gap-1 overflow-hidden">
+            <div className="flex min-h-[38px] overflow-hidden rounded-[12px] border border-border/60 bg-secondary/20 px-2 py-1.5 min-[1200px]:rounded-[14px]">
+              <div className="grid min-w-0 flex-1 grid-rows-[auto_minmax(0,1fr)] gap-0.5 overflow-hidden">
                 <div
                   title={previewHeadline}
                   className={cn(
-                    'min-w-0 truncate text-sm font-semibold leading-5 text-foreground',
+                    'min-w-0 truncate text-[13px] font-semibold leading-[1.35] text-foreground',
                     (usesWorkbenchSummary || usesStructuredMonoSummary) && 'font-mono text-[13px]'
                   )}
                 >
@@ -368,8 +372,8 @@ export const ClipboardItem: React.FC<ClipboardItemProps> = ({
                   title={previewSecondary}
                   className={cn(
                     isRetrievalDensity
-                      ? 'truncate text-xs leading-5 text-muted-foreground'
-                      : 'max-h-10 overflow-hidden break-words text-xs leading-5 text-muted-foreground',
+                      ? 'truncate text-[10px] leading-[1.4] text-muted-foreground'
+                      : 'max-h-8 overflow-hidden break-words text-[10px] leading-[1.4] text-muted-foreground',
                     usesWorkbenchSummary && 'font-mono',
                     usesStructuredMonoSummary && 'font-mono text-[11px]'
                   )}
@@ -380,12 +384,12 @@ export const ClipboardItem: React.FC<ClipboardItemProps> = ({
             </div>
 
             {isRetrievalDensity && (retrievalSnippet || visibleRetrievalReasons.length > 0) && (
-              <div className="flex min-h-[42px] flex-col gap-2 rounded-[16px] border border-primary/10 bg-primary/[0.04] px-3 py-2">
+              <div className="flex flex-col gap-1 rounded-[12px] border border-primary/10 bg-primary/[0.04] px-2 py-1.5">
                 {retrievalSnippet ? (
                   <p
                     title={retrievalSnippet}
                     className={cn(
-                      'line-clamp-2 break-words text-[12px] leading-[1.5] text-muted-foreground',
+                      'line-clamp-2 break-words text-[10px] leading-[1.4] text-muted-foreground',
                       (usesWorkbenchSummary || usesStructuredMonoSummary) && 'font-mono'
                     )}
                   >
@@ -394,12 +398,12 @@ export const ClipboardItem: React.FC<ClipboardItemProps> = ({
                 ) : null}
 
                 {visibleRetrievalReasons.length > 0 && (
-                  <div className="flex flex-wrap items-center gap-1.5">
+                  <div className="flex flex-wrap items-center gap-1">
                     {visibleRetrievalReasons.map((reason) => (
                       <Badge
                         key={reason}
                         variant="secondary"
-                        className="rounded-full border border-primary/10 bg-background/80 px-2.5 py-0.5 text-[11px] font-normal text-muted-foreground"
+                        className="rounded-full border border-primary/10 bg-background/80 px-1.5 py-0.5 text-[10px] font-normal text-muted-foreground"
                       >
                         {reason}
                       </Badge>
@@ -408,7 +412,7 @@ export const ClipboardItem: React.FC<ClipboardItemProps> = ({
                     {overflowRetrievalReasons > 0 && (
                       <Badge
                         variant="secondary"
-                        className="rounded-full border border-primary/10 bg-background/80 px-2.5 py-0.5 text-[11px] font-normal text-muted-foreground"
+                        className="rounded-full border border-primary/10 bg-background/80 px-1.5 py-0.5 text-[10px] font-normal text-muted-foreground"
                       >
                         +{overflowRetrievalReasons}
                       </Badge>

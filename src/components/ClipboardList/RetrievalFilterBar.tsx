@@ -25,12 +25,12 @@ export function RetrievalFilterBar() {
   } = useClipboardStore();
 
   return (
-    <div className="border-b border-border/70 bg-background/55 px-3 py-3 backdrop-blur-xl min-[1200px]:px-3.5">
-      <div className="flex flex-wrap items-center gap-2">
+    <div className="border-b border-border/70 bg-background/55 px-2 py-2 backdrop-blur-xl min-[1200px]:px-2.5">
+      <div className="flex flex-wrap items-center gap-1">
         <Select value={selectedSourceApp} onValueChange={setSelectedSourceApp}>
-          <SelectTrigger className="h-9 min-w-[140px] max-w-[160px] rounded-xl border-border/70 bg-background/80 px-3 text-sm shadow-sm">
+          <SelectTrigger className="h-[30px] min-w-[124px] max-w-[148px] rounded-[11px] border-border/70 bg-background/80 px-2 text-[12px] shadow-sm">
             <div className="flex min-w-0 items-center gap-2">
-              <AppWindow className="h-4 w-4 text-muted-foreground" />
+              <AppWindow className="h-3.5 w-3.5 text-muted-foreground" />
               <SelectValue
                 placeholder={t('retrieval.sourceAppAll', {
                   defaultValue: '全部应用',
@@ -56,17 +56,17 @@ export function RetrievalFilterBar() {
           variant="outline"
           onClick={() => setFavoritesOnly(!favoritesOnly)}
           className={cn(
-            'h-9 rounded-xl border-border/70 px-3 text-sm shadow-sm',
+            'h-[30px] rounded-[11px] border-border/70 px-2 text-[12px] shadow-sm',
             favoritesOnly
               ? 'border-primary/20 bg-primary/10 text-primary hover:bg-primary/15'
               : 'bg-background/80 text-muted-foreground hover:bg-accent/70 hover:text-foreground'
           )}
         >
-          <Star className="mr-2 h-4 w-4" fill={favoritesOnly ? 'currentColor' : 'none'} />
+          <Star className="mr-1.5 h-3.5 w-3.5" fill={favoritesOnly ? 'currentColor' : 'none'} />
           {t('retrieval.favoritesOnly', { defaultValue: '收藏' })}
         </Button>
 
-        <div className="ml-auto flex flex-wrap items-center gap-1.5">
+        <div className="ml-auto flex flex-wrap items-center gap-1">
           {RECENCY_OPTIONS.map((option) => {
             const isActive = recencyDays === option.value;
 
@@ -77,13 +77,13 @@ export function RetrievalFilterBar() {
                 variant="ghost"
                 onClick={() => setRecencyDays(option.value)}
                 className={cn(
-                  'h-9 rounded-xl border px-3 text-sm shadow-sm transition-colors',
+                  'h-[30px] rounded-[11px] border px-2 text-[12px] shadow-sm transition-colors',
                   isActive
                     ? 'border-primary/20 bg-primary/10 text-primary hover:bg-primary/15'
                     : 'border-border/70 bg-background/80 text-muted-foreground hover:bg-accent/70 hover:text-foreground'
                 )}
               >
-                <Clock3 className="mr-2 h-4 w-4" />
+                <Clock3 className="mr-1.5 h-3.5 w-3.5" />
                 {option.label}
               </Button>
             );

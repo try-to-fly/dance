@@ -177,13 +177,13 @@ describe('ClipboardItem', () => {
     const { container, unmount } = renderItem(entry);
 
     const card = container.querySelector('.group');
-    expect(card).toHaveClass('min-h-[132px]');
+    expect(card).toHaveClass('min-h-[100px]');
 
     const headline = screen.getByText(summary.headline);
     expect(headline).toHaveClass('truncate');
 
     const secondarySummary = screen.getByText(summary.secondarySummary);
-    expect(secondarySummary).toHaveClass('max-h-10', 'overflow-hidden');
+    expect(secondarySummary).toHaveClass('max-h-8', 'overflow-hidden');
 
     expect(getImageUrl).not.toHaveBeenCalled();
 
@@ -208,9 +208,9 @@ describe('ClipboardItem', () => {
     const summary = buildPreviewSummary(entry, 'list');
     const { container } = renderItem(entry);
 
-    expect(container.querySelector('.group')).toHaveClass('min-h-[132px]');
+    expect(container.querySelector('.group')).toHaveClass('min-h-[100px]');
     expect(screen.getByText(summary.headline)).toHaveClass('truncate');
-    expect(screen.getByText(summary.secondarySummary)).toHaveClass('max-h-10', 'overflow-hidden');
+    expect(screen.getByText(summary.secondarySummary)).toHaveClass('max-h-8', 'overflow-hidden');
   });
 
   it('Image 条目也只消费同步 summary contract，不请求 getImageUrl 预览', () => {
