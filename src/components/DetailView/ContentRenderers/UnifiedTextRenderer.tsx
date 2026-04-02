@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Copy } from 'lucide-react';
+import { Check, Copy } from 'lucide-react';
 import { Button } from '../../ui/button';
 import { Badge } from '../../ui/badge';
 import { ContentSubType } from '../../../types/clipboard';
@@ -96,6 +96,7 @@ export function UnifiedTextRenderer({
   const editorHeight =
     contentSubType === 'plain_text' ? 'clamp(280px, 38vh, 640px)' : 'clamp(360px, 52vh, 920px)';
   const showLineNumbers = contentSubType !== 'plain_text';
+  const copyButtonLabel = isCopied ? t('codeEditor.copied') : t('codeEditor.copy');
 
   const handleCopy = async () => {
     try {
@@ -134,12 +135,13 @@ export function UnifiedTextRenderer({
           <Button
             id="text-renderer-copy-btn"
             onClick={handleCopy}
-            size="sm"
+            size="icon"
             variant="outline"
-            className="h-8 rounded-lg"
+            aria-label={copyButtonLabel}
+            title={copyButtonLabel}
+            className="h-8 w-8 rounded-lg"
           >
-            <Copy className="mr-2 h-4 w-4" />
-            {isCopied ? t('codeEditor.copied') : t('codeEditor.copy')}
+            {isCopied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
           </Button>
         </div>
       </div>
