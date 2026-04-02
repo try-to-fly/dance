@@ -183,8 +183,19 @@ pub fn run() {
                     // Show/focus the main window when global shortcut is pressed
                     if let Some(window) = app.get_webview_window("main") {
                         let _ = window.show();
-                        let _ = window.set_focus();
                         let _ = window.unminimize();
+                        let _ = window.set_focus();
+
+                        #[cfg(target_os = "macos")]
+                        {
+                            if window.set_always_on_top(true).is_ok() {
+                                let window_clone = window.clone();
+                                tauri::async_runtime::spawn(async move {
+                                    tokio::time::sleep(std::time::Duration::from_millis(120)).await;
+                                    let _ = window_clone.set_always_on_top(false);
+                                });
+                            }
+                        }
                     }
 
                     // Also emit event to frontend

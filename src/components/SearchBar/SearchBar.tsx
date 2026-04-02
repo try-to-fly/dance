@@ -1,10 +1,11 @@
-import React, { useDeferredValue, useEffect, useState } from 'react';
+import React, { useDeferredValue, useEffect, useRef, useState } from 'react';
 import { Search, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Input } from '../ui/input';
 import { Button } from '../ui/button';
 import { useClipboardStore } from '../../stores/clipboardStore';
 import { analytics, ANALYTICS_EVENTS } from '../../services/analytics';
+import { FOCUS_SEARCH_INPUT_EVENT } from '../../lib/appEvents';
 import { cn } from '../../lib/utils';
 
 interface SearchBarProps {
@@ -19,6 +20,7 @@ export const SearchBar: React.FC<SearchBarProps> = ({ compact = false, className
   const [localSearchTerm, setLocalSearchTerm] = useState(searchTerm);
   const deferredSearchTerm = useDeferredValue(localSearchTerm);
   const [showPendingIndicator, setShowPendingIndicator] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
   const hasActiveFilters = selectedType !== 'all' || selectedSourceApp !== 'all' || favoritesOnly;
   const isRetrievalActive = Boolean(searchTerm.trim()) || hasActiveFilters;
 
@@ -62,6 +64,21 @@ export const SearchBar: React.FC<SearchBarProps> = ({ compact = false, className
     return () => window.clearTimeout(spinnerTimer);
   }, [loading, isRetrievalActive]);
 
+  useEffect(() => {
+    const focusSearchInput = () => {
+      window.requestAnimationFrame(() => {
+        inputRef.current?.focus();
+        inputRef.current?.select();
+      });
+    };
+
+    window.addEventListener(FOCUS_SEARCH_INPUT_EVENT, focusSearchInput);
+
+    return () => {
+      window.removeEventListener(FOCUS_SEARCH_INPUT_EVENT, focusSearchInput);
+    };
+  }, []);
+
   const handleClear = () => {
     setLocalSearchTerm('');
     setSearchTerm('');
@@ -84,6 +101,7 @@ export const SearchBar: React.FC<SearchBarProps> = ({ compact = false, className
         )}
       />
       <Input
+        ref={inputRef}
         type="search"
         inputMode="search"
         aria-label={t('common:search')}

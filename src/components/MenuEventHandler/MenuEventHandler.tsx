@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { useConfigStore } from '../../stores/configStore';
+import { FOCUS_SEARCH_INPUT_EVENT } from '../../lib/appEvents';
 
 export const MenuEventHandler: React.FC = () => {
   const { setShowPreferences } = useConfigStore();
@@ -29,6 +30,7 @@ export const MenuEventHandler: React.FC = () => {
         // Show/focus the main window when global shortcut is pressed
         window.focus();
         window.scrollTo(0, 0);
+        window.dispatchEvent(new Event(FOCUS_SEARCH_INPUT_EVENT));
       });
 
       return () => {

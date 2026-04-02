@@ -24,6 +24,60 @@ use tauri_plugin_global_shortcut::GlobalShortcutExt;
 use tokio::sync::Mutex;
 use tokio::sync::{broadcast, RwLock};
 
+#[cfg(target_os = "macos")]
+fn escape_applescript_string(value: &str) -> String {
+    value.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
+#[cfg(target_os = "macos")]
+fn build_macos_paste_script(current_process_id: u32, label: &str) -> String {
+    let escaped_label = escape_applescript_string(label);
+
+    format!(
+        r#"
+            tell application "System Events"
+                set appProcessName to name of first application process whose unix id is {current_process_id}
+                set frontAppName to ""
+
+                repeat 20 times
+                    set frontApp to first application process whose frontmost is true
+                    set frontAppName to name of frontApp
+
+                    if frontAppName is not appProcessName then
+                        exit repeat
+                    end if
+
+                    delay 0.05
+                end repeat
+
+                if frontAppName is appProcessName then
+                    error "No target app became frontmost after hiding " & appProcessName
+                end if
+
+                keystroke "v" using {{command down}}
+                return "Pasted {escaped_label} to: " & frontAppName
+            end tell
+        "#
+    )
+}
+
+#[cfg(target_os = "macos")]
+fn run_macos_paste(current_process_id: u32, label: &str, log_prefix: &str) -> Result<()> {
+    use std::process::Command;
+
+    let script = build_macos_paste_script(current_process_id, label);
+    let output = Command::new("osascript").arg("-e").arg(script).output()?;
+
+    if output.status.success() {
+        let result_msg = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        log::info!("[{}] {}", log_prefix, result_msg);
+        return Ok(());
+    }
+
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    Err(anyhow::anyhow!(stderr))
+}
+
 pub struct AppState {
     pub paths: Arc<AppPaths>,
     pub db: Arc<Database>,
@@ -346,7 +400,7 @@ impl AppState {
     pub async fn paste_text(
         &self,
         content: String,
-        _app_handle: Option<tauri::AppHandle>,
+        app_handle: Option<tauri::AppHandle>,
     ) -> Result<()> {
         tokio::task::spawn_blocking(move || -> Result<()> {
             let mut clipboard = Clipboard::new()?;
@@ -358,54 +412,17 @@ impl AppState {
         // 切换应用焦点并粘贴（macOS）
         #[cfg(target_os = "macos")]
         {
+            let current_process_id = std::process::id();
+
+            if let Some(handle) = app_handle.as_ref() {
+                handle
+                    .hide()
+                    .map_err(|e| anyhow::anyhow!("Failed to hide app before pasting: {}", e))?;
+            }
+
             tokio::task::spawn_blocking(move || -> Result<()> {
-                use std::process::Command;
-
                 log::info!("[paste_text] 开始执行粘贴流程");
-
-                // 隐藏clipboard-app窗口，让下层应用自动获得焦点
-                let hide_and_paste_script = r#"
-                    tell application "System Events"
-                        -- 隐藏clipboard-app窗口（不是最小化）
-                        set visible of process "clipboard-app" to false
-                        
-                        -- 等待一小段时间让焦点切换
-                        delay 0.2
-                        
-                        -- 获取当前前台应用
-                        set frontApp to first application process whose frontmost is true
-                        set frontAppName to name of frontApp
-                        
-                        -- 执行粘贴（如果不是clipboard-app）
-                        if frontAppName is not "clipboard-app" then
-                            keystroke "v" using {command down}
-                            return "Pasted to: " & frontAppName
-                        else
-                            return "Failed: still on clipboard-app"
-                        end if
-                    end tell
-                "#;
-
-                let result = Command::new("osascript")
-                    .arg("-e")
-                    .arg(hide_and_paste_script)
-                    .output();
-
-                match result {
-                    Ok(output) => {
-                        if output.status.success() {
-                            let result_msg =
-                                String::from_utf8_lossy(&output.stdout).trim().to_string();
-                            log::info!("[paste_text] {}", result_msg);
-                        } else {
-                            let stderr = String::from_utf8_lossy(&output.stderr);
-                            log::error!("[paste_text] AppleScript错误: {}", stderr);
-                        }
-                    }
-                    Err(e) => log::error!("[paste_text] 执行失败: {}", e),
-                }
-
-                Ok(())
+                run_macos_paste(current_process_id, "text", "paste_text")
             })
             .await??;
         }
@@ -416,7 +433,7 @@ impl AppState {
     pub async fn paste_image(
         &self,
         file_path: String,
-        _app_handle: Option<tauri::AppHandle>,
+        app_handle: Option<tauri::AppHandle>,
     ) -> Result<()> {
         use std::fs;
         use std::path::PathBuf;
@@ -463,54 +480,17 @@ impl AppState {
         // 切换应用焦点并粘贴（macOS）
         #[cfg(target_os = "macos")]
         {
+            let current_process_id = std::process::id();
+
+            if let Some(handle) = app_handle.as_ref() {
+                handle
+                    .hide()
+                    .map_err(|e| anyhow::anyhow!("Failed to hide app before pasting: {}", e))?;
+            }
+
             tokio::task::spawn_blocking(move || -> Result<()> {
-                use std::process::Command;
-
                 log::info!("[paste_image] 开始执行图片粘贴流程");
-
-                // 隐藏clipboard-app窗口，让下层应用自动获得焦点
-                let hide_and_paste_script = r#"
-                    tell application "System Events"
-                        -- 隐藏clipboard-app窗口（不是最小化）
-                        set visible of process "clipboard-app" to false
-                        
-                        -- 等待一小段时间让焦点切换
-                        delay 0.2
-                        
-                        -- 获取当前前台应用
-                        set frontApp to first application process whose frontmost is true
-                        set frontAppName to name of frontApp
-                        
-                        -- 执行粘贴（如果不是clipboard-app）
-                        if frontAppName is not "clipboard-app" then
-                            keystroke "v" using {command down}
-                            return "Pasted image to: " & frontAppName
-                        else
-                            return "Failed: still on clipboard-app"
-                        end if
-                    end tell
-                "#;
-
-                let result = Command::new("osascript")
-                    .arg("-e")
-                    .arg(hide_and_paste_script)
-                    .output();
-
-                match result {
-                    Ok(output) => {
-                        if output.status.success() {
-                            let result_msg =
-                                String::from_utf8_lossy(&output.stdout).trim().to_string();
-                            log::info!("[paste_image] {}", result_msg);
-                        } else {
-                            let stderr = String::from_utf8_lossy(&output.stderr);
-                            log::error!("[paste_image] AppleScript错误: {}", stderr);
-                        }
-                    }
-                    Err(e) => log::error!("[paste_image] 执行失败: {}", e),
-                }
-
-                Ok(())
+                run_macos_paste(current_process_id, "image", "paste_image")
             })
             .await??;
         }
