@@ -29,7 +29,7 @@ export function TypeFilter({ compact = false, className }: TypeFilterProps) {
           className={cn(
             'flex w-full items-center justify-between border border-border/70 bg-background/80 px-3 text-sm text-foreground shadow-sm transition-colors hover:bg-accent/60 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
             compact
-              ? 'h-9 rounded-xl pr-2.5 min-[1200px]:h-10'
+              ? 'h-7 rounded-[10px] px-2.5 pr-2 text-[12px] min-[1200px]:h-[30px]'
               : 'h-10 rounded-xl min-[1200px]:h-11 min-[1200px]:rounded-2xl'
           )}
         >
@@ -57,7 +57,7 @@ export function TypeFilter({ compact = false, className }: TypeFilterProps) {
                 <Select.Item
                   key={option.value}
                   value={option.value}
-                  className="relative flex cursor-pointer select-none items-center rounded-lg px-3 py-2.5 text-sm text-popover-foreground outline-none transition-colors hover:bg-accent focus:bg-accent min-[1200px]:rounded-xl"
+                  className="relative flex cursor-pointer select-none items-center rounded-lg px-3 py-1.5 text-[13px] text-popover-foreground outline-none transition-colors hover:bg-accent focus:bg-accent min-[1200px]:rounded-xl"
                 >
                   <Select.ItemText>
                     <span className="flex items-center gap-2">
