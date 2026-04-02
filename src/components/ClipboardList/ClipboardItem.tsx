@@ -44,7 +44,10 @@ import {
 } from '../../types/clipboard';
 import { useClipboardStore } from '../../stores/clipboardStore';
 import { cn } from '../../lib/utils';
-import { normalizeContentPreview } from '../../lib/preview/entryPresentation';
+import {
+  getEntryPresentationMetadata,
+  normalizeContentPreview,
+} from '../../lib/preview/entryPresentation';
 import { buildPreviewSummary } from '../../lib/preview/previewSummary';
 
 interface ClipboardItemProps {
@@ -81,6 +84,24 @@ const buildRetrievalReasons = (entry: ClipboardEntry, activeFilterReasons: strin
   return Array.from(new Set(reasons.filter(Boolean)));
 };
 
+const formatImageFileSize = (bytes?: number) => {
+  if (typeof bytes !== 'number' || !Number.isFinite(bytes) || bytes <= 0) {
+    return '';
+  }
+
+  const units = ['B', 'KB', 'MB', 'GB'];
+  let value = bytes;
+  let unitIndex = 0;
+
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+
+  const fractionDigits = value >= 10 || unitIndex === 0 ? 0 : 1;
+  return `${Number(value.toFixed(fractionDigits))} ${units[unitIndex]}`;
+};
+
 export const ClipboardItem: React.FC<ClipboardItemProps> = ({
   entry,
   isSelected,
@@ -91,9 +112,17 @@ export const ClipboardItem: React.FC<ClipboardItemProps> = ({
   activeFilterReasons = [],
 }) => {
   const { t } = useTranslation(['common', 'clipboard']);
-  const { toggleFavorite, deleteEntry, copyToClipboard, pasteSelectedEntry, getAppIcon } =
-    useClipboardStore();
+  const {
+    toggleFavorite,
+    deleteEntry,
+    copyToClipboard,
+    pasteSelectedEntry,
+    getImageUrl,
+    getAppIcon,
+    resolveEntryPreview,
+  } = useClipboardStore();
   const [appIconUrl, setAppIconUrl] = useState<string | null>(null);
+  const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
   const summary = buildPreviewSummary(entry, density);
   const usesWorkbenchSummary =
     summary.previewIntent === 'code_workbench' || summary.previewIntent === 'command_workbench';
@@ -104,18 +133,6 @@ export const ClipboardItem: React.FC<ClipboardItemProps> = ({
   const visibleRetrievalReasons = retrievalReasons.slice(0, 2);
   const overflowRetrievalReasons = retrievalReasons.length - visibleRetrievalReasons.length;
   const isRetrievalDensity = density === 'retrieval';
-
-  useEffect(() => {
-    if (entry.app_bundle_id && getAppIcon) {
-      getAppIcon(entry.app_bundle_id)
-        .then(setAppIconUrl)
-        .catch(() => setAppIconUrl(null));
-      return;
-    }
-
-    setAppIconUrl(null);
-  }, [entry.app_bundle_id, getAppIcon]);
-
   const getTypeMeta = () => {
     switch (summary.semanticType) {
       case 'image':
@@ -155,6 +172,71 @@ export const ClipboardItem: React.FC<ClipboardItemProps> = ({
         return { Icon: FileText, label: t('clipboard:contentTypes.plainText') };
     }
   };
+  const { label: typeLabel } = getTypeMeta();
+  const isImageEntry = summary.semanticType === 'image';
+  const imageMetadata = isImageEntry ? getEntryPresentationMetadata(entry)?.image_metadata : null;
+  const imageResolution =
+    imageMetadata?.width && imageMetadata?.height
+      ? `${imageMetadata.width} x ${imageMetadata.height}`
+      : typeLabel;
+  const imageFileSize = formatImageFileSize(imageMetadata?.file_size);
+  const inlineImageUrl =
+    isImageEntry && entry.content_data?.startsWith('data:image/') ? entry.content_data : null;
+  const imagePreviewMeta = imageFileSize || typeLabel;
+
+  useEffect(() => {
+    if (entry.app_bundle_id && getAppIcon) {
+      getAppIcon(entry.app_bundle_id)
+        .then(setAppIconUrl)
+        .catch(() => setAppIconUrl(null));
+      return;
+    }
+
+    setAppIconUrl(null);
+  }, [entry.app_bundle_id, getAppIcon]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!isImageEntry) {
+      setImagePreviewUrl(null);
+      return;
+    }
+
+    if (inlineImageUrl) {
+      setImagePreviewUrl(inlineImageUrl);
+      return;
+    }
+
+    if (!entry.file_path) {
+      setImagePreviewUrl(null);
+      return;
+    }
+
+    setImagePreviewUrl(null);
+    const filePath = entry.file_path;
+
+    const loadImagePreview = async () => {
+      try {
+        const resolved = resolveEntryPreview ? await resolveEntryPreview(entry) : null;
+        const nextUrl = resolved?.imageUrl || (await getImageUrl(filePath));
+
+        if (!cancelled) {
+          setImagePreviewUrl(nextUrl || null);
+        }
+      } catch {
+        if (!cancelled) {
+          setImagePreviewUrl(null);
+        }
+      }
+    };
+
+    void loadImagePreview();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [entry, entry.file_path, getImageUrl, inlineImageUrl, isImageEntry, resolveEntryPreview]);
 
   const formatDate = (timestamp: number) => {
     return format(new Date(timestamp), 'MM-dd HH:mm');
@@ -172,7 +254,6 @@ export const ClipboardItem: React.FC<ClipboardItemProps> = ({
     }
   };
 
-  const { label: typeLabel } = getTypeMeta();
   const rawPreviewFallback = normalizeContentPreview(entry.content_data, 160);
   const previewHeadline = summary.headline.trim() || rawPreviewFallback || typeLabel;
   const previewSecondary = summary.secondarySummary.trim() || rawPreviewFallback || previewHeadline;
@@ -356,31 +437,63 @@ export const ClipboardItem: React.FC<ClipboardItemProps> = ({
               </div>
             </div>
 
-            <div className="flex min-h-[38px] overflow-hidden rounded-[12px] border border-border/60 bg-secondary/20 px-2 py-1.5 min-[1200px]:rounded-[14px]">
-              <div className="grid min-w-0 flex-1 grid-rows-[auto_minmax(0,1fr)] gap-0.5 overflow-hidden">
-                <div
-                  title={previewHeadline}
-                  className={cn(
-                    'min-w-0 truncate text-[13px] font-semibold leading-[1.35] text-foreground',
-                    (usesWorkbenchSummary || usesStructuredMonoSummary) && 'font-mono text-[13px]'
-                  )}
-                >
-                  {previewHeadline}
-                </div>
+            <div
+              className={cn(
+                'flex min-h-[38px] overflow-hidden rounded-[12px] border border-border/60 bg-secondary/20 px-2 py-1.5 min-[1200px]:rounded-[14px]',
+                isImageEntry && 'items-center gap-2 p-1.5'
+              )}
+            >
+              {isImageEntry ? (
+                <>
+                  <div className="flex h-[54px] w-[72px] shrink-0 items-center justify-center overflow-hidden rounded-[10px] border border-border/60 bg-background/80">
+                    {imagePreviewUrl ? (
+                      <img
+                        src={imagePreviewUrl}
+                        alt={typeLabel}
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-primary/10 via-background/90 to-background">
+                        <FileImage className="h-5 w-5 text-muted-foreground" />
+                      </div>
+                    )}
+                  </div>
 
-                <div
-                  title={previewSecondary}
-                  className={cn(
-                    isRetrievalDensity
-                      ? 'truncate text-[10px] leading-[1.4] text-muted-foreground'
-                      : 'max-h-8 overflow-hidden break-words text-[10px] leading-[1.4] text-muted-foreground',
-                    usesWorkbenchSummary && 'font-mono',
-                    usesStructuredMonoSummary && 'font-mono text-[11px]'
-                  )}
-                >
-                  {previewSecondary}
+                  <div className="grid min-w-0 flex-1 content-center gap-0.5 overflow-hidden">
+                    <div className="truncate text-[13px] font-semibold leading-[1.35] text-foreground">
+                      {imageResolution}
+                    </div>
+                    <div className="truncate text-[10px] leading-[1.4] text-muted-foreground">
+                      {imagePreviewMeta}
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="grid min-w-0 flex-1 grid-rows-[auto_minmax(0,1fr)] gap-0.5 overflow-hidden">
+                  <div
+                    title={previewHeadline}
+                    className={cn(
+                      'min-w-0 truncate text-[13px] font-semibold leading-[1.35] text-foreground',
+                      (usesWorkbenchSummary || usesStructuredMonoSummary) && 'font-mono text-[13px]'
+                    )}
+                  >
+                    {previewHeadline}
+                  </div>
+
+                  <div
+                    title={previewSecondary}
+                    className={cn(
+                      isRetrievalDensity
+                        ? 'truncate text-[10px] leading-[1.4] text-muted-foreground'
+                        : 'max-h-8 overflow-hidden break-words text-[10px] leading-[1.4] text-muted-foreground',
+                      usesWorkbenchSummary && 'font-mono',
+                      usesStructuredMonoSummary && 'font-mono text-[11px]'
+                    )}
+                  >
+                    {previewSecondary}
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
 
             {isRetrievalDensity && (retrievalSnippet || visibleRetrievalReasons.length > 0) && (

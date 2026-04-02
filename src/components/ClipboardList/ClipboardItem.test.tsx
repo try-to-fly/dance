@@ -213,7 +213,8 @@ describe('ClipboardItem', () => {
     expect(screen.getByText(summary.secondarySummary)).toHaveClass('max-h-8', 'overflow-hidden');
   });
 
-  it('Image 条目也只消费同步 summary contract，不请求 getImageUrl 预览', () => {
+  it('Image 条目在列表中展示缩略图、分辨率和大小，不再展示文件标题', async () => {
+    getImageUrl.mockResolvedValueOnce('tauri://list-image-preview');
     const entry = createEntry({
       content_type: 'image/png',
       content_data: null,
@@ -227,13 +228,17 @@ describe('ClipboardItem', () => {
         },
       }),
     });
-    const summary = buildPreviewSummary(entry, 'list');
 
     renderItem(entry);
 
-    expect(screen.getByText(summary.headline)).toBeInTheDocument();
-    expect(screen.getByText(summary.secondarySummary)).toBeInTheDocument();
-    expect(getImageUrl).not.toHaveBeenCalled();
+    expect(await screen.findByAltText('clipboard:contentTypes.image')).toHaveAttribute(
+      'src',
+      'tauri://list-image-preview'
+    );
+    expect(screen.getByText('1440 x 900')).toBeInTheDocument();
+    expect(screen.getByText('2 KB')).toBeInTheDocument();
+    expect(screen.queryByText('unified-preview.png')).not.toBeInTheDocument();
+    expect(getImageUrl).toHaveBeenCalledWith('/tmp/screenshots/unified-preview.png');
   });
 
   it('当 summary contract 意外为空时，列表项会回退到原始文本预览而不是渲染空白区域', () => {
