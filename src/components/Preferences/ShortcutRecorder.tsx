@@ -20,6 +20,8 @@ interface RecordedKeys {
 }
 
 const MAC_KEY_SYMBOLS: Record<string, string> = {
+  cmdorctrl: '⌘',
+  commandorcontrol: '⌘',
   cmd: '⌘',
   ctrl: '⌃',
   alt: '⌥',
@@ -43,6 +45,45 @@ const MAC_KEY_SYMBOLS: Record<string, string> = {
   down: '↓',
   left: '←',
   right: '→',
+};
+
+const MODIFIER_KEYS = new Set(['meta', 'control', 'alt', 'shift', 'cmd', 'ctrl']);
+
+const CODE_TO_SHORTCUT_KEY: Record<string, string> = {
+  Space: 'Space',
+  Tab: 'Tab',
+  Enter: 'Enter',
+  NumpadEnter: 'Enter',
+  Escape: 'Escape',
+  Backspace: 'Backspace',
+  Delete: 'Delete',
+  ArrowUp: 'Up',
+  ArrowDown: 'Down',
+  ArrowLeft: 'Left',
+  ArrowRight: 'Right',
+  Home: 'Home',
+  End: 'End',
+  PageUp: 'PageUp',
+  PageDown: 'PageDown',
+};
+
+const getShortcutKeyFromCode = (code: string): string | null => {
+  if (code.startsWith('Key') && code.length === 4) {
+    return code.slice(3);
+  }
+
+  if (code.startsWith('Digit') && code.length === 6) {
+    return code.slice(5);
+  }
+
+  if (code.startsWith('Numpad') && code.length === 7) {
+    const digit = code.slice(6);
+    if (/^[0-9]$/.test(digit)) {
+      return digit;
+    }
+  }
+
+  return CODE_TO_SHORTCUT_KEY[code] ?? null;
 };
 
 export function ShortcutRecorder({ value, onChange, onValidate }: ShortcutRecorderProps) {
@@ -79,9 +120,7 @@ export function ShortcutRecorder({ value, onChange, onValidate }: ShortcutRecord
       parts.push('Shift');
     }
 
-    // Add the main key (capitalize first letter)
-    const mainKey = keys.key.charAt(0).toUpperCase() + keys.key.slice(1).toLowerCase();
-    parts.push(mainKey);
+    parts.push(keys.key);
 
     return parts.join('+');
   };
@@ -96,12 +135,21 @@ export function ShortcutRecorder({ value, onChange, onValidate }: ShortcutRecord
     const key = e.key.toLowerCase();
 
     // Skip modifier-only keys
-    if (['meta', 'control', 'alt', 'shift', 'cmd', 'ctrl'].includes(key)) {
+    if (MODIFIER_KEYS.has(key)) {
       return;
     }
 
+    const normalizedKey = getShortcutKeyFromCode(e.code);
+    if (!normalizedKey) {
+      setRecordedKeys(null);
+      setValidationError('该按键暂不支持作为快捷键主键，请换一个键');
+      return;
+    }
+
+    setValidationError(null);
+
     const recorded: RecordedKeys = {
-      key: key,
+      key: normalizedKey,
       modifiers: {
         cmd: e.metaKey,
         ctrl: e.ctrlKey,

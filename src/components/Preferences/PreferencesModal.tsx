@@ -155,8 +155,6 @@ export function PreferencesModal() {
         language: selectedLanguage,
       };
 
-      await updateConfig(updatedConfig);
-
       // Update global shortcut if changed
       if (config && localConfig.global_shortcut !== config.global_shortcut) {
         try {
@@ -167,6 +165,8 @@ export function PreferencesModal() {
           return;
         }
       }
+
+      await updateConfig(updatedConfig);
 
       // Update auto startup if changed
       if (autoStartupEnabled !== (config?.auto_startup || false)) {

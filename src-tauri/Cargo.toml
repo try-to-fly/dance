@@ -48,6 +48,7 @@ serde_with = "3.0"
 time = { version = "0.3", features = ["formatting"] }
 tauri-plugin-aptabase = "1"
 dotenvy = "0.15"
+unicode-normalization = "0.1"
 
 # macOS-specific dependencies
 [target.'cfg(target_os = "macos")'.dependencies]

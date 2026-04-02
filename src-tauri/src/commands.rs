@@ -4,6 +4,7 @@ use crate::config::AppConfig;
 use crate::llm::{process_text, ProcessTextRequest, ProcessTextResponse};
 use crate::models::{ClipboardEntry, Statistics};
 use crate::retrieval::ClipboardHistoryQuery;
+use crate::shortcuts::{normalize_shortcut, parse_shortcut_string};
 use crate::state::AppState;
 use crate::updater::{UpdateInfo, UpdateManager};
 use crate::utils::app_icon_extractor::AppIconExtractor;
@@ -1603,18 +1604,24 @@ pub async fn get_common_excluded_apps() -> Result<Vec<InstalledApp>, String> {
 // Shortcut validation command
 #[tauri::command]
 pub async fn validate_shortcut(shortcut: String) -> Result<bool, String> {
+    let normalized_shortcut = normalize_shortcut(&shortcut);
+
     // Basic validation for shortcut format
-    if shortcut.is_empty() {
+    if normalized_shortcut.is_empty() {
         return Ok(false);
     }
 
     // Check for required modifier keys (at least one)
-    let has_modifier = shortcut.contains("Cmd")
-        || shortcut.contains("Ctrl")
-        || shortcut.contains("Alt")
-        || shortcut.contains("Shift");
+    let has_modifier = normalized_shortcut.contains("Cmd")
+        || normalized_shortcut.contains("Ctrl")
+        || normalized_shortcut.contains("Alt")
+        || normalized_shortcut.contains("Shift");
 
     if !has_modifier {
+        return Ok(false);
+    }
+
+    if parse_shortcut_string(&normalized_shortcut).is_err() {
         return Ok(false);
     }
 
@@ -1627,7 +1634,7 @@ pub async fn validate_shortcut(shortcut: String) -> Result<bool, String> {
         "CmdOrCtrl+Tab", // Switch apps
     ];
 
-    if system_shortcuts.contains(&shortcut.as_str()) {
+    if system_shortcuts.contains(&normalized_shortcut.as_str()) {
         return Ok(false);
     }
 

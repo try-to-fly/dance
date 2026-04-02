@@ -10,6 +10,7 @@ mod database;
 mod llm;
 mod models;
 mod retrieval;
+mod shortcuts;
 mod state;
 mod tray;
 mod updater;

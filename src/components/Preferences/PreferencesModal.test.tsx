@@ -59,7 +59,20 @@ vi.mock('../theme-provider', () => ({
 }));
 
 vi.mock('./ShortcutRecorder', () => ({
-  ShortcutRecorder: () => <div data-testid="shortcut-recorder" />,
+  ShortcutRecorder: ({
+    value,
+    onChange,
+  }: {
+    value: string;
+    onChange: (shortcut: string) => void;
+  }) => (
+    <div>
+      <div data-testid="shortcut-value">{value}</div>
+      <button data-testid="shortcut-recorder" onClick={() => onChange('CmdOrCtrl+Alt+C')}>
+        更新快捷键
+      </button>
+    </div>
+  ),
 }));
 
 vi.mock('../LogViewer/LogViewer', () => ({
@@ -108,6 +121,8 @@ const baseConfig = {
 let loadCacheStatistics: ReturnType<typeof vi.fn>;
 let fetchHistory: ClipboardStoreState['fetchHistory'];
 let invalidatePreview: NonNullable<ClipboardStoreState['invalidatePreview']>;
+let updateConfig: ReturnType<typeof vi.fn>;
+let registerGlobalShortcut: ReturnType<typeof vi.fn>;
 
 describe('PreferencesModal rebuild entry analysis action', () => {
   beforeEach(() => {
@@ -116,6 +131,8 @@ describe('PreferencesModal rebuild entry analysis action', () => {
     loadCacheStatistics = vi.fn().mockResolvedValue(undefined);
     fetchHistory = vi.fn<ClipboardStoreState['fetchHistory']>().mockResolvedValue(undefined);
     invalidatePreview = vi.fn<NonNullable<ClipboardStoreState['invalidatePreview']>>();
+    updateConfig = vi.fn().mockResolvedValue(undefined);
+    registerGlobalShortcut = vi.fn().mockResolvedValue(undefined);
 
     mockedUseConfigStore.mockReturnValue({
       config: baseConfig,
@@ -132,9 +149,9 @@ describe('PreferencesModal rebuild entry analysis action', () => {
       cacheStatsLoading: false,
       cacheStatsError: null,
       loadConfig: vi.fn(),
-      updateConfig: vi.fn(),
+      updateConfig,
       loadCacheStatistics,
-      registerGlobalShortcut: vi.fn(),
+      registerGlobalShortcut,
       setAutoStartup: vi.fn(),
       getAutoStartupStatus: vi.fn().mockResolvedValue(false),
       setShowPreferences: vi.fn(),
@@ -228,5 +245,27 @@ describe('PreferencesModal rebuild entry analysis action', () => {
     expect(invalidatePreview).not.toHaveBeenCalled();
     expect(fetchHistory).not.toHaveBeenCalled();
     expect(loadCacheStatistics).not.toHaveBeenCalled();
+  });
+
+  it('保存快捷键时先注册成功再写入配置', async () => {
+    render(<PreferencesModal />);
+
+    await waitFor(() => expect(loadCacheStatistics).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(screen.getByTestId('shortcut-recorder'));
+    fireEvent.click(screen.getByText('common:save'));
+
+    await waitFor(() => {
+      expect(registerGlobalShortcut).toHaveBeenCalledWith('CmdOrCtrl+Alt+C');
+      expect(updateConfig).toHaveBeenCalledWith(
+        expect.objectContaining({
+          global_shortcut: 'CmdOrCtrl+Alt+C',
+        })
+      );
+    });
+
+    expect(registerGlobalShortcut.mock.invocationCallOrder[0]).toBeLessThan(
+      updateConfig.mock.invocationCallOrder[0]
+    );
   });
 });

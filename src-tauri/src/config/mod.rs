@@ -1,4 +1,5 @@
 use crate::app_paths::AppPaths;
+use crate::shortcuts::normalize_shortcut;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -153,6 +154,8 @@ impl ConfigManager {
         let mut migrated_config = config.clone();
         let needs_migration = !migrated_config.excluded_apps.is_empty()
             && migrated_config.excluded_apps_v2.is_empty();
+        let normalized_shortcut = normalize_shortcut(&migrated_config.global_shortcut);
+        let needs_shortcut_normalization = normalized_shortcut != migrated_config.global_shortcut;
 
         if needs_migration {
             log::info!("Migrating excluded apps to new format...");
@@ -161,8 +164,17 @@ impl ConfigManager {
             migrated_config.excluded_apps.clear(); // Clear old format
         }
 
+        if needs_shortcut_normalization {
+            log::info!(
+                "Normalizing global shortcut from '{}' to '{}'",
+                migrated_config.global_shortcut,
+                normalized_shortcut
+            );
+            migrated_config.global_shortcut = normalized_shortcut;
+        }
+
         // Always save the config after loading to ensure it's in the latest format
-        if config_path.exists() || needs_migration {
+        if config_path.exists() || needs_migration || needs_shortcut_normalization {
             Self::save_config(&config_path, &migrated_config).await?;
         }
 
@@ -177,7 +189,8 @@ impl ConfigManager {
         &self.config_path
     }
 
-    pub async fn update_config(&mut self, new_config: AppConfig) -> Result<()> {
+    pub async fn update_config(&mut self, mut new_config: AppConfig) -> Result<()> {
+        new_config.global_shortcut = normalize_shortcut(&new_config.global_shortcut);
         self.config = new_config.clone();
         Self::save_config(&self.config_path, &new_config).await?;
         Ok(())

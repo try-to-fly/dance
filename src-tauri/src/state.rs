@@ -11,6 +11,7 @@ use crate::models::{AppUsage, ClipboardEntry, Statistics};
 use crate::retrieval::{
     refresh_favorite_search_document, search_clipboard_history, ClipboardHistoryQuery,
 };
+use crate::shortcuts::parse_shortcut_string;
 use anyhow::Result;
 use arboard::Clipboard;
 use chrono::Utc;
@@ -19,7 +20,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tauri::AppHandle;
 use tauri_plugin_autostart::ManagerExt;
-use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
+use tauri_plugin_global_shortcut::GlobalShortcutExt;
 use tokio::sync::Mutex;
 use tokio::sync::{broadcast, RwLock};
 
@@ -535,17 +536,15 @@ impl AppState {
         app_handle: AppHandle,
         shortcut: String,
     ) -> Result<()> {
-        let parsed_shortcut = shortcut
-            .parse::<Shortcut>()
-            .map_err(|e| anyhow::anyhow!("Invalid shortcut format: {}", e))?;
+        let (normalized_shortcut, parsed_shortcut) =
+            parse_shortcut_string(&shortcut).map_err(anyhow::Error::msg)?;
 
         let global_shortcut_manager = app_handle.global_shortcut();
 
         // Unregister existing shortcut if any
         if let Some(current) = self.current_shortcut.lock().await.as_ref() {
-            let current_shortcut = current
-                .parse::<Shortcut>()
-                .map_err(|e| anyhow::anyhow!("Invalid current shortcut: {}", e))?;
+            let (_, current_shortcut) =
+                parse_shortcut_string(current).map_err(anyhow::Error::msg)?;
             global_shortcut_manager
                 .unregister(current_shortcut)
                 .map_err(|e| anyhow::anyhow!("Failed to unregister shortcut: {}", e))?;
@@ -558,7 +557,7 @@ impl AppState {
 
         // Update stored shortcut
         let mut current_shortcut = self.current_shortcut.lock().await;
-        *current_shortcut = Some(shortcut);
+        *current_shortcut = Some(normalized_shortcut);
 
         Ok(())
     }
@@ -566,9 +565,8 @@ impl AppState {
     pub async fn unregister_global_shortcut(&self) -> Result<()> {
         if let Some(app_handle) = self.app_handle.lock().await.as_ref() {
             if let Some(current) = self.current_shortcut.lock().await.as_ref() {
-                let current_shortcut = current
-                    .parse::<Shortcut>()
-                    .map_err(|e| anyhow::anyhow!("Invalid current shortcut: {}", e))?;
+                let (_, current_shortcut) =
+                    parse_shortcut_string(current).map_err(anyhow::Error::msg)?;
                 let global_shortcut_manager = app_handle.global_shortcut();
                 global_shortcut_manager
                     .unregister(current_shortcut)
