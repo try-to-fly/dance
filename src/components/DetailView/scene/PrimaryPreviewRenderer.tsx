@@ -74,7 +74,7 @@ export function PrimaryPreviewRenderer({ kind, payload, onOpenFile }: PrimaryPre
     const src = resolvedData?.imageUrl || resolvedData?.base64?.dataUrl || '';
     if (src) {
       return (
-        <div className="flex min-h-[300px] items-center justify-center rounded-[16px] border border-border/70 bg-background/70 p-2.5 min-[1200px]:min-h-[380px] min-[1200px]:p-3">
+        <div className="flex min-h-[300px] items-center justify-center overflow-hidden rounded-[16px] border border-border/70 bg-background/70 p-2.5 min-[1200px]:min-h-[380px] min-[1200px]:p-3">
           <img
             src={src}
             alt="preview"

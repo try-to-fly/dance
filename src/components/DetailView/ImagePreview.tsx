@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { invoke } from '@tauri-apps/api/core';
 import { Copy, Download, Maximize2 } from 'lucide-react';
-import { Badge } from '../ui/badge';
+import { cn } from '../../lib/utils';
 import { Button } from '../ui/button';
 import { ScrollArea } from '../ui/scroll-area';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
@@ -125,7 +125,6 @@ export const ImagePreview: React.FC<ImagePreviewProps> = ({
       summary: `${metadata.width}×${metadata.height} · ${formatFileSize(metadata.file_size)}`,
       onClick: () => {
         setShowOriginal(true);
-        setPreviewUrl(imageUrl);
       },
     },
     convertedMetadata && {
@@ -148,18 +147,18 @@ export const ImagePreview: React.FC<ImagePreviewProps> = ({
   }>;
 
   return (
-    <div id="image-preview" className="flex min-h-0 flex-col gap-2.5">
+    <div id="image-preview" className="flex min-h-0 flex-col gap-2">
       <div
         id="image-preview-controls"
-        className="rounded-[18px] border border-border/70 bg-card/70 px-3 py-3 backdrop-blur-sm"
+        className="rounded-2xl border border-border/60 bg-card/45 px-2.5 py-2 shadow-sm backdrop-blur-sm"
       >
-        <div id="image-preview-toolbar" className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-medium text-muted-foreground">
+        <div id="image-preview-toolbar" className="flex flex-wrap items-center gap-1.5">
+          <div className="flex items-center gap-1.5 rounded-full border border-border/60 bg-background/75 px-2 py-1">
+            <span className="text-[11px] font-medium text-muted-foreground">
               {t('imagePreview.format')}
             </span>
             <Select value={selectedFormat} onValueChange={setSelectedFormat}>
-              <SelectTrigger className="h-9 w-[88px] rounded-xl bg-background/80 px-3">
+              <SelectTrigger className="h-7 w-[86px] rounded-full border-0 bg-transparent px-2 text-xs shadow-none ring-0 focus:ring-0 focus:ring-offset-0">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -170,15 +169,15 @@ export const ImagePreview: React.FC<ImagePreviewProps> = ({
             </Select>
           </div>
 
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-medium text-muted-foreground">
+          <div className="flex items-center gap-1.5 rounded-full border border-border/60 bg-background/75 px-2 py-1">
+            <span className="text-[11px] font-medium text-muted-foreground">
               {t('imagePreview.scale')}
             </span>
             <Select
               value={selectedScale.toString()}
               onValueChange={(value) => setSelectedScale(parseFloat(value))}
             >
-              <SelectTrigger className="h-9 w-[82px] rounded-xl bg-background/80 px-3">
+              <SelectTrigger className="h-7 w-[78px] rounded-full border-0 bg-transparent px-2 text-xs shadow-none ring-0 focus:ring-0 focus:ring-offset-0">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -194,30 +193,35 @@ export const ImagePreview: React.FC<ImagePreviewProps> = ({
             onClick={handleConvert}
             disabled={isConverting}
             size="sm"
-            className="h-9 rounded-xl px-4"
+            variant="secondary"
+            className="h-8 rounded-full px-3 text-xs"
           >
             {isConverting ? t('imagePreview.converting') : t('imagePreview.convert')}
           </Button>
 
-          <div className="ml-auto flex flex-wrap items-center gap-2">
+          <div className="ml-auto flex flex-wrap items-center gap-1">
             {convertedMetadata && (
               <>
                 <Button
                   onClick={handleCopyConverted}
                   size="sm"
                   variant="outline"
-                  className="h-9 rounded-xl px-3"
+                  className="h-8 rounded-full border-border/60 bg-background/75 px-2.5 text-xs"
+                  aria-label={t('imagePreview.copy')}
+                  title={t('imagePreview.copy')}
                 >
-                  <Copy className="mr-1 h-4 w-4" />
-                  {t('imagePreview.copy')}
+                  <Copy className="h-3.5 w-3.5" />
+                  <span className="hidden min-[1200px]:inline">{t('imagePreview.copy')}</span>
                 </Button>
                 <Button
                   onClick={handleDownload}
-                  size="sm"
+                  size="icon"
                   variant="outline"
-                  className="h-9 rounded-xl px-3"
+                  className="h-8 w-8 rounded-full border-border/60 bg-background/75"
+                  aria-label="Download"
+                  title="Download"
                 >
-                  <Download className="h-4 w-4" />
+                  <Download className="h-3.5 w-3.5" />
                 </Button>
               </>
             )}
@@ -225,31 +229,44 @@ export const ImagePreview: React.FC<ImagePreviewProps> = ({
             {onOpenWithSystem && (
               <Button
                 onClick={onOpenWithSystem}
-                size="sm"
+                size="icon"
                 variant="outline"
-                className="h-9 rounded-xl px-3"
+                className="h-8 w-8 rounded-full border-border/60 bg-background/75"
+                aria-label="Open in system"
+                title="Open in system"
               >
-                <Maximize2 className="h-4 w-4" />
+                <Maximize2 className="h-3.5 w-3.5" />
               </Button>
             )}
           </div>
         </div>
 
         {previewVariants.length > 0 && (
-          <div className="mt-2 flex flex-wrap gap-2">
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
             {previewVariants.map((variant) => (
-              <Button
+              <button
+                type="button"
                 key={variant.key}
-                variant={variant.active ? 'default' : 'outline'}
-                size="sm"
                 onClick={variant.onClick}
-                className="h-9 rounded-full px-3 text-xs"
+                className={cn(
+                  'inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-left transition-colors',
+                  variant.active
+                    ? 'border-primary/25 bg-primary/10 text-foreground'
+                    : 'border-border/60 bg-background/55 text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+                )}
               >
-                <Badge variant="secondary" className="mr-2 rounded-full px-2 py-0.5 text-[10px]">
+                <span
+                  className={cn(
+                    'rounded-full px-1.5 py-0.5 text-[10px] font-semibold',
+                    variant.active
+                      ? 'bg-primary/15 text-foreground'
+                      : 'bg-muted text-muted-foreground'
+                  )}
+                >
                   {variant.label}
-                </Badge>
-                {variant.summary}
-              </Button>
+                </span>
+                <span className="text-[11px] font-medium">{variant.summary}</span>
+              </button>
             ))}
           </div>
         )}
@@ -257,12 +274,12 @@ export const ImagePreview: React.FC<ImagePreviewProps> = ({
 
       <div
         id="image-preview-display"
-        className="overflow-hidden rounded-[18px] border border-border/70 bg-background/80"
+        className="overflow-hidden rounded-2xl border border-border/60 bg-background/80"
       >
         <ScrollArea id="image-preview-scroll" className="max-h-[68vh] min-[1200px]:max-h-[72vh]">
           <div
             id="image-preview-wrapper"
-            className="flex min-h-[280px] items-center justify-center p-2.5 min-[1200px]:min-h-[340px] min-[1200px]:p-3"
+            className="flex min-h-[240px] items-center justify-center p-2 min-[1200px]:min-h-[320px] min-[1200px]:p-3"
           >
             <img
               id="image-preview-img"

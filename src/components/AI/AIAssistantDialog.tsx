@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Bot,
+  Check,
   ChevronDown,
   Copy,
   Languages,
@@ -94,6 +95,15 @@ export function AIAssistantDialog() {
     setCopyFeedback('translation');
   };
 
+  const translateActionLabel =
+    session.translation.status === 'loading'
+      ? t('detail.ai.translating')
+      : t('detail.ai.retryTranslate');
+  const copyTranslationLabel =
+    copyFeedback === 'translation' ? t('detail.ai.copied') : t('detail.ai.copyResult');
+  const continueChatLabel = t('detail.ai.continueChat');
+  const clearConversationLabel = t('detail.ai.clearConversation');
+
   const renderSetupState = () => (
     <div className="flex flex-1 items-center justify-center p-4 sm:p-5">
       <Card className="w-full max-w-lg rounded-[24px] border-primary/15 bg-[linear-gradient(135deg,rgba(45,212,191,0.08),rgba(255,255,255,0.92))] shadow-[0_20px_50px_rgba(15,23,42,0.10)] dark:bg-[linear-gradient(135deg,rgba(45,212,191,0.12),rgba(15,23,42,0.92))]">
@@ -179,37 +189,44 @@ export function AIAssistantDialog() {
             <Button
               type="button"
               variant="outline"
-              size="sm"
-              className="h-8 rounded-lg px-3 text-xs"
+              size="icon"
+              className="h-8 w-8 rounded-lg"
               onClick={() => void requestTranslation()}
               disabled={session.translation.status === 'loading'}
+              aria-label={translateActionLabel}
+              title={translateActionLabel}
             >
               {session.translation.status === 'loading' ? (
-                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
               ) : (
-                <Languages className="mr-1.5 h-3.5 w-3.5" />
+                <Languages className="h-3.5 w-3.5" />
               )}
-              {t('detail.ai.retryTranslate')}
             </Button>
             <Button
               type="button"
               variant="secondary"
-              size="sm"
-              className="h-8 rounded-lg px-3 text-xs"
+              size="icon"
+              className="h-8 w-8 rounded-lg"
               onClick={() => void handleCopyTranslation()}
               disabled={!session.translation.content}
+              aria-label={copyTranslationLabel}
+              title={copyTranslationLabel}
             >
-              <Copy className="mr-1.5 h-3.5 w-3.5" />
-              {copyFeedback === 'translation' ? t('detail.ai.copied') : t('detail.ai.copyResult')}
+              {copyFeedback === 'translation' ? (
+                <Check className="h-3.5 w-3.5" />
+              ) : (
+                <Copy className="h-3.5 w-3.5" />
+              )}
             </Button>
             <Button
               type="button"
-              size="sm"
-              className="h-8 rounded-lg px-3 text-xs"
+              size="icon"
+              className="h-8 w-8 rounded-lg"
               onClick={() => setMode('chat')}
+              aria-label={continueChatLabel}
+              title={continueChatLabel}
             >
-              <MessageSquareText className="mr-1.5 h-3.5 w-3.5" />
-              {t('detail.ai.continueChat')}
+              <MessageSquareText className="h-3.5 w-3.5" />
             </Button>
           </div>
         </div>
@@ -256,12 +273,13 @@ export function AIAssistantDialog() {
           <Button
             type="button"
             variant="outline"
-            size="sm"
-            className="h-8 rounded-lg px-3 text-xs"
+            size="icon"
+            className="h-8 w-8 rounded-lg"
             onClick={clearConversation}
+            aria-label={clearConversationLabel}
+            title={clearConversationLabel}
           >
-            <Trash2 className="mr-1.5 h-3.5 w-3.5" />
-            {t('detail.ai.clearConversation')}
+            <Trash2 className="h-3.5 w-3.5" />
           </Button>
         </div>
       </CardHeader>

@@ -1,5 +1,6 @@
 import {
   AppWindow,
+  Bot,
   ClipboardPaste,
   Copy,
   ExternalLink,
@@ -9,8 +10,7 @@ import {
   FolderClosed,
   FolderOpen,
   Heart,
-  Languages,
-  MessageSquareText,
+  MoreHorizontal,
   Trash2,
 } from 'lucide-react';
 import { ComponentType } from 'react';
@@ -22,7 +22,14 @@ import {
 } from '../../../types/clipboard';
 import { Badge } from '../../ui/badge';
 import { Button } from '../../ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '../../ui/card';
+import { Card, CardContent, CardHeader } from '../../ui/card';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '../../ui/dropdown-menu';
 import { cn } from '../../../lib/utils';
 import { AlternateViews } from './AlternateViews';
 import { InspectorPanel } from './InspectorPanel';
@@ -39,6 +46,36 @@ const denseHeaderPreviewKinds = new Set<PreviewKind>([
   'base64_text',
   'base64_binary',
 ]);
+
+const copyActions: PreviewAction[] = ['copy_raw', 'copy_decoded'];
+const openActions: PreviewAction[] = ['open_url', 'open_file'];
+
+const pickPrimaryActions = (actions: PreviewAction[]) => {
+  const primary: PreviewAction[] = [];
+  const copyAction = actions.find((action) => copyActions.includes(action));
+  const openAction = actions.find((action) => openActions.includes(action));
+
+  if (copyAction) {
+    primary.push(copyAction);
+  }
+
+  if (openAction) {
+    primary.push(openAction);
+  }
+
+  if (primary.length === 0 && actions[0]) {
+    primary.push(actions[0]);
+  }
+
+  if (primary.length === 1) {
+    const fallbackAction = actions.find((action) => !primary.includes(action));
+    if (fallbackAction) {
+      primary.push(fallbackAction);
+    }
+  }
+
+  return primary;
+};
 
 interface DetailSceneProps {
   entry: ClipboardEntry;
@@ -59,6 +96,8 @@ interface DetailSceneProps {
     unfavorite: string;
     openFile: string;
     openUrl: string;
+    aiTools: string;
+    moreActions: string;
     translate?: string;
     chat?: string;
     title: string;
@@ -104,10 +143,9 @@ export function DetailScene({
   const showAlternateViews =
     descriptor.alternateViews.length > 0 && !(hasImmersivePreview && hasRawOnlyAlternateView);
   const layoutMode = hasImmersivePreview ? 'immersive' : useDenseHeader ? 'dense' : 'default';
-  const actionButtonClassName = cn(
-    'h-[30px] rounded-[11px] px-2.5 text-[11px]',
-    useDenseHeader ? 'min-[1200px]:rounded-xl' : 'min-[1200px]:rounded-2xl'
-  );
+  const primaryActions = pickPrimaryActions(descriptor.actions);
+  const overflowActions = descriptor.actions.filter((action) => !primaryActions.includes(action));
+  const hasAiMenu = showAiActions && Boolean(onTranslate || onOpenChat);
   const iconButtonClassName = cn(
     'h-[30px] w-[30px] rounded-[11px]',
     useDenseHeader ? 'min-[1200px]:rounded-xl' : 'min-[1200px]:rounded-2xl'
@@ -121,15 +159,14 @@ export function DetailScene({
             key={action}
             type="button"
             variant="secondary"
-            size="sm"
+            size="icon"
             onClick={onCopy}
             disabled={!entry.content_data}
             aria-label={labels.copy}
             title={labels.copy}
-            className={actionButtonClassName}
+            className={iconButtonClassName}
           >
-            <Copy className="mr-1.5 h-4 w-4" />
-            {labels.copy}
+            <Copy className="h-4 w-4" />
           </Button>
         );
       case 'copy_decoded':
@@ -138,15 +175,14 @@ export function DetailScene({
             key={action}
             type="button"
             variant="outline"
-            size="sm"
+            size="icon"
             onClick={onCopyDecoded}
             disabled={!canCopyDecoded}
             aria-label={labels.copyDecoded}
             title={labels.copyDecoded}
-            className={actionButtonClassName}
+            className={iconButtonClassName}
           >
-            <FileCode2 className="mr-1.5 h-4 w-4" />
-            {labels.copyDecoded}
+            <FileCode2 className="h-4 w-4" />
           </Button>
         );
       case 'paste':
@@ -155,14 +191,13 @@ export function DetailScene({
             key={action}
             type="button"
             variant="outline"
-            size="sm"
+            size="icon"
             onClick={onPaste}
             aria-label={labels.paste}
             title={labels.paste}
-            className={actionButtonClassName}
+            className={iconButtonClassName}
           >
-            <ClipboardPaste className="mr-1.5 h-4 w-4" />
-            {labels.paste}
+            <ClipboardPaste className="h-4 w-4" />
           </Button>
         );
       case 'open_url':
@@ -171,14 +206,13 @@ export function DetailScene({
             key={action}
             type="button"
             variant="outline"
-            size="sm"
+            size="icon"
             onClick={onOpenUrl}
             aria-label={labels.openUrl}
             title={labels.openUrl}
-            className={actionButtonClassName}
+            className={iconButtonClassName}
           >
-            <ExternalLink className="mr-1.5 h-4 w-4" />
-            {labels.openUrl}
+            <ExternalLink className="h-4 w-4" />
           </Button>
         );
       case 'open_file':
@@ -187,15 +221,66 @@ export function DetailScene({
             key={action}
             type="button"
             variant="outline"
-            size="sm"
+            size="icon"
             onClick={onOpenFile}
             aria-label={labels.openFile}
             title={labels.openFile}
-            className={actionButtonClassName}
+            className={iconButtonClassName}
           >
-            <FolderOpen className="mr-1.5 h-4 w-4" />
-            {labels.openFile}
+            <FolderOpen className="h-4 w-4" />
           </Button>
+        );
+      default:
+        return null;
+    }
+  };
+
+  const renderOverflowAction = (action: PreviewAction) => {
+    switch (action) {
+      case 'copy_raw':
+        return (
+          <DropdownMenuItem
+            key={action}
+            disabled={!entry.content_data}
+            onClick={onCopy}
+            className="gap-2"
+          >
+            <Copy className="h-4 w-4" />
+            <span>{labels.copy}</span>
+          </DropdownMenuItem>
+        );
+      case 'copy_decoded':
+        return (
+          <DropdownMenuItem
+            key={action}
+            disabled={!canCopyDecoded}
+            onClick={onCopyDecoded}
+            className="gap-2"
+          >
+            <FileCode2 className="h-4 w-4" />
+            <span>{labels.copyDecoded}</span>
+          </DropdownMenuItem>
+        );
+      case 'paste':
+        return (
+          <DropdownMenuItem key={action} onClick={onPaste} className="gap-2">
+            <ClipboardPaste className="h-4 w-4" />
+            <span>{labels.paste}</span>
+          </DropdownMenuItem>
+        );
+      case 'open_url':
+        return (
+          <DropdownMenuItem key={action} onClick={onOpenUrl} className="gap-2">
+            <ExternalLink className="h-4 w-4" />
+            <span>{labels.openUrl}</span>
+          </DropdownMenuItem>
+        );
+      case 'open_file':
+        return (
+          <DropdownMenuItem key={action} onClick={onOpenFile} className="gap-2">
+            <FolderOpen className="h-4 w-4" />
+            <span>{labels.openFile}</span>
+          </DropdownMenuItem>
         );
       default:
         return null;
@@ -206,7 +291,7 @@ export function DetailScene({
     <Card
       id="detail-view"
       data-layout={layoutMode}
-      className="flex h-full min-h-0 flex-col overflow-hidden rounded-[18px] border border-border/70 bg-card/88 shadow-[0_16px_44px_rgba(15,23,42,0.08)] backdrop-blur-xl min-[1200px]:rounded-[20px]"
+      className="isolate flex h-full min-h-0 flex-col overflow-hidden rounded-[18px] border border-border/70 bg-card/92 shadow-[0_16px_44px_rgba(15,23,42,0.08)] backdrop-blur-xl min-[1200px]:rounded-[20px]"
     >
       <CardHeader
         id="detail-view-header"
@@ -217,173 +302,167 @@ export function DetailScene({
             : 'gap-1.5 px-2.5 pb-1.5 pt-2 min-[1200px]:gap-2 min-[1200px]:px-3 min-[1200px]:pb-2 min-[1200px]:pt-2.5'
         )}
       >
-        <div
-          className={cn(
-            'flex flex-wrap items-start justify-between',
-            useDenseHeader ? 'gap-1.5 min-[1200px]:gap-2' : 'gap-2 min-[1200px]:gap-2.5'
-          )}
-        >
-          <div className={cn('min-w-0 flex-1', useDenseHeader ? 'space-y-0.5' : 'space-y-1')}>
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge
-                id="detail-view-type-badge"
-                variant="secondary"
-                className={cn(
-                  'rounded-full border border-primary/20 bg-primary/10 text-primary',
-                  useDenseHeader
-                    ? 'px-2 py-0.5 text-[10px] min-[1200px]:px-2.5 min-[1200px]:text-[11px]'
-                    : 'px-2.5 py-1 text-[11px] min-[1200px]:px-3'
-                )}
-              >
-                {contentIsImage ? (
-                  <FileImage className="mr-2 h-3.5 w-3.5" />
-                ) : contentIsFile ? (
-                  <FolderClosed className="mr-2 h-3.5 w-3.5" />
-                ) : (
-                  <FileText className="mr-2 h-3.5 w-3.5" />
-                )}
-                {descriptor.typeLabel}
-              </Badge>
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge
+            id="detail-view-type-badge"
+            variant="secondary"
+            className={cn(
+              'rounded-full border border-primary/20 bg-primary/10 text-primary',
+              useDenseHeader
+                ? 'px-2 py-0.5 text-[10px] min-[1200px]:px-2.5 min-[1200px]:text-[11px]'
+                : 'px-2.5 py-1 text-[11px] min-[1200px]:px-3'
+            )}
+          >
+            {contentIsImage ? (
+              <FileImage className="mr-2 h-3.5 w-3.5" />
+            ) : contentIsFile ? (
+              <FolderClosed className="mr-2 h-3.5 w-3.5" />
+            ) : (
+              <FileText className="mr-2 h-3.5 w-3.5" />
+            )}
+            {descriptor.typeLabel}
+          </Badge>
 
-              {descriptor.badges.map((badge) => (
-                <Badge
-                  key={badge.label}
-                  variant={badge.tone === 'warning' ? 'outline' : 'secondary'}
-                  className={cn(
-                    'rounded-full',
-                    badge.tone === 'warning' &&
-                      'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-400/20 dark:bg-amber-400/10 dark:text-amber-300',
-                    useDenseHeader
-                      ? 'px-2 py-0.5 text-[10px] min-[1200px]:px-2.5 min-[1200px]:text-[11px]'
-                      : 'px-2.5 py-1 text-[11px] min-[1200px]:px-3'
-                  )}
-                >
-                  {badge.label}
-                </Badge>
-              ))}
-
-              {entry.is_favorite && (
-                <Badge
-                  variant="outline"
-                  className={cn(
-                    'rounded-full border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-400/20 dark:bg-amber-400/10 dark:text-amber-300',
-                    useDenseHeader
-                      ? 'px-2 py-0.5 text-[10px] min-[1200px]:px-2.5 min-[1200px]:text-[11px]'
-                      : 'px-2.5 py-1 text-[11px] min-[1200px]:px-3'
-                  )}
-                >
-                  <Heart className="mr-2 h-3.5 w-3.5" fill="currentColor" />
-                  {labels.favorite}
-                </Badge>
-              )}
-            </div>
-
-            <div className={cn(useDenseHeader ? 'space-y-0.5' : 'space-y-1')}>
-              {!useDenseHeader && (
-                <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-muted-foreground min-[1200px]:text-[11px]">
-                  {labels.title}
-                </p>
-              )}
-              <CardTitle
-                id="detail-view-title"
-                className={cn(
-                  'tracking-tight',
-                  useDenseHeader
-                    ? 'line-clamp-2 text-[14px] leading-tight min-[1200px]:line-clamp-1 min-[1200px]:text-[15px]'
-                    : 'line-clamp-2 text-[14px] leading-snug min-[1200px]:text-base'
-                )}
-                title={descriptor.headline}
-              >
-                {descriptor.headline}
-              </CardTitle>
-            </div>
-          </div>
-
-          <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
-            {descriptor.actions.map(renderActionButton)}
-            {showAiActions && onTranslate ? (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={onTranslate}
-                aria-label={labels.translate}
-                title={labels.translate}
-                className={actionButtonClassName}
-              >
-                <Languages className="mr-1.5 h-4 w-4" />
-                {labels.translate}
-              </Button>
-            ) : null}
-            {showAiActions && onOpenChat ? (
-              <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                onClick={onOpenChat}
-                aria-label={labels.chat}
-                title={labels.chat}
-                className={actionButtonClassName}
-              >
-                <MessageSquareText className="mr-1.5 h-4 w-4" />
-                {labels.chat}
-              </Button>
-            ) : null}
-            <Button
-              type="button"
-              variant="outline"
-              size="icon"
-              onClick={onToggleFavorite}
-              aria-label={entry.is_favorite ? labels.unfavorite : labels.favorite}
-              title={entry.is_favorite ? labels.unfavorite : labels.favorite}
+          {descriptor.badges.map((badge) => (
+            <Badge
+              key={badge.label}
+              variant={badge.tone === 'warning' ? 'outline' : 'secondary'}
               className={cn(
-                iconButtonClassName,
-                entry.is_favorite && 'border-primary/30 bg-primary/10 text-primary'
+                'rounded-full',
+                badge.tone === 'warning' &&
+                  'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-400/20 dark:bg-amber-400/10 dark:text-amber-300',
+                useDenseHeader
+                  ? 'px-2 py-0.5 text-[10px] min-[1200px]:px-2.5 min-[1200px]:text-[11px]'
+                  : 'px-2.5 py-1 text-[11px] min-[1200px]:px-3'
               )}
             >
-              <Heart className="h-4 w-4" fill={entry.is_favorite ? 'currentColor' : 'none'} />
-            </Button>
-            <Button
-              type="button"
+              {badge.label}
+            </Badge>
+          ))}
+
+          {entry.is_favorite && (
+            <Badge
               variant="outline"
-              size="icon"
-              onClick={onDelete}
-              aria-label={labels.delete}
-              title={labels.delete}
-              className={cn(iconButtonClassName, 'text-destructive hover:text-destructive')}
+              className={cn(
+                'rounded-full border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-400/20 dark:bg-amber-400/10 dark:text-amber-300',
+                useDenseHeader
+                  ? 'px-2 py-0.5 text-[10px] min-[1200px]:px-2.5 min-[1200px]:text-[11px]'
+                  : 'px-2.5 py-1 text-[11px] min-[1200px]:px-3'
+              )}
             >
-              <Trash2 className="h-4 w-4" />
-            </Button>
-          </div>
+              <Heart className="mr-2 h-3.5 w-3.5" fill="currentColor" />
+              {labels.favorite}
+            </Badge>
+          )}
         </div>
 
         <div
-          id="detail-view-metadata"
           className={cn(
-            'flex flex-wrap items-center text-muted-foreground',
-            useDenseHeader ? 'gap-x-2 gap-y-1 text-[11px]' : 'gap-x-2.5 gap-y-1 text-[11px]'
+            'flex flex-wrap items-center justify-between border-t border-border/60',
+            useDenseHeader ? 'gap-2 pt-1.5 min-[1200px]:pt-2' : 'gap-2.5 pt-2'
           )}
         >
-          {metadataPills.map((item) => {
-            const Icon = item.icon;
+          <div
+            id="detail-view-metadata"
+            className={cn(
+              'flex min-h-[38px] min-w-0 flex-1 flex-wrap content-center items-center text-muted-foreground',
+              useDenseHeader ? 'gap-x-2 gap-y-1 text-[11px]' : 'gap-x-2.5 gap-y-1 text-[11px]'
+            )}
+          >
+            {metadataPills.map((item) => {
+              const Icon = item.icon;
 
-            return (
-              <div
-                key={item.key}
-                title={`${item.label}: ${item.fullValue}`}
-                className={cn(
-                  'inline-flex min-w-0 max-w-full items-center rounded-full border border-border/60 bg-background/70',
-                  useDenseHeader ? 'gap-1 px-1.5 py-0.5' : 'gap-1 px-1.5 py-0.5'
-                )}
-              >
-                <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                {!useDenseHeader && <span className="shrink-0 text-[10px]">{item.label}</span>}
-                <span className="min-w-0 truncate font-medium text-foreground/90">
-                  {item.value}
-                </span>
-              </div>
-            );
-          })}
+              return (
+                <div
+                  key={item.key}
+                  title={`${item.label}: ${item.fullValue}`}
+                  className={cn(
+                    'inline-flex min-w-0 max-w-full items-center rounded-full border border-border/60 bg-background/70',
+                    useDenseHeader ? 'gap-1 px-1.5 py-0.5' : 'gap-1 px-1.5 py-0.5'
+                  )}
+                >
+                  <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  {!useDenseHeader && <span className="shrink-0 text-[10px]">{item.label}</span>}
+                  <span className="min-w-0 truncate font-medium text-foreground/90">
+                    {item.value}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="flex shrink-0 justify-end">
+            <div
+              id="detail-view-actions"
+              className="inline-flex flex-wrap items-center justify-end gap-1 rounded-[14px] border border-border/60 bg-background/78 p-1 shadow-[0_6px_18px_rgba(15,23,42,0.04)]"
+            >
+              {primaryActions.map(renderActionButton)}
+
+              {hasAiMenu ? (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      aria-label={labels.aiTools}
+                      title={labels.aiTools}
+                      className={iconButtonClassName}
+                    >
+                      <Bot className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    {onTranslate && labels.translate ? (
+                      <DropdownMenuItem onClick={onTranslate} className="gap-2">
+                        <Bot className="h-4 w-4" />
+                        <span>{labels.translate}</span>
+                      </DropdownMenuItem>
+                    ) : null}
+                    {onOpenChat && labels.chat ? (
+                      <DropdownMenuItem onClick={onOpenChat} className="gap-2">
+                        <Bot className="h-4 w-4" />
+                        <span>{labels.chat}</span>
+                      </DropdownMenuItem>
+                    ) : null}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              ) : null}
+
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    aria-label={labels.moreActions}
+                    title={labels.moreActions}
+                    className={cn(
+                      iconButtonClassName,
+                      'border border-transparent text-muted-foreground hover:border-border/70 hover:bg-background hover:text-foreground'
+                    )}
+                  >
+                    <MoreHorizontal className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  {overflowActions.map(renderOverflowAction)}
+                  {overflowActions.length > 0 ? <DropdownMenuSeparator /> : null}
+                  <DropdownMenuItem onClick={onToggleFavorite} className="gap-2">
+                    <Heart className="h-4 w-4" fill={entry.is_favorite ? 'currentColor' : 'none'} />
+                    <span>{entry.is_favorite ? labels.unfavorite : labels.favorite}</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={onDelete}
+                    className="gap-2 text-destructive focus:text-destructive"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    <span>{labels.delete}</span>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          </div>
         </div>
       </CardHeader>
 
@@ -397,7 +476,7 @@ export function DetailScene({
         <div
           id="detail-view-shell"
           className={cn(
-            'flex h-full min-h-0 flex-1 flex-col overflow-hidden border border-border/70 bg-background/70',
+            'isolate flex h-full min-h-0 flex-1 flex-col overflow-hidden border border-border/70 bg-background/78',
             hasImmersivePreview
               ? 'rounded-[12px] min-[1200px]:rounded-[14px]'
               : 'rounded-[12px] min-[1200px]:rounded-[14px]'
@@ -406,39 +485,26 @@ export function DetailScene({
           <div
             id="detail-view-content-wrapper"
             className={cn(
-              'grid min-h-0 flex-1',
+              'flex min-h-0 flex-1 flex-col items-stretch overflow-y-auto overscroll-contain',
               hasImmersivePreview
                 ? 'gap-1 p-1 min-[1200px]:gap-1.5 min-[1200px]:p-1.5'
-                : 'gap-1 p-1 min-[1200px]:gap-1.5 min-[1200px]:p-1.5',
-              hasInspector && 'min-[1200px]:grid-cols-[minmax(0,1fr)_280px]'
+                : 'gap-1.5 p-1 min-[1200px]:gap-2 min-[1200px]:p-1.5'
             )}
           >
             <div
               id="detail-view-primary-column"
-              className={cn(
-                'min-h-0',
-                hasImmersivePreview ? 'flex flex-col gap-1' : 'overflow-y-auto pr-0.5'
-              )}
+              className={cn('shrink-0', hasImmersivePreview ? 'space-y-1' : 'space-y-1.5 pr-0.5')}
             >
-              <div
-                className={cn(
-                  'min-h-0',
-                  hasImmersivePreview ? 'flex min-h-0 flex-1 flex-col gap-1' : 'space-y-1.5'
-                )}
-              >
-                <div className={cn('min-h-0', hasImmersivePreview && 'flex-1')}>
-                  <PrimaryPreviewRenderer
-                    kind={descriptor.primaryKind}
-                    payload={descriptor.primaryPayload}
-                    onOpenFile={onOpenFile}
-                  />
-                </div>
-                {showAlternateViews && <AlternateViews views={descriptor.alternateViews} />}
-              </div>
+              <PrimaryPreviewRenderer
+                kind={descriptor.primaryKind}
+                payload={descriptor.primaryPayload}
+                onOpenFile={onOpenFile}
+              />
+              {showAlternateViews && <AlternateViews views={descriptor.alternateViews} />}
             </div>
 
             {hasInspector && (
-              <div className="min-h-0 overflow-y-auto pr-0.5">
+              <div id="detail-view-inspector" className="shrink-0 pr-0.5">
                 <InspectorPanel sections={descriptor.inspectorSections} />
               </div>
             )}

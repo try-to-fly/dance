@@ -41,7 +41,7 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
             <>
               <p className="mb-3 max-w-[17rem] text-[12px] leading-[1.45] text-muted-foreground">
                 {t('retrieval.noResultsBody', {
-                  defaultValue: '尝试缩短关键词、切换类型，或清除来源、收藏与时间筛选。',
+                  defaultValue: '尝试缩短关键词、切换类型，或清除来源与收藏筛选。',
                 })}
               </p>
               <Button onClick={onResetFilters} className="h-[30px] rounded-[11px] px-3 text-[12px]">

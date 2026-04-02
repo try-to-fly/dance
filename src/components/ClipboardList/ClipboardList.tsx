@@ -21,7 +21,6 @@ export const ClipboardList: React.FC = () => {
     selectedType,
     selectedSourceApp,
     favoritesOnly,
-    recencyDays,
     isRetrievalActive,
     resetRetrievalFilters,
   } = useClipboardStore();
@@ -39,18 +38,9 @@ export const ClipboardList: React.FC = () => {
     if (favoritesOnly) {
       reasons.push('收藏');
     }
-    if (recencyDays === 1) {
-      reasons.push('最近 24 小时');
-    }
-    if (recencyDays === 7) {
-      reasons.push('最近 7 天');
-    }
-    if (recencyDays === 30) {
-      reasons.push('最近 30 天');
-    }
 
     return reasons;
-  }, [favoritesOnly, recencyDays, selectedSourceApp]);
+  }, [favoritesOnly, selectedSourceApp]);
 
   const virtualizer = useVirtualizer({
     count: entries.length,
@@ -93,7 +83,7 @@ export const ClipboardList: React.FC = () => {
 
     scrollElement.scrollTo({ top: 0, behavior: 'auto' });
     virtualizer.scrollToOffset(0);
-  }, [favoritesOnly, recencyDays, searchTerm, selectedSourceApp, selectedType, virtualizer]);
+  }, [favoritesOnly, searchTerm, selectedSourceApp, selectedType, virtualizer]);
 
   useEffect(() => {
     if (!hasMore || isLoadingMore || loading) {

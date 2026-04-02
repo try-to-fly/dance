@@ -1,16 +1,9 @@
-import { AppWindow, Clock3, Star } from 'lucide-react';
+import { AppWindow, Star } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useClipboardStore } from '../../stores/clipboardStore';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { Button } from '../ui/button';
 import { cn } from '../../lib/utils';
-
-const RECENCY_OPTIONS: Array<{ label: string; value: number | null }> = [
-  { label: '全部', value: null },
-  { label: '24 小时', value: 1 },
-  { label: '7 天', value: 7 },
-  { label: '30 天', value: 30 },
-];
 
 export function RetrievalFilterBar() {
   const { t } = useTranslation(['clipboard']);
@@ -20,8 +13,6 @@ export function RetrievalFilterBar() {
     sourceAppOptions,
     favoritesOnly,
     setFavoritesOnly,
-    recencyDays,
-    setRecencyDays,
   } = useClipboardStore();
 
   return (
@@ -65,30 +56,6 @@ export function RetrievalFilterBar() {
           <Star className="mr-1.5 h-3.5 w-3.5" fill={favoritesOnly ? 'currentColor' : 'none'} />
           {t('retrieval.favoritesOnly', { defaultValue: '收藏' })}
         </Button>
-
-        <div className="ml-auto flex flex-wrap items-center gap-1">
-          {RECENCY_OPTIONS.map((option) => {
-            const isActive = recencyDays === option.value;
-
-            return (
-              <Button
-                key={option.label}
-                type="button"
-                variant="ghost"
-                onClick={() => setRecencyDays(option.value)}
-                className={cn(
-                  'h-[30px] rounded-[11px] border px-2 text-[12px] shadow-sm transition-colors',
-                  isActive
-                    ? 'border-primary/20 bg-primary/10 text-primary hover:bg-primary/15'
-                    : 'border-border/70 bg-background/80 text-muted-foreground hover:bg-accent/70 hover:text-foreground'
-                )}
-              >
-                <Clock3 className="mr-1.5 h-3.5 w-3.5" />
-                {option.label}
-              </Button>
-            );
-          })}
-        </div>
       </div>
     </div>
   );

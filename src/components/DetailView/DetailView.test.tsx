@@ -90,8 +90,8 @@ vi.mock('react-i18next', () => ({
         'detail.unknown': '未知',
         'detail.actions.copyDecoded': '复制解码内容',
         'detail.actions.openFile': '打开文件',
-        'detail.ai.translate': '翻译中文',
-        'detail.ai.chat': 'Chat',
+        'detail.ai.translate': '翻译成中文',
+        'detail.ai.chat': '对话',
         'detail.analysisStatus': '分析',
         'detail.contentTypes.plain_text': '文本',
         'detail.contentTypes.command': '命令',
@@ -173,6 +173,7 @@ const createStoreState = (selectedEntry: ClipboardEntry | null) => ({
   pasteSelectedEntry: vi.fn(),
   toggleFavorite: vi.fn(),
   deleteEntry: vi.fn(),
+  resolveEntryPreview: undefined,
 });
 
 const formatTimestamp = (value: number, compact = false) =>
@@ -211,7 +212,7 @@ describe('DetailView', () => {
 
     expect(screen.getAllByTestId('renderer-unified')[0]).toHaveTextContent('command:npm run dev');
     expect(document.getElementById('detail-view-type-badge')).toHaveTextContent('命令');
-    expect(document.getElementById('detail-view-title')).toHaveTextContent('npm run dev');
+    expect(document.getElementById('detail-view-title')).not.toBeInTheDocument();
     expect(document.getElementById('detail-view-metadata')).toHaveClass('flex', 'flex-wrap');
     expect(document.getElementById('detail-view-metadata')?.children).toHaveLength(3);
     expect(screen.getAllByText('Terminal').length).toBeGreaterThanOrEqual(1);
@@ -220,8 +221,9 @@ describe('DetailView', () => {
     ).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText('12').length).toBeGreaterThanOrEqual(1);
     expect(screen.queryByText('类型')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '翻译中文' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Chat' })).toBeInTheDocument();
+    expect(document.getElementById('detail-view-actions')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'AI' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '更多操作' })).toBeInTheDocument();
   });
 
   it('AI 操作按钮会带着当前原始文本打开工作台', async () => {
@@ -234,8 +236,10 @@ describe('DetailView', () => {
 
     render(<DetailView />);
 
-    fireEvent.click(screen.getByRole('button', { name: '翻译中文' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Chat' }));
+    fireEvent.pointerDown(screen.getByRole('button', { name: 'AI' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: '翻译成中文' }));
+    fireEvent.pointerDown(screen.getByRole('button', { name: 'AI' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: '对话' }));
 
     await waitFor(() => {
       expect(mockedComponents.openAiDialog).toHaveBeenNthCalledWith(1, {
@@ -253,7 +257,7 @@ describe('DetailView', () => {
     });
   });
 
-  it('non-immersive JSON detail 保留 Raw tab 与 shared scroll 左列', () => {
+  it('non-immersive JSON detail 保留 Raw tab，并使用顺序滚动布局', () => {
     mockedUseClipboardStore.mockReturnValue(
       createStoreState({
         ...baseEntry,
@@ -271,7 +275,9 @@ describe('DetailView', () => {
         .getAllByTestId('renderer-unified')
         .some((node) => node.textContent?.includes('plain_text:{"hello":"world"}'))
     ).toBe(true);
-    expect(document.getElementById('detail-view-primary-column')).toHaveClass('overflow-y-auto');
+    expect(document.getElementById('detail-view-content-wrapper')).toHaveClass('flex-col');
+    expect(document.getElementById('detail-view-content-wrapper')).toHaveClass('overflow-y-auto');
+    expect(document.getElementById('detail-view-primary-column')).toHaveClass('shrink-0');
   });
 
   it('Base64 条目在新预览模型落地前保留可读的文本兜底', () => {
@@ -409,16 +415,53 @@ describe('DetailView', () => {
     const { rerender } = render(<DetailView />);
 
     await waitFor(() => {
-      expect(screen.getAllByText('https://example.com/a.png').length).toBeGreaterThan(0);
+      expect(screen.getByAltText('preview')).toHaveAttribute('src', 'https://example.com/a.png');
     });
 
     currentEntry = secondEntry;
     rerender(<DetailView />);
 
-    expect(screen.queryByText('https://example.com/a.png')).not.toBeInTheDocument();
+    expect(screen.queryByAltText('preview')).not.toBeInTheDocument();
     expect(screen.getAllByTestId('renderer-unified')[0]).toHaveTextContent('command:echo second');
 
     resolveSecondEntry?.({});
+  });
+
+  it('URL 指向 JSON 内容时，详情页直接展示 JSON 预览', async () => {
+    const resolveEntryPreview = vi.fn().mockResolvedValue({
+      textContent: '{\n  "ok": true\n}',
+      jsonContent: { ok: true },
+      url: {
+        finalUrl: 'https://example.com/data.json',
+        previewKind: 'json',
+      },
+    });
+
+    mockedUseClipboardStore.mockReturnValue({
+      ...createStoreState({
+        ...baseEntry,
+        id: 'entry-json-url',
+        content_hash: 'hash-json-url',
+        content_subtype: 'url',
+        content_data: 'https://example.com/data.json',
+      }),
+      resolveEntryPreview,
+    } as ReturnType<typeof createStoreState> & {
+      resolveEntryPreview: typeof resolveEntryPreview;
+    });
+
+    render(<DetailView />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('renderer-json')).toHaveTextContent('"ok": true');
+    });
+
+    expect(resolveEntryPreview).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'entry-json-url',
+        content_data: 'https://example.com/data.json',
+      })
+    );
   });
 
   it('D-15 / D-16 / D-17: code detail 复制当前 workbench buffer，关闭后会重置本地编辑', async () => {

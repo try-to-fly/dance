@@ -40,7 +40,6 @@ export interface ClipboardHistoryQuery {
   selected_type?: string;
   source_app?: string;
   favorites_only?: boolean;
-  recency_days?: number;
   limit?: number;
   offset?: number;
 }

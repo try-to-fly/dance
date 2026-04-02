@@ -108,7 +108,7 @@ describe('DetailPreview 契约 - Descriptor', () => {
     expectAlternateKeys(descriptor, ['raw']);
   });
 
-  it('URL 条目即使没有 resolved data 也保留 raw 和 url-structure 入口', () => {
+  it('URL 条目即使没有 resolved data 也不再重复生成备用视图', () => {
     const descriptor = createDescriptor(
       createEntry({
         content_subtype: 'url',
@@ -137,10 +137,10 @@ describe('DetailPreview 契约 - Descriptor', () => {
     );
 
     expect(descriptor.primaryKind).toBe<PreviewKind>('url_card');
-    expectAlternateKeys(descriptor, ['raw', 'url-structure']);
+    expectAlternateKeys(descriptor, []);
   });
 
-  it('图片 URL 条目保持 URL 主预览，并暴露 resolved-image 备用视图', () => {
+  it('图片 URL 条目直接进入图片主预览，不再重复生成 URL 卡片', () => {
     const descriptor = createDescriptor(
       createEntry({
         content_subtype: 'url',
@@ -160,12 +160,12 @@ describe('DetailPreview 契约 - Descriptor', () => {
       }
     );
 
-    expect(descriptor.primaryKind).toBe<PreviewKind>('url_card');
+    expect(descriptor.primaryKind).toBe<PreviewKind>('image');
     expect(descriptor.actions).toContain('open_url');
-    expectAlternateKeys(descriptor, ['raw', 'resolved-image', 'url-structure']);
+    expectAlternateKeys(descriptor, []);
   });
 
-  it('视频 URL 条目保持 URL 主预览，并暴露 resolved-video 备用视图', () => {
+  it('视频 URL 条目直接进入视频主预览，不再重复生成 URL 卡片', () => {
     const descriptor = createDescriptor(
       createEntry({
         content_subtype: 'url',
@@ -177,11 +177,11 @@ describe('DetailPreview 契约 - Descriptor', () => {
       }
     );
 
-    expect(descriptor.primaryKind).toBe<PreviewKind>('url_card');
-    expectAlternateKeys(descriptor, ['raw', 'resolved-video', 'url-structure']);
+    expect(descriptor.primaryKind).toBe<PreviewKind>('video');
+    expectAlternateKeys(descriptor, []);
   });
 
-  it('音频 URL 条目保持 URL 主预览，并暴露 resolved-audio 备用视图', () => {
+  it('音频 URL 条目直接进入音频主预览，不再重复生成 URL 卡片', () => {
     const descriptor = createDescriptor(
       createEntry({
         content_subtype: 'url',
@@ -193,8 +193,8 @@ describe('DetailPreview 契约 - Descriptor', () => {
       }
     );
 
-    expect(descriptor.primaryKind).toBe<PreviewKind>('url_card');
-    expectAlternateKeys(descriptor, ['raw', 'resolved-audio', 'url-structure']);
+    expect(descriptor.primaryKind).toBe<PreviewKind>('audio');
+    expectAlternateKeys(descriptor, []);
   });
 
   it('Base64 JSON 条目优先进入 JSON 主预览并包含 decoded 备用视图', () => {
@@ -222,7 +222,7 @@ describe('DetailPreview 契约 - Descriptor', () => {
     expectAlternateKeys(descriptor, ['raw', 'decoded']);
   });
 
-  it('URL 远端 JSON 仍保持 URL 主预览，并优先保留 URL 结构视图', () => {
+  it('URL 远端 JSON 直接进入 JSON 主预览，不再重复生成 URL 卡片', () => {
     const descriptor = createDescriptor(
       createEntry({
         content_subtype: 'url',
@@ -235,11 +235,11 @@ describe('DetailPreview 契约 - Descriptor', () => {
       }
     );
 
-    expect(descriptor.primaryKind).toBe<PreviewKind>('url_card');
-    expectAlternateKeys(descriptor, ['raw', 'url-structure']);
+    expect(descriptor.primaryKind).toBe<PreviewKind>('json');
+    expectAlternateKeys(descriptor, []);
   });
 
-  it('URL 远端文本仍保持 URL 主预览，并保留文本备用视图', () => {
+  it('URL 远端文本直接进入文本主预览，不再重复生成 URL 卡片', () => {
     const descriptor = createDescriptor(
       createEntry({
         content_subtype: 'url',
@@ -251,8 +251,8 @@ describe('DetailPreview 契约 - Descriptor', () => {
       }
     );
 
-    expect(descriptor.primaryKind).toBe<PreviewKind>('url_card');
-    expectAlternateKeys(descriptor, ['raw', 'url-structure']);
+    expect(descriptor.primaryKind).toBe<PreviewKind>('plain_text');
+    expectAlternateKeys(descriptor, []);
   });
 
   it('Base64 图片条目优先进入图片主预览', () => {
@@ -306,7 +306,7 @@ describe('DetailPreview 契约 - Descriptor', () => {
     );
 
     expect(descriptor.primaryKind).toBe<PreviewKind>('url_card');
-    expectAlternateKeys(descriptor, ['raw', 'url-structure']);
+    expectAlternateKeys(descriptor, []);
   });
 
   it('analysis-first 会覆盖 legacy subtype 和 metadata', () => {
@@ -348,6 +348,22 @@ describe('DetailPreview 契约 - Descriptor', () => {
     expect(descriptor.inspectorSections.some((section) => section.title === 'Analysis')).toBe(
       false
     );
+  });
+
+  it('URL 远端 markdown 会优先进入 markdown 主预览，且不再重复生成 URL 卡片', () => {
+    const descriptor = createDescriptor(
+      createEntry({
+        content_subtype: 'url',
+        content_data: 'https://example.com/readme.md',
+      }),
+      {
+        textContent: '# Hello',
+        url: { previewKind: 'markdown' },
+      }
+    );
+
+    expect(descriptor.primaryKind).toBe<PreviewKind>('markdown');
+    expectAlternateKeys(descriptor, []);
   });
 
   it('fallback analysis 会保留原始文本主视图并暴露 diagnostics inspector，但不再重复提供 Raw tab', () => {
@@ -456,6 +472,8 @@ describe('DetailPreview 契约 - Scene', () => {
           unfavorite: '取消收藏',
           openFile: '打开文件',
           openUrl: '打开链接',
+          aiTools: 'AI',
+          moreActions: '更多操作',
           title: '详情预览',
         }}
         onCopy={onCopy}
@@ -473,8 +491,10 @@ describe('DetailPreview 契约 - Scene', () => {
     expect(screen.getByTestId('inspector-panel')).toHaveTextContent('URL');
 
     fireEvent.click(screen.getByRole('button', { name: '复制' }));
-    fireEvent.click(screen.getByRole('button', { name: '粘贴' }));
-    fireEvent.click(screen.getByRole('button', { name: '删除' }));
+    fireEvent.pointerDown(screen.getByRole('button', { name: '更多操作' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: '粘贴' }));
+    fireEvent.pointerDown(screen.getByRole('button', { name: '更多操作' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: '删除' }));
 
     expect(onCopy).toHaveBeenCalledTimes(1);
     expect(onPaste).toHaveBeenCalledTimes(1);
@@ -505,6 +525,8 @@ describe('DetailPreview 契约 - Scene', () => {
           unfavorite: '取消收藏',
           openFile: '打开文件',
           openUrl: '打开链接',
+          aiTools: 'AI',
+          moreActions: '更多操作',
           title: '详情预览',
         }}
         onCopy={vi.fn()}
@@ -553,6 +575,8 @@ describe('DetailPreview 契约 - Scene', () => {
           unfavorite: '取消收藏',
           openFile: '打开文件',
           openUrl: '打开链接',
+          aiTools: 'AI',
+          moreActions: '更多操作',
           title: '详情预览',
         }}
         onCopy={vi.fn()}

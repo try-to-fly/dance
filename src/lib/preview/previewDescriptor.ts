@@ -58,6 +58,10 @@ const shouldIncludeRawAlternateView = (
     return true;
   }
 
+  if (subType === 'url') {
+    return false;
+  }
+
   return !['plain_text', 'code', 'markdown'].includes(primaryKind);
 };
 
@@ -169,6 +173,62 @@ const formatAnalysisStatus = (status: AnalysisStatus): string =>
 const formatDiagnosticValue = (diagnostic: AnalysisDiagnostic): string =>
   `${diagnostic.severity.toUpperCase()} | ${diagnostic.code} | ${diagnostic.message}`;
 
+const URL_CONTENT_PRIMARY_KINDS = new Set<PreviewKind>([
+  'image',
+  'audio',
+  'video',
+  'json',
+  'markdown',
+  'code',
+  'plain_text',
+]);
+
+const resolveUrlPrimaryKind = (resolvedData?: ResolvedPreviewData): PreviewKind | null => {
+  const resolvedPreviewKind = resolvedData?.url?.previewKind;
+
+  if (resolvedPreviewKind && URL_CONTENT_PRIMARY_KINDS.has(resolvedPreviewKind)) {
+    if (resolvedPreviewKind === 'image' && resolvedData?.imageUrl) {
+      return 'image';
+    }
+    if (resolvedPreviewKind === 'audio' && resolvedData?.audioUrl) {
+      return 'audio';
+    }
+    if (resolvedPreviewKind === 'video' && resolvedData?.videoUrl) {
+      return 'video';
+    }
+    if (
+      resolvedPreviewKind === 'json' &&
+      (hasResolvedJsonContent(resolvedData) || resolvedData?.textContent)
+    ) {
+      return 'json';
+    }
+    if (
+      ['markdown', 'code', 'plain_text'].includes(resolvedPreviewKind) &&
+      resolvedData?.textContent
+    ) {
+      return resolvedPreviewKind;
+    }
+  }
+
+  if (resolvedData?.imageUrl) {
+    return 'image';
+  }
+  if (resolvedData?.audioUrl) {
+    return 'audio';
+  }
+  if (resolvedData?.videoUrl) {
+    return 'video';
+  }
+  if (hasResolvedJsonContent(resolvedData)) {
+    return 'json';
+  }
+  if (resolvedData?.textContent) {
+    return 'plain_text';
+  }
+
+  return null;
+};
+
 const buildAnalysisInspector = (
   status: AnalysisStatus | null,
   diagnostics: AnalysisDiagnostic[]
@@ -209,7 +269,7 @@ const resolvePrimaryKind = (
   }
 
   if (semanticType === 'url') {
-    return 'url_card';
+    return resolveUrlPrimaryKind(resolvedData) ?? 'url_card';
   }
 
   if (semanticType === 'base64') {
@@ -351,7 +411,7 @@ export const buildPreviewDescriptor = ({
     });
   }
   if (subType === 'url') {
-    if (resolvedData?.imageUrl) {
+    if (resolvedData?.imageUrl && primaryKind !== 'image') {
       alternateViews.push({
         key: 'resolved-image',
         label: 'Image',
@@ -359,7 +419,7 @@ export const buildPreviewDescriptor = ({
         payload: resolvedData.imageUrl,
       });
     }
-    if (resolvedData?.audioUrl) {
+    if (resolvedData?.audioUrl && primaryKind !== 'audio') {
       alternateViews.push({
         key: 'resolved-audio',
         label: 'Audio',
@@ -367,7 +427,7 @@ export const buildPreviewDescriptor = ({
         payload: resolvedData.audioUrl,
       });
     }
-    if (resolvedData?.videoUrl) {
+    if (resolvedData?.videoUrl && primaryKind !== 'video') {
       alternateViews.push({
         key: 'resolved-video',
         label: 'Video',
@@ -375,15 +435,6 @@ export const buildPreviewDescriptor = ({
         payload: resolvedData.videoUrl,
       });
     }
-    alternateViews.push({
-      key: 'url-structure',
-      label: 'URL',
-      kind: 'url_card',
-      payload: {
-        raw: semantic.rawContent ?? '',
-        parts: metadata?.url_parts,
-      },
-    });
   }
 
   const inspectorSections: PreviewInspectorSection[] = [];

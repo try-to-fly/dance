@@ -358,8 +358,10 @@ export function DetailView() {
           unfavorite: t('clipboard:actions.unfavorite'),
           openFile: resolveLabel('detail.actions.openFile', '打开文件'),
           openUrl: resolveLabel('renderers.url.open', '打开链接'),
-          translate: resolveLabel('detail.ai.translate', '翻译中文'),
-          chat: resolveLabel('detail.ai.chat', 'Chat'),
+          aiTools: resolveLabel('detail.ai.menu', 'AI'),
+          moreActions: resolveLabel('detail.actions.more', '更多操作'),
+          translate: resolveLabel('detail.ai.translate', '翻译成中文'),
+          chat: resolveLabel('detail.ai.chat', '对话'),
           title: t('detail.title'),
         }}
         onCopy={handleCopy}

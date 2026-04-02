@@ -114,7 +114,7 @@ export function AlternateViews({ views }: AlternateViewsProps) {
   };
 
   return (
-    <Card className="rounded-[16px] border-border/70 bg-background/70 shadow-none">
+    <Card className="overflow-hidden rounded-[16px] border-border/70 bg-card/95 shadow-[0_8px_20px_rgba(15,23,42,0.04)]">
       <CardContent className="p-2.5 min-[1200px]:p-3">
         <Tabs value={activeKey} onValueChange={setActiveKey}>
           <TabsList className="mb-2.5 h-8 w-full justify-start gap-1 overflow-x-auto rounded-full bg-muted/60 p-1">

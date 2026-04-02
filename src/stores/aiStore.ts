@@ -8,8 +8,14 @@ import {
   ProcessTextResponse,
 } from '../types/ai';
 
-const TRANSLATE_TO_CHINESE_PROMPT =
-  '请将这段原始文本翻译成自然、准确的简体中文。保留原文中的结构、列表、代码块、链接和关键术语。';
+const TRANSLATE_TO_CHINESE_PROMPT = [
+  '请将这段原始文本准确翻译为简体中文，并严格对应原文内容。',
+  '只输出译文，不要添加说明、总结、前言或注释。',
+  '不要遗漏、合并、扩写或猜测原文没有的信息；遇到歧义时，采用更保守、贴近原文的译法。',
+  '保留原文的段落结构、标题、列表层级、编号、表格、代码块、内联代码、链接、路径、命令、占位符、变量名、API/库名、错误信息格式、数字与单位。',
+  '有固定中文译法的通用术语请使用准确中文；专有名词或不宜翻译的技术标识保留原文。',
+  '如果原文已经是简体中文，仅做必要的轻微校正，不要改写原意。',
+].join('');
 
 const createTranslationState = (): AiTranslationState => ({
   status: 'idle',

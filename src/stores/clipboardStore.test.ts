@@ -48,7 +48,6 @@ describe('clipboardStore preview resolution', () => {
       selectedType: 'all',
       selectedSourceApp: 'all',
       favoritesOnly: false,
-      recencyDays: null,
       sourceAppOptions: [],
       selectedEntry: null,
       urlContentCache: new Map(),
@@ -132,7 +131,113 @@ describe('clipboardStore preview resolution', () => {
     expect(writeTextMock).not.toHaveBeenCalled();
   });
 
-  it('URL 条目解析前不会把 raw URL 预填进 resolved textContent，也不会默认请求远端结果', async () => {
+  it('URL 条目会走 resolveUrlPreview，并使用远端解析结果作为详情预览', async () => {
+    const entry: ClipboardEntry = {
+      ...baseEntry,
+      content_data: 'https://example.com/api/data',
+      content_subtype: 'url',
+      analysis: {
+        contract_version: 1,
+        analysis_version: 1,
+        status: 'matched',
+        subtype: 'url',
+        metadata: {
+          kind: 'url',
+          data: {
+            protocol: 'https',
+            host: 'example.com',
+            path: '/api/data',
+            query_params: [],
+          },
+        },
+        diagnostics: [],
+        analyzed_at: Date.now(),
+      },
+    };
+
+    const resolveUrlPreview = vi.fn().mockResolvedValue({
+      textContent: '{\n  "ok": true\n}',
+      jsonContent: { ok: true },
+      url: {
+        finalUrl: 'https://example.com/api/data',
+        previewKind: 'json',
+      },
+    });
+
+    useClipboardStore.setState({
+      resolveUrlPreview,
+    });
+
+    const resolved = await useClipboardStore.getState().resolveEntryPreview?.(entry);
+
+    expect(resolveUrlPreview).toHaveBeenCalledWith('https://example.com/api/data');
+    expect(resolved).toMatchObject({
+      textContent: '{\n  "ok": true\n}',
+      jsonContent: { ok: true },
+      url: {
+        finalUrl: 'https://example.com/api/data',
+        previewKind: 'json',
+      },
+    });
+  });
+
+  it('resolveEntryPreview 对 URL 降级结果使用短 TTL 缓存', async () => {
+    const resolveUrlPreview = vi.fn().mockResolvedValue({
+      imageUrl: 'https://example.com/preview.png',
+      url: {
+        finalUrl: 'https://example.com/preview.png',
+        previewKind: 'image',
+        error: 'HTTP error: 503',
+      },
+    });
+    const entry: ClipboardEntry = {
+      ...baseEntry,
+      id: 'entry-url-local',
+      content_hash: 'hash-url-local',
+      content_data: 'https://example.com/preview.png',
+      content_subtype: 'url',
+      analysis: {
+        contract_version: 1,
+        analysis_version: 1,
+        status: 'matched',
+        subtype: 'url',
+        metadata: {
+          kind: 'url',
+          data: {
+            protocol: 'https',
+            host: 'example.com',
+            path: '/preview.png',
+            query_params: [],
+          },
+        },
+        diagnostics: [],
+        analyzed_at: Date.now(),
+      },
+    };
+
+    useClipboardStore.setState({
+      resolveUrlPreview,
+    });
+
+    const resolved = await useClipboardStore.getState().resolveEntryPreview?.(entry);
+
+    expect(resolveUrlPreview).toHaveBeenCalledWith('https://example.com/preview.png');
+    expect(resolved).toMatchObject({
+      imageUrl: 'https://example.com/preview.png',
+      url: {
+        finalUrl: 'https://example.com/preview.png',
+        previewKind: 'image',
+        error: 'HTTP error: 503',
+      },
+    });
+
+    const cacheEntry = useClipboardStore
+      .getState()
+      .previewResolutionCache?.get('entry:entry-url-local:hash-url-local');
+    expect(cacheEntry?.ttlMs).toBe(30_000);
+  });
+
+  it('URL 条目解析前不会把 raw URL 预填进 resolved textContent', async () => {
     const entry: ClipboardEntry = {
       ...baseEntry,
       content_data: 'https://example.com/api/data',
@@ -167,51 +272,7 @@ describe('clipboardStore preview resolution', () => {
 
     const resolved = await useClipboardStore.getState().resolveEntryPreview?.(entry);
 
-    expect(useClipboardStore.getState().resolveUrlPreview).not.toHaveBeenCalled();
     expect(resolved?.textContent).toBeUndefined();
     expect(resolved?.jsonContent).toBeUndefined();
-  });
-
-  it('resolveEntryPreview 对 URL 条目默认不调用 resolveUrlPreview', async () => {
-    const resolveUrlPreview = vi.fn().mockResolvedValue({
-      textContent: 'remote preview should stay optional',
-      url: {
-        finalUrl: 'https://example.com/docs?tab=preview',
-        previewKind: 'plain_text',
-      },
-    });
-    const entry: ClipboardEntry = {
-      ...baseEntry,
-      id: 'entry-url-local',
-      content_hash: 'hash-url-local',
-      content_data: 'https://example.com/docs?tab=preview',
-      content_subtype: 'url',
-      analysis: {
-        contract_version: 1,
-        analysis_version: 1,
-        status: 'matched',
-        subtype: 'url',
-        metadata: {
-          kind: 'url',
-          data: {
-            protocol: 'https',
-            host: 'example.com',
-            path: '/docs',
-            query_params: [{ key: 'tab', value: 'preview' }],
-          },
-        },
-        diagnostics: [],
-        analyzed_at: Date.now(),
-      },
-    };
-
-    useClipboardStore.setState({
-      resolveUrlPreview,
-    });
-
-    const resolved = await useClipboardStore.getState().resolveEntryPreview?.(entry);
-
-    expect(resolveUrlPreview).not.toHaveBeenCalled();
-    expect(resolved).toEqual({});
   });
 });

@@ -14,20 +14,12 @@ interface SearchBarProps {
 
 export const SearchBar: React.FC<SearchBarProps> = ({ compact = false, className }) => {
   const { t } = useTranslation(['common', 'clipboard']);
-  const {
-    searchTerm,
-    setSearchTerm,
-    selectedType,
-    selectedSourceApp,
-    favoritesOnly,
-    recencyDays,
-    loading,
-  } = useClipboardStore();
+  const { searchTerm, setSearchTerm, selectedType, selectedSourceApp, favoritesOnly, loading } =
+    useClipboardStore();
   const [localSearchTerm, setLocalSearchTerm] = useState(searchTerm);
   const deferredSearchTerm = useDeferredValue(localSearchTerm);
   const [showPendingIndicator, setShowPendingIndicator] = useState(false);
-  const hasActiveFilters =
-    selectedType !== 'all' || selectedSourceApp !== 'all' || favoritesOnly || recencyDays !== null;
+  const hasActiveFilters = selectedType !== 'all' || selectedSourceApp !== 'all' || favoritesOnly;
   const isRetrievalActive = Boolean(searchTerm.trim()) || hasActiveFilters;
 
   useEffect(() => {

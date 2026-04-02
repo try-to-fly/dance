@@ -260,16 +260,12 @@ const hasRenderableResolvedPreview = (resolved: ResolvedPreviewData) =>
   hasResolvedJsonContent(resolved);
 
 const hasActiveRetrievalQuery = (
-  state: Pick<
-    ClipboardStore,
-    'searchTerm' | 'selectedType' | 'selectedSourceApp' | 'favoritesOnly' | 'recencyDays'
-  >
+  state: Pick<ClipboardStore, 'searchTerm' | 'selectedType' | 'selectedSourceApp' | 'favoritesOnly'>
 ) =>
   Boolean(state.searchTerm.trim()) ||
   state.selectedType !== 'all' ||
   state.selectedSourceApp !== 'all' ||
-  state.favoritesOnly ||
-  state.recencyDays !== null;
+  state.favoritesOnly;
 
 const normalizeSourceAppOptions = (sourceApps: string[], selectedSourceApp: string) => {
   const options = Array.from(
@@ -286,7 +282,7 @@ const normalizeSourceAppOptions = (sourceApps: string[], selectedSourceApp: stri
 const buildHistoryQuery = (
   state: Pick<
     ClipboardStore,
-    'searchTerm' | 'selectedType' | 'selectedSourceApp' | 'favoritesOnly' | 'recencyDays'
+    'searchTerm' | 'selectedType' | 'selectedSourceApp' | 'favoritesOnly'
   >,
   limit: number,
   offset: number
@@ -295,7 +291,6 @@ const buildHistoryQuery = (
   selected_type: state.selectedType !== 'all' ? state.selectedType : undefined,
   source_app: state.selectedSourceApp !== 'all' ? state.selectedSourceApp : undefined,
   favorites_only: state.favoritesOnly || undefined,
-  recency_days: state.recencyDays ?? undefined,
   limit,
   offset,
 });
@@ -397,7 +392,6 @@ interface ClipboardStore {
   selectedType: string;
   selectedSourceApp: string;
   favoritesOnly: boolean;
-  recencyDays: number | null;
   sourceAppOptions: string[];
   selectedEntry: ClipboardEntry | null;
   urlContentCache: Map<string, { content: string; timestamp: number }>;
@@ -431,7 +425,6 @@ interface ClipboardStore {
   setSelectedType: (type: string) => void;
   setSelectedSourceApp: (sourceApp: string) => void;
   setFavoritesOnly: (favoritesOnly: boolean) => void;
-  setRecencyDays: (days: number | null) => void;
   resetRetrievalFilters: () => void;
   isRetrievalActive: () => boolean;
   setSelectedEntry: (entry: ClipboardEntry | null) => void;
@@ -449,7 +442,6 @@ export const useClipboardStore = create<ClipboardStore>((set, get) => ({
   selectedType: 'all',
   selectedSourceApp: 'all',
   favoritesOnly: false,
-  recencyDays: null,
   sourceAppOptions: [],
   selectedEntry: null,
   urlContentCache: new Map(),
@@ -842,7 +834,7 @@ export const useClipboardStore = create<ClipboardStore>((set, get) => ({
     const resolved: ResolvedPreviewData = {};
     const contentType = entry.content_type.toLowerCase();
     const subType = getEntryAnalysisSubtype(entry);
-    const ttlMs = DEFAULT_PREVIEW_CACHE_TTL_MS;
+    let ttlMs = DEFAULT_PREVIEW_CACHE_TTL_MS;
 
     if (contentType.includes('image') && entry.file_path) {
       try {
@@ -867,6 +859,16 @@ export const useClipboardStore = create<ClipboardStore>((set, get) => ({
       if (subType === 'base64' && state.decodeBase64Preview) {
         const base64Resolved = await state.decodeBase64Preview(entry.content_data);
         Object.assign(resolved, base64Resolved);
+      }
+    }
+
+    if (subType === 'url' && entry.content_data && state.resolveUrlPreview) {
+      try {
+        const urlResolved = await state.resolveUrlPreview(entry.content_data);
+        Object.assign(resolved, urlResolved);
+        ttlMs = getPreviewCacheTtlMs(urlResolved);
+      } catch (error) {
+        console.error('[resolveEntryPreview] URL 预览解析失败:', error);
       }
     }
 
@@ -912,18 +914,12 @@ export const useClipboardStore = create<ClipboardStore>((set, get) => ({
     void get().fetchHistory();
   },
 
-  setRecencyDays: (recencyDays: number | null) => {
-    set({ recencyDays, hasMore: true });
-    void get().fetchHistory();
-  },
-
   resetRetrievalFilters: () => {
     set({
       searchTerm: '',
       selectedType: 'all',
       selectedSourceApp: 'all',
       favoritesOnly: false,
-      recencyDays: null,
       hasMore: true,
     });
     void get().fetchHistory();
