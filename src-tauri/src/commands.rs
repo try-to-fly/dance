@@ -1,6 +1,7 @@
 use crate::analysis::RebuildEntryAnalysisResult;
 use crate::app_paths::AppPaths;
 use crate::config::AppConfig;
+use crate::llm::{process_text, ProcessTextRequest, ProcessTextResponse};
 use crate::models::{ClipboardEntry, Statistics};
 use crate::retrieval::ClipboardHistoryQuery;
 use crate::state::AppState;
@@ -1503,6 +1504,17 @@ pub async fn get_config(state: State<'_, AppState>) -> Result<AppConfig, String>
 #[tauri::command]
 pub async fn update_config(state: State<'_, AppState>, config: AppConfig) -> Result<(), String> {
     state.update_config(config).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn process_text_with_llm(
+    state: State<'_, AppState>,
+    request: ProcessTextRequest,
+) -> Result<ProcessTextResponse, String> {
+    let config = state.get_config().await.map_err(|e| e.to_string())?;
+    process_text(&config.llm, request)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

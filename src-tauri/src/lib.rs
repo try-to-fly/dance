@@ -7,6 +7,7 @@ mod clipboard;
 mod commands;
 mod config;
 mod database;
+mod llm;
 mod models;
 mod retrieval;
 mod state;
@@ -410,7 +411,8 @@ pub fn run() {
             get_log_content,
             clear_logs,
             set_log_level,
-            get_current_log_level
+            get_current_log_level,
+            process_text_with_llm
         ])
         .build(tauri::generate_context!())
         .expect("error while running tauri application")

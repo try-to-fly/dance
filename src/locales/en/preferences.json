@@ -8,6 +8,7 @@
     "system": "System",
     "language": "Language",
     "analytics": "Analytics",
+    "ai": "AI",
     "logs": "Logs"
   },
   "text": {
@@ -116,6 +117,19 @@
     "portuguese": "Português",
     "russian": "Русский",
     "italian": "Italiano"
+  },
+  "ai": {
+    "title": "AI Settings",
+    "description": "Configure OpenAI or OpenAI-compatible access for detail-view translation and chat over the selected source text.",
+    "providerTitle": "Model Provider",
+    "apiKey": "API Key",
+    "apiKeyPlaceholder": "sk-...",
+    "apiKeyHint": "The key is stored only in the local config file and is not uploaded anywhere outside Dance.",
+    "baseUrl": "Base URL",
+    "baseUrlPlaceholder": "https://api.openai.com/v1",
+    "model": "Model",
+    "modelPlaceholder": "gpt-4.1-mini",
+    "note": "Uses the standard OpenAI Chat Completions API. For compatible providers, fill in the matching Base URL and model name."
   },
   "analytics": {
     "title": "Usage Analytics",

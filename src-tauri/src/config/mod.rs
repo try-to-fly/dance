@@ -28,10 +28,20 @@ pub struct AppConfig {
     pub last_update_check: Option<String>, // ISO 8601 date string
     #[serde(default = "default_language")]
     pub language: String, // Language preference (zh or en)
+    #[serde(default)]
+    pub llm: LlmConfig,
 }
 
 fn default_language() -> String {
     "system".to_string()
+}
+
+fn default_llm_base_url() -> String {
+    "https://api.openai.com/v1".to_string()
+}
+
+fn default_llm_model() -> String {
+    "gpt-4.1-mini".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -61,6 +71,26 @@ pub struct ImageConfig {
     pub expiry: ExpiryOption,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LlmConfig {
+    #[serde(default)]
+    pub api_key: String,
+    #[serde(default = "default_llm_base_url")]
+    pub base_url: String,
+    #[serde(default = "default_llm_model")]
+    pub model: String,
+}
+
+impl Default for LlmConfig {
+    fn default() -> Self {
+        Self {
+            api_key: String::new(),
+            base_url: default_llm_base_url(),
+            model: default_llm_model(),
+        }
+    }
+}
+
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
@@ -87,6 +117,7 @@ impl Default for AppConfig {
             auto_update: true,
             last_update_check: None,
             language: default_language(),
+            llm: LlmConfig::default(),
         }
     }
 }

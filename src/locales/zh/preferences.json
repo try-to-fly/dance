@@ -8,6 +8,7 @@
     "system": "系统",
     "language": "语言",
     "analytics": "统计",
+    "ai": "AI",
     "logs": "日志"
   },
   "text": {
@@ -110,6 +111,19 @@
     "portuguese": "Português",
     "russian": "Русский",
     "italian": "Italiano"
+  },
+  "ai": {
+    "title": "AI 设置",
+    "description": "为详情页翻译和基于原文的多轮对话配置 OpenAI 或兼容 OpenAI 的接口。",
+    "providerTitle": "模型提供方",
+    "apiKey": "API Key",
+    "apiKeyPlaceholder": "sk-...",
+    "apiKeyHint": "密钥仅保存在本机配置文件中，不会上传到 Dance 之外的其他服务。",
+    "baseUrl": "Base URL",
+    "baseUrlPlaceholder": "https://api.openai.com/v1",
+    "model": "模型",
+    "modelPlaceholder": "gpt-4.1-mini",
+    "note": "支持标准 OpenAI Chat Completions 接口。若使用兼容服务，请填写对应的 Base URL 与模型名。"
   },
   "analytics": {
     "title": "使用统计",

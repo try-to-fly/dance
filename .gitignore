@@ -27,3 +27,5 @@ dist-ssr
 _next
 
 .codex/skills/ui-ux-pro-max
+
+.playwright-mcp

@@ -61,10 +61,19 @@ const mockedComponents = vi.hoisted(() => ({
       </div>
     )
   ),
+  openAiDialog: vi.fn(),
 }));
 
 vi.mock('../../stores/clipboardStore', () => ({
   useClipboardStore: vi.fn(),
+}));
+
+vi.mock('../../stores/aiStore', () => ({
+  useAiStore: {
+    getState: vi.fn(() => ({
+      openDialog: mockedComponents.openAiDialog,
+    })),
+  },
 }));
 
 vi.mock('react-i18next', () => ({
@@ -81,6 +90,8 @@ vi.mock('react-i18next', () => ({
         'detail.unknown': '未知',
         'detail.actions.copyDecoded': '复制解码内容',
         'detail.actions.openFile': '打开文件',
+        'detail.ai.translate': '翻译中文',
+        'detail.ai.chat': 'Chat',
         'detail.analysisStatus': '分析',
         'detail.contentTypes.plain_text': '文本',
         'detail.contentTypes.command': '命令',
@@ -100,6 +111,10 @@ vi.mock('react-i18next', () => ({
       return dictionary[key] ?? key;
     },
   }),
+}));
+
+vi.mock('../AI/AIAssistantDialog', () => ({
+  AIAssistantDialog: () => <div data-testid="ai-assistant-dialog" />,
 }));
 
 vi.mock('./ContentRenderers', () => ({
@@ -174,6 +189,7 @@ describe('DetailView', () => {
   // PREV-04 read-only wording is overridden by D-14..D-17 for code/command detail workbench behavior.
   beforeEach(() => {
     mockedUseClipboardStore.mockReturnValue(createStoreState(null));
+    mockedComponents.openAiDialog.mockReset();
   });
 
   it('在未选中内容时展示空状态', () => {
@@ -204,6 +220,37 @@ describe('DetailView', () => {
     ).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText('12').length).toBeGreaterThanOrEqual(1);
     expect(screen.queryByText('类型')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '翻译中文' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Chat' })).toBeInTheDocument();
+  });
+
+  it('AI 操作按钮会带着当前原始文本打开工作台', async () => {
+    mockedUseClipboardStore.mockReturnValue(
+      createStoreState({
+        ...baseEntry,
+        content_data: 'npm run dev',
+      })
+    );
+
+    render(<DetailView />);
+
+    fireEvent.click(screen.getByRole('button', { name: '翻译中文' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Chat' }));
+
+    await waitFor(() => {
+      expect(mockedComponents.openAiDialog).toHaveBeenNthCalledWith(1, {
+        sourceKey: 'entry-1:hash-1',
+        title: 'npm run dev',
+        sourceText: 'npm run dev',
+        mode: 'translate',
+      });
+      expect(mockedComponents.openAiDialog).toHaveBeenNthCalledWith(2, {
+        sourceKey: 'entry-1:hash-1',
+        title: 'npm run dev',
+        sourceText: 'npm run dev',
+        mode: 'chat',
+      });
+    });
   });
 
   it('non-immersive JSON detail 保留 Raw tab 与 shared scroll 左列', () => {
@@ -403,7 +450,9 @@ describe('DetailView', () => {
 
     const { rerender } = render(<DetailView />);
 
-    expect(screen.getByTestId('renderer-session-key')).toHaveTextContent('entry-code-a:hash-code-a');
+    expect(screen.getByTestId('renderer-session-key')).toHaveTextContent(
+      'entry-code-a:hash-code-a'
+    );
 
     fireEvent.click(screen.getAllByRole('button', { name: 'mutate-workbench' })[0]);
     fireEvent.click(screen.getByRole('button', { name: '复制' }));
@@ -422,7 +471,9 @@ describe('DetailView', () => {
     currentEntry = reopenedEntry;
     rerender(<DetailView />);
 
-    expect(screen.getByTestId('renderer-session-key')).toHaveTextContent('entry-code-b:hash-code-b');
+    expect(screen.getByTestId('renderer-session-key')).toHaveTextContent(
+      'entry-code-b:hash-code-b'
+    );
 
     fireEvent.click(screen.getByRole('button', { name: '复制' }));
 

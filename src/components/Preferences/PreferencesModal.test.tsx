@@ -98,6 +98,11 @@ const baseConfig = {
   auto_startup: false,
   auto_update: true,
   language: 'system',
+  llm: {
+    api_key: '',
+    base_url: 'https://api.openai.com/v1',
+    model: 'gpt-4.1-mini',
+  },
 };
 
 let loadCacheStatistics: ReturnType<typeof vi.fn>;

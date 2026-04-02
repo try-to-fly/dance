@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Label } from '../ui/label';
+import { Input } from '../ui/input';
 import { RadioGroup, RadioGroupItem } from '../ui/radio-group';
 import {
   Settings,
@@ -23,6 +24,7 @@ import {
   Globe,
   BarChart3,
   FileText,
+  Bot,
 } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { useConfigStore } from '../../stores/configStore';
@@ -234,7 +236,7 @@ export function PreferencesModal() {
 
             <div className="flex-1 flex flex-col min-h-0 px-6">
               <Tabs defaultValue="text" className="w-full flex-1 flex flex-col min-h-0">
-                <TabsList className="grid w-full grid-cols-8 mb-4 flex-shrink-0">
+                <TabsList className="grid w-full grid-cols-9 mb-4 flex-shrink-0">
                   <TabsTrigger value="text">{t('tabs.text')}</TabsTrigger>
                   <TabsTrigger value="image">{t('tabs.image')}</TabsTrigger>
                   <TabsTrigger value="security" className="flex items-center gap-1">
@@ -256,6 +258,10 @@ export function PreferencesModal() {
                   <TabsTrigger value="analytics" className="flex items-center gap-1">
                     <BarChart3 className="w-4 h-4" />
                     {t('tabs.analytics')}
+                  </TabsTrigger>
+                  <TabsTrigger value="ai" className="flex items-center gap-1">
+                    <Bot className="w-4 h-4" />
+                    {t('tabs.ai')}
                   </TabsTrigger>
                   <TabsTrigger value="logs" className="flex items-center gap-1">
                     <FileText className="w-4 h-4" />
@@ -1017,6 +1023,114 @@ export function PreferencesModal() {
                           </p>
                         </div>
                       </div>
+                    </div>
+                  </div>
+                </TabsContent>
+
+                <TabsContent
+                  value="ai"
+                  className="flex-1 overflow-y-auto pr-2 data-[state=active]:flex data-[state=active]:flex-col"
+                >
+                  <div className="space-y-6 pb-4">
+                    <div>
+                      <h3 className="text-lg font-semibold mb-4">{t('ai.title')}</h3>
+                      <p className="text-sm text-muted-foreground mb-6">{t('ai.description')}</p>
+
+                      <Card className="border-primary/15 bg-primary/5">
+                        <CardHeader className="pb-3">
+                          <CardTitle className="text-sm font-medium">
+                            {t('ai.providerTitle')}
+                          </CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                          <div className="space-y-2">
+                            <Label htmlFor="llm-api-key" className="text-sm font-medium">
+                              {t('ai.apiKey')}
+                            </Label>
+                            <Input
+                              id="llm-api-key"
+                              type="password"
+                              autoComplete="off"
+                              spellCheck={false}
+                              value={localConfig.llm.api_key}
+                              onChange={(event) =>
+                                setLocalConfig((prev) =>
+                                  prev
+                                    ? {
+                                        ...prev,
+                                        llm: {
+                                          ...prev.llm,
+                                          api_key: event.target.value,
+                                        },
+                                      }
+                                    : prev
+                                )
+                              }
+                              placeholder={t('ai.apiKeyPlaceholder')}
+                            />
+                            <p className="text-xs text-muted-foreground">{t('ai.apiKeyHint')}</p>
+                          </div>
+
+                          <div className="grid gap-4 md:grid-cols-2">
+                            <div className="space-y-2">
+                              <Label htmlFor="llm-base-url" className="text-sm font-medium">
+                                {t('ai.baseUrl')}
+                              </Label>
+                              <Input
+                                id="llm-base-url"
+                                type="url"
+                                autoComplete="off"
+                                spellCheck={false}
+                                value={localConfig.llm.base_url}
+                                onChange={(event) =>
+                                  setLocalConfig((prev) =>
+                                    prev
+                                      ? {
+                                          ...prev,
+                                          llm: {
+                                            ...prev.llm,
+                                            base_url: event.target.value,
+                                          },
+                                        }
+                                      : prev
+                                  )
+                                }
+                                placeholder={t('ai.baseUrlPlaceholder')}
+                              />
+                            </div>
+
+                            <div className="space-y-2">
+                              <Label htmlFor="llm-model" className="text-sm font-medium">
+                                {t('ai.model')}
+                              </Label>
+                              <Input
+                                id="llm-model"
+                                autoComplete="off"
+                                spellCheck={false}
+                                value={localConfig.llm.model}
+                                onChange={(event) =>
+                                  setLocalConfig((prev) =>
+                                    prev
+                                      ? {
+                                          ...prev,
+                                          llm: {
+                                            ...prev.llm,
+                                            model: event.target.value,
+                                          },
+                                        }
+                                      : prev
+                                  )
+                                }
+                                placeholder={t('ai.modelPlaceholder')}
+                              />
+                            </div>
+                          </div>
+
+                          <div className="rounded-xl border border-dashed border-border/80 bg-background/80 px-3 py-3 text-xs leading-6 text-muted-foreground">
+                            {t('ai.note')}
+                          </div>
+                        </CardContent>
+                      </Card>
                     </div>
                   </div>
                 </TabsContent>

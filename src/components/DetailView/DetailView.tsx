@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AlertTriangle, AppWindow, Clock3, Layers3 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useClipboardStore } from '../../stores/clipboardStore';
+import { useAiStore } from '../../stores/aiStore';
 import { ContentSubType, ResolvedPreviewData } from '../../types/clipboard';
 import { buildPreviewDescriptor } from '../../lib/preview/previewDescriptor';
 import {
@@ -9,6 +10,7 @@ import {
   getEntryAnalysisStatus,
   getEntryAnalysisSubtype,
 } from '../../lib/preview/entryPresentation';
+import { AIAssistantDialog } from '../AI/AIAssistantDialog';
 import { DetailEmptyState, DetailScene } from './scene/DetailScene';
 
 const normalizeMetaLabel = (value: string) => value.replace(/[：:]$/, '');
@@ -86,6 +88,8 @@ export function DetailView() {
     data: ResolvedPreviewData | null;
   } | null>(null);
   const [workbenchBuffer, setWorkbenchBuffer] = useState<string | null>(null);
+  const getImageUrlRef = useRef(getImageUrl);
+  const resolveEntryPreviewRef = useRef(resolveEntryPreview);
   const selectedEntryKey = selectedEntry
     ? `${selectedEntry.id}:${selectedEntry.content_hash}`
     : null;
@@ -101,6 +105,9 @@ export function DetailView() {
     const translated = t(key);
     return translated === key ? fallback : translated;
   };
+
+  getImageUrlRef.current = getImageUrl;
+  resolveEntryPreviewRef.current = resolveEntryPreview;
 
   useEffect(() => {
     let isActive = true;
@@ -118,9 +125,9 @@ export function DetailView() {
 
       let nextResolved: ResolvedPreviewData = {};
 
-      if (resolveEntryPreview) {
+      if (resolveEntryPreviewRef.current) {
         try {
-          nextResolved = (await resolveEntryPreview(selectedEntry)) || {};
+          nextResolved = (await resolveEntryPreviewRef.current(selectedEntry)) || {};
         } catch (error) {
           console.error('[DetailView] 解析预览失败:', error);
         }
@@ -132,7 +139,7 @@ export function DetailView() {
         !nextResolved.imageUrl
       ) {
         try {
-          const imageUrl = await getImageUrl(selectedEntry.file_path);
+          const imageUrl = await getImageUrlRef.current(selectedEntry.file_path);
           nextResolved = {
             ...nextResolved,
             sourceKind: nextResolved.sourceKind ?? 'local',
@@ -153,7 +160,7 @@ export function DetailView() {
     return () => {
       isActive = false;
     };
-  }, [getImageUrl, resolveEntryPreview, selectedEntry, selectedEntryKey]);
+  }, [selectedEntry, selectedEntryKey]);
 
   useEffect(() => {
     if (!selectedEntry || !usesWorkbench) {
@@ -165,7 +172,12 @@ export function DetailView() {
   }, [selectedEntry, selectedEntryKey, usesWorkbench]);
 
   if (!selectedEntry) {
-    return <DetailEmptyState selectItemLabel={t('detail.selectItem')} />;
+    return (
+      <DetailEmptyState
+        selectItemLabel={t('detail.selectItem')}
+        helperPills={[t('common:search'), t('paste'), 'Alt + 1-9']}
+      />
+    );
   }
 
   const subType = selectedEntrySubType;
@@ -282,6 +294,22 @@ export function DetailView() {
     await pasteSelectedEntry(selectedEntry);
   };
 
+  const openAiWorkspace = async (mode: 'translate' | 'chat') => {
+    const sourceText = selectedEntry.content_data?.trim();
+    if (!sourceText || !selectedEntryKey) {
+      return;
+    }
+
+    await useAiStore.getState().openDialog({
+      sourceKey: selectedEntryKey,
+      title: descriptor.headline,
+      sourceText,
+      mode,
+    });
+  };
+
+  const canUseAi = Boolean(selectedEntry.content_data?.trim());
+
   const handleDelete = async () => {
     await deleteEntry(selectedEntry.id);
   };
@@ -316,29 +344,37 @@ export function DetailView() {
   };
 
   return (
-    <DetailScene
-      entry={selectedEntry}
-      descriptor={detailDescriptor}
-      metadataPills={metadataPills}
-      labels={{
-        copy: t('copy'),
-        copyDecoded: resolveLabel('detail.actions.copyDecoded', '复制解码内容'),
-        paste: t('paste'),
-        delete: t('delete'),
-        favorite: t('clipboard:actions.favorite'),
-        unfavorite: t('clipboard:actions.unfavorite'),
-        openFile: resolveLabel('detail.actions.openFile', '打开文件'),
-        openUrl: resolveLabel('renderers.url.open', '打开链接'),
-        title: t('detail.title'),
-      }}
-      onCopy={handleCopy}
-      onCopyDecoded={handleCopyDecoded}
-      onPaste={handlePaste}
-      onDelete={handleDelete}
-      onToggleFavorite={() => toggleFavorite(selectedEntry.id)}
-      onOpenUrl={handleOpenUrl}
-      onOpenFile={handleOpenFile}
-      canCopyDecoded={Boolean(decodedContent)}
-    />
+    <>
+      <DetailScene
+        entry={selectedEntry}
+        descriptor={detailDescriptor}
+        metadataPills={metadataPills}
+        labels={{
+          copy: t('copy'),
+          copyDecoded: resolveLabel('detail.actions.copyDecoded', '复制解码内容'),
+          paste: t('paste'),
+          delete: t('delete'),
+          favorite: t('clipboard:actions.favorite'),
+          unfavorite: t('clipboard:actions.unfavorite'),
+          openFile: resolveLabel('detail.actions.openFile', '打开文件'),
+          openUrl: resolveLabel('renderers.url.open', '打开链接'),
+          translate: resolveLabel('detail.ai.translate', '翻译中文'),
+          chat: resolveLabel('detail.ai.chat', 'Chat'),
+          title: t('detail.title'),
+        }}
+        onCopy={handleCopy}
+        onCopyDecoded={handleCopyDecoded}
+        onPaste={handlePaste}
+        onDelete={handleDelete}
+        onToggleFavorite={() => toggleFavorite(selectedEntry.id)}
+        onOpenUrl={handleOpenUrl}
+        onOpenFile={handleOpenFile}
+        onTranslate={() => openAiWorkspace('translate')}
+        onOpenChat={() => openAiWorkspace('chat')}
+        canCopyDecoded={Boolean(decodedContent)}
+        showAiActions={canUseAi}
+      />
+      <AIAssistantDialog />
+    </>
   );
 }

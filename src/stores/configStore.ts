@@ -17,6 +17,12 @@ export interface ExcludedApp {
   bundle_id: string;
 }
 
+export interface LlmConfig {
+  api_key: string;
+  base_url: string;
+  model: string;
+}
+
 export interface AppConfig {
   text: TextConfig;
   image: ImageConfig;
@@ -27,6 +33,7 @@ export interface AppConfig {
   auto_update: boolean;
   last_update_check?: string; // ISO 8601 date string
   language: string; // Language preference (zh or en)
+  llm: LlmConfig;
 }
 
 export interface CacheStatistics {
@@ -85,6 +92,11 @@ const defaultConfig: AppConfig = {
   auto_update: true,
   last_update_check: undefined,
   language: 'system',
+  llm: {
+    api_key: '',
+    base_url: 'https://api.openai.com/v1',
+    model: 'gpt-4.1-mini',
+  },
 };
 
 export const useConfigStore = create<ConfigStore>((set, get) => ({

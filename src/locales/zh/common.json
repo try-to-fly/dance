@@ -43,6 +43,32 @@
       "text": "文本",
       "image": "图片",
       "file": "文件"
+    },
+    "ai": {
+      "translate": "翻译中文",
+      "chat": "Chat",
+      "dialogTitle": "AI 文本工作台",
+      "dialogDescription": "围绕当前选中的原始文本做翻译、提取、改写和多轮追问。",
+      "sourceTitle": "当前原文",
+      "sourceHint": "AI 会始终围绕这段原始文本回答，不会脱离上下文单独编造内容。",
+      "setupTitle": "先配置 AI 提供方",
+      "setupDescription": "请到偏好设置的 AI 页签填写 API Key、Base URL 和模型名称，然后再使用翻译或 Chat。",
+      "openSettings": "打开 AI 设置",
+      "translateTitle": "翻译成中文",
+      "translateHint": "保持结构和关键信息，适合快速理解网页、文档、日志和代码说明。",
+      "retryTranslate": "重新翻译",
+      "translating": "正在翻译当前原文...",
+      "translateEmpty": "点击“重新翻译”即可生成中文结果。",
+      "copyResult": "复制结果",
+      "copied": "已复制",
+      "continueChat": "继续对话",
+      "chatTitle": "基于原文继续对话",
+      "chatHint": "例如：翻译成英文、提取所有 URL、总结重点、改写成更正式的语气。",
+      "clearConversation": "清空对话",
+      "chatEmpty": "从一个具体指令开始，AI 会始终把当前原文当作处理对象。",
+      "replying": "正在生成回复...",
+      "inputPlaceholder": "输入你希望对这段原始文本执行的操作，例如：提取所有 URL 并按列表输出",
+      "inputHint": "按 Cmd/Ctrl + Enter 发送"
     }
   },
   "updateChecker": {

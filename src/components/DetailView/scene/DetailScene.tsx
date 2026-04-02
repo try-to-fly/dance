@@ -9,6 +9,8 @@ import {
   FolderClosed,
   FolderOpen,
   Heart,
+  Languages,
+  MessageSquareText,
   Trash2,
 } from 'lucide-react';
 import { ComponentType } from 'react';
@@ -57,6 +59,8 @@ interface DetailSceneProps {
     unfavorite: string;
     openFile: string;
     openUrl: string;
+    translate?: string;
+    chat?: string;
     title: string;
   };
   onCopy: () => Promise<void> | void;
@@ -66,7 +70,10 @@ interface DetailSceneProps {
   onToggleFavorite: () => Promise<void> | void;
   onOpenUrl: () => void;
   onOpenFile: () => Promise<void> | void;
+  onTranslate?: () => Promise<void> | void;
+  onOpenChat?: () => Promise<void> | void;
   canCopyDecoded?: boolean;
+  showAiActions?: boolean;
 }
 
 export function DetailScene({
@@ -81,7 +88,10 @@ export function DetailScene({
   onToggleFavorite,
   onOpenUrl,
   onOpenFile,
+  onTranslate,
+  onOpenChat,
   canCopyDecoded = false,
+  showAiActions = false,
 }: DetailSceneProps) {
   const contentType = entry.content_type.toLowerCase();
   const contentIsImage = contentType.includes('image');
@@ -95,11 +105,11 @@ export function DetailScene({
     descriptor.alternateViews.length > 0 && !(hasImmersivePreview && hasRawOnlyAlternateView);
   const layoutMode = hasImmersivePreview ? 'immersive' : useDenseHeader ? 'dense' : 'default';
   const actionButtonClassName = cn(
-    'h-8 rounded-xl px-3 text-xs min-[1200px]:h-9',
+    'h-[30px] rounded-[11px] px-2.5 text-[11px]',
     useDenseHeader ? 'min-[1200px]:rounded-xl' : 'min-[1200px]:rounded-2xl'
   );
   const iconButtonClassName = cn(
-    'h-8 w-8 rounded-xl min-[1200px]:h-9 min-[1200px]:w-9',
+    'h-[30px] w-[30px] rounded-[11px]',
     useDenseHeader ? 'min-[1200px]:rounded-xl' : 'min-[1200px]:rounded-2xl'
   );
 
@@ -196,24 +206,24 @@ export function DetailScene({
     <Card
       id="detail-view"
       data-layout={layoutMode}
-      className="flex h-full min-h-0 flex-col overflow-hidden rounded-[20px] border border-border/70 bg-card/88 shadow-[0_16px_44px_rgba(15,23,42,0.08)] backdrop-blur-xl min-[1200px]:rounded-[24px]"
+      className="flex h-full min-h-0 flex-col overflow-hidden rounded-[18px] border border-border/70 bg-card/88 shadow-[0_16px_44px_rgba(15,23,42,0.08)] backdrop-blur-xl min-[1200px]:rounded-[20px]"
     >
       <CardHeader
         id="detail-view-header"
         className={cn(
           'space-y-0 border-b border-border/70',
           useDenseHeader
-            ? 'gap-1.5 px-2.5 pb-2 pt-2.5 min-[1200px]:gap-2 min-[1200px]:px-3 min-[1200px]:pb-2.5 min-[1200px]:pt-3'
-            : 'gap-2.5 px-3.5 pb-2.5 pt-3.5 min-[1200px]:gap-3 min-[1200px]:px-4 min-[1200px]:pb-3 min-[1200px]:pt-4'
+            ? 'gap-1 px-2 pb-1.5 pt-1.5 min-[1200px]:gap-1.5 min-[1200px]:px-2.5 min-[1200px]:pb-1.5 min-[1200px]:pt-2'
+            : 'gap-1.5 px-2.5 pb-1.5 pt-2 min-[1200px]:gap-2 min-[1200px]:px-3 min-[1200px]:pb-2 min-[1200px]:pt-2.5'
         )}
       >
         <div
           className={cn(
             'flex flex-wrap items-start justify-between',
-            useDenseHeader ? 'gap-2.5 min-[1200px]:gap-3' : 'gap-3 min-[1200px]:gap-4'
+            useDenseHeader ? 'gap-1.5 min-[1200px]:gap-2' : 'gap-2 min-[1200px]:gap-2.5'
           )}
         >
-          <div className={cn('min-w-0 flex-1', useDenseHeader ? 'space-y-1.5' : 'space-y-2')}>
+          <div className={cn('min-w-0 flex-1', useDenseHeader ? 'space-y-0.5' : 'space-y-1')}>
             <div className="flex flex-wrap items-center gap-2">
               <Badge
                 id="detail-view-type-badge"
@@ -270,7 +280,7 @@ export function DetailScene({
 
             <div className={cn(useDenseHeader ? 'space-y-0.5' : 'space-y-1')}>
               {!useDenseHeader && (
-                <p className="text-[10px] font-semibold uppercase tracking-[0.26em] text-muted-foreground min-[1200px]:text-[11px]">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-muted-foreground min-[1200px]:text-[11px]">
                   {labels.title}
                 </p>
               )}
@@ -279,8 +289,8 @@ export function DetailScene({
                 className={cn(
                   'tracking-tight',
                   useDenseHeader
-                    ? 'line-clamp-2 text-[15px] leading-tight min-[1200px]:line-clamp-1 min-[1200px]:text-base'
-                    : 'line-clamp-2 text-[15px] leading-snug min-[1200px]:text-[17px]'
+                    ? 'line-clamp-2 text-[14px] leading-tight min-[1200px]:line-clamp-1 min-[1200px]:text-[15px]'
+                    : 'line-clamp-2 text-[14px] leading-snug min-[1200px]:text-base'
                 )}
                 title={descriptor.headline}
               >
@@ -291,6 +301,34 @@ export function DetailScene({
 
           <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
             {descriptor.actions.map(renderActionButton)}
+            {showAiActions && onTranslate ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={onTranslate}
+                aria-label={labels.translate}
+                title={labels.translate}
+                className={actionButtonClassName}
+              >
+                <Languages className="mr-1.5 h-4 w-4" />
+                {labels.translate}
+              </Button>
+            ) : null}
+            {showAiActions && onOpenChat ? (
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={onOpenChat}
+                aria-label={labels.chat}
+                title={labels.chat}
+                className={actionButtonClassName}
+              >
+                <MessageSquareText className="mr-1.5 h-4 w-4" />
+                {labels.chat}
+              </Button>
+            ) : null}
             <Button
               type="button"
               variant="outline"
@@ -335,7 +373,7 @@ export function DetailScene({
                 title={`${item.label}: ${item.fullValue}`}
                 className={cn(
                   'inline-flex min-w-0 max-w-full items-center rounded-full border border-border/60 bg-background/70',
-                  useDenseHeader ? 'gap-1 px-1.5 py-0.5' : 'gap-1.5 px-2 py-1'
+                  useDenseHeader ? 'gap-1 px-1.5 py-0.5' : 'gap-1 px-1.5 py-0.5'
                 )}
               >
                 <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
@@ -353,7 +391,7 @@ export function DetailScene({
         id="detail-view-content"
         className={cn(
           'flex min-h-0 flex-1 flex-col',
-          hasImmersivePreview ? 'p-1.5 min-[1200px]:p-2' : 'p-2 min-[1200px]:p-2.5'
+          hasImmersivePreview ? 'p-1 min-[1200px]:p-1.5' : 'p-1 min-[1200px]:p-1.5'
         )}
       >
         <div
@@ -361,8 +399,8 @@ export function DetailScene({
           className={cn(
             'flex h-full min-h-0 flex-1 flex-col overflow-hidden border border-border/70 bg-background/70',
             hasImmersivePreview
-              ? 'rounded-[15px] min-[1200px]:rounded-[18px]'
-              : 'rounded-[16px] min-[1200px]:rounded-[18px]'
+              ? 'rounded-[12px] min-[1200px]:rounded-[14px]'
+              : 'rounded-[12px] min-[1200px]:rounded-[14px]'
           )}
         >
           <div
@@ -370,8 +408,8 @@ export function DetailScene({
             className={cn(
               'grid min-h-0 flex-1',
               hasImmersivePreview
-                ? 'gap-1.5 p-1.5 min-[1200px]:gap-2 min-[1200px]:p-2'
-                : 'gap-2 p-2 min-[1200px]:gap-2.5 min-[1200px]:p-2.5',
+                ? 'gap-1 p-1 min-[1200px]:gap-1.5 min-[1200px]:p-1.5'
+                : 'gap-1 p-1 min-[1200px]:gap-1.5 min-[1200px]:p-1.5',
               hasInspector && 'min-[1200px]:grid-cols-[minmax(0,1fr)_280px]'
             )}
           >
@@ -379,13 +417,13 @@ export function DetailScene({
               id="detail-view-primary-column"
               className={cn(
                 'min-h-0',
-                hasImmersivePreview ? 'flex flex-col gap-2' : 'overflow-y-auto pr-0.5'
+                hasImmersivePreview ? 'flex flex-col gap-1' : 'overflow-y-auto pr-0.5'
               )}
             >
               <div
                 className={cn(
                   'min-h-0',
-                  hasImmersivePreview ? 'flex min-h-0 flex-1 flex-col gap-2' : 'space-y-2.5'
+                  hasImmersivePreview ? 'flex min-h-0 flex-1 flex-col gap-1' : 'space-y-1.5'
                 )}
               >
                 <div className={cn('min-h-0', hasImmersivePreview && 'flex-1')}>
@@ -411,22 +449,46 @@ export function DetailScene({
   );
 }
 
-export function DetailEmptyState({ selectItemLabel }: { selectItemLabel: string }) {
+export function DetailEmptyState({
+  selectItemLabel,
+  helperPills = [],
+}: {
+  selectItemLabel: string;
+  helperPills?: string[];
+}) {
   return (
     <Card
       id="detail-view-empty"
-      className="flex h-full min-h-[280px] flex-col rounded-[22px] border border-border/70 bg-card/88 shadow-[0_16px_50px_rgba(15,23,42,0.08)] backdrop-blur-xl min-[1200px]:min-h-[320px] min-[1200px]:rounded-[26px]"
+      className="flex h-full min-h-[220px] flex-col rounded-[18px] border border-border/70 bg-card/88 shadow-[0_16px_50px_rgba(15,23,42,0.08)] backdrop-blur-xl min-[1200px]:min-h-[240px] min-[1200px]:rounded-[20px]"
     >
       <CardContent
         id="detail-view-empty-content"
-        className="flex flex-1 items-center justify-center p-6 min-[1200px]:p-8"
+        className="flex flex-1 items-start justify-start p-4 min-[1200px]:p-5"
       >
-        <div id="detail-view-empty-message" className="max-w-sm text-center">
-          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-[20px] border border-primary/15 bg-primary/10 text-primary min-[1200px]:mb-5 min-[1200px]:h-20 min-[1200px]:w-20 min-[1200px]:rounded-[26px]">
-            <AppWindow className="h-9 w-9" />
+        <div id="detail-view-empty-message" className="flex w-full max-w-[560px] flex-col gap-2.5">
+          <div className="rounded-[16px] border border-border/70 bg-background/65 p-3.5 min-[1200px]:rounded-[18px] min-[1200px]:p-4">
+            <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-[14px] border border-primary/15 bg-primary/10 text-primary min-[1200px]:h-14 min-[1200px]:w-14 min-[1200px]:rounded-[16px]">
+              <AppWindow className="h-7 w-7" />
+            </div>
+            <p className="text-[14px] font-medium text-foreground min-[1200px]:text-[15px]">
+              {selectItemLabel}
+            </p>
+            <p className="mt-1.5 text-[12px] text-muted-foreground">Alt + 1-9</p>
           </div>
-          <p className="text-base font-medium text-foreground">{selectItemLabel}</p>
-          <p className="mt-2 text-sm text-muted-foreground">Alt + 1-9</p>
+
+          {helperPills.length > 0 && (
+            <div className="flex flex-wrap gap-1">
+              {helperPills.map((pill) => (
+                <Badge
+                  key={pill}
+                  variant="secondary"
+                  className="rounded-full border border-border/60 bg-background/78 px-1.5 py-0.5 text-[10px] font-normal text-muted-foreground"
+                >
+                  {pill}
+                </Badge>
+              ))}
+            </div>
+          )}
         </div>
       </CardContent>
     </Card>
