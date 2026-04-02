@@ -39,6 +39,8 @@ import { cn } from '../../lib/utils';
 
 type AppTheme = 'dark' | 'light' | 'system';
 const DEFAULT_REBUILD_BATCH_SIZE = 250;
+const PREFERENCES_TAB_CONTENT_CLASSNAME =
+  'flex-1 overflow-y-auto pr-2 data-[state=active]:flex data-[state=active]:flex-col focus-visible:ring-0 focus-visible:ring-offset-0';
 
 interface RebuildEntryAnalysisResult {
   scanned: number;
@@ -269,10 +271,7 @@ export function PreferencesModal() {
                   </TabsTrigger>
                 </TabsList>
 
-                <TabsContent
-                  value="text"
-                  className="flex-1 overflow-y-auto pr-2 data-[state=active]:flex data-[state=active]:flex-col"
-                >
+                <TabsContent value="text" className={PREFERENCES_TAB_CONTENT_CLASSNAME}>
                   <div className="space-y-6 pb-4">
                     <div>
                       <h3 className="text-lg font-semibold mb-4">{t('text.title')}</h3>
@@ -348,10 +347,7 @@ export function PreferencesModal() {
                   </div>
                 </TabsContent>
 
-                <TabsContent
-                  value="image"
-                  className="flex-1 overflow-y-auto pr-2 data-[state=active]:flex data-[state=active]:flex-col"
-                >
+                <TabsContent value="image" className={PREFERENCES_TAB_CONTENT_CLASSNAME}>
                   <div className="space-y-6 pb-4">
                     <div>
                       <h3 className="text-lg font-semibold mb-4">{t('image.title')}</h3>
@@ -399,10 +395,7 @@ export function PreferencesModal() {
                   </div>
                 </TabsContent>
 
-                <TabsContent
-                  value="security"
-                  className="flex-1 overflow-y-auto pr-2 data-[state=active]:flex data-[state=active]:flex-col"
-                >
+                <TabsContent value="security" className={PREFERENCES_TAB_CONTENT_CLASSNAME}>
                   <div className="space-y-6 pb-4">
                     <div>
                       <h3 className="text-lg font-semibold mb-4">{t('security.excludedApps')}</h3>
@@ -500,10 +493,7 @@ export function PreferencesModal() {
                   </div>
                 </TabsContent>
 
-                <TabsContent
-                  value="shortcuts"
-                  className="flex-1 overflow-y-auto pr-2 data-[state=active]:flex data-[state=active]:flex-col"
-                >
+                <TabsContent value="shortcuts" className={PREFERENCES_TAB_CONTENT_CLASSNAME}>
                   <div className="space-y-6 pb-4">
                     <div>
                       <h3 className="text-lg font-semibold mb-4">{t('shortcuts.title')}</h3>
@@ -535,7 +525,7 @@ export function PreferencesModal() {
 
                 <TabsContent
                   value="system"
-                  className="flex-1 overflow-y-auto pr-2 data-[state=active]:flex data-[state=active]:flex-col min-h-0"
+                  className={cn(PREFERENCES_TAB_CONTENT_CLASSNAME, 'min-h-0')}
                 >
                   <div className="space-y-6 pb-4">
                     <div className="space-y-4">
@@ -837,10 +827,7 @@ export function PreferencesModal() {
                   </div>
                 </TabsContent>
 
-                <TabsContent
-                  value="language"
-                  className="flex-1 overflow-y-auto pr-2 data-[state=active]:flex data-[state=active]:flex-col"
-                >
+                <TabsContent value="language" className={PREFERENCES_TAB_CONTENT_CLASSNAME}>
                   <div className="space-y-6 pb-4">
                     <div>
                       <h3 className="text-lg font-semibold mb-4">{t('language.title')}</h3>
@@ -947,10 +934,7 @@ export function PreferencesModal() {
                   </div>
                 </TabsContent>
 
-                <TabsContent
-                  value="analytics"
-                  className="flex-1 overflow-y-auto pr-2 data-[state=active]:flex data-[state=active]:flex-col"
-                >
+                <TabsContent value="analytics" className={PREFERENCES_TAB_CONTENT_CLASSNAME}>
                   <div className="space-y-6 pb-4">
                     <div>
                       <h3 className="text-lg font-semibold mb-4">{t('analytics.title')}</h3>
@@ -1027,10 +1011,7 @@ export function PreferencesModal() {
                   </div>
                 </TabsContent>
 
-                <TabsContent
-                  value="ai"
-                  className="flex-1 overflow-y-auto pr-2 data-[state=active]:flex data-[state=active]:flex-col"
-                >
+                <TabsContent value="ai" className={PREFERENCES_TAB_CONTENT_CLASSNAME}>
                   <div className="space-y-6 pb-4">
                     <div>
                       <h3 className="text-lg font-semibold mb-4">{t('ai.title')}</h3>
@@ -1135,10 +1116,7 @@ export function PreferencesModal() {
                   </div>
                 </TabsContent>
 
-                <TabsContent
-                  value="logs"
-                  className="flex-1 overflow-y-auto pr-2 data-[state=active]:flex data-[state=active]:flex-col"
-                >
+                <TabsContent value="logs" className={PREFERENCES_TAB_CONTENT_CLASSNAME}>
                   <div className="space-y-6">
                     <div>
                       <h3 className="text-lg font-semibold mb-4">{t('tabs.logs')}</h3>
