@@ -18,6 +18,8 @@ import { useConfigStore } from './stores/configStore';
 import { analytics, ANALYTICS_EVENTS } from './services/analytics';
 import { TypeFilter } from './components/TypeFilter/TypeFilter';
 import { cn } from './lib/utils';
+import { AIChatWindow } from './components/AI/AIChatWindow';
+import { isAiChatWindowView } from './lib/ai/chatWindow';
 import type { Statistics } from './types/clipboard';
 
 const queryClient = new QueryClient();
@@ -46,6 +48,7 @@ function AppContent() {
   const { t, i18n } = useTranslation(['common', 'clipboard']);
   const { startMonitoring, setupEventListener } = useClipboardStore();
   const { loadConfig } = useConfigStore();
+  const isAiChatWindow = isAiChatWindowView();
   const [showStatistics, setShowStatistics] = useState(false);
   const [modalStatistics, setModalStatistics] = useState<Statistics | null>(null);
   const isMacOS =
@@ -62,10 +65,11 @@ function AppContent() {
 
   useEffect(() => {
     const startTime = Date.now();
-    analytics.track(ANALYTICS_EVENTS.APP_OPENED);
-
-    setupEventListener();
-    startMonitoring();
+    if (!isAiChatWindow) {
+      analytics.track(ANALYTICS_EVENTS.APP_OPENED);
+      setupEventListener();
+      startMonitoring();
+    }
 
     loadConfig().then(async () => {
       const savedConfig = useConfigStore.getState().config;
@@ -73,16 +77,26 @@ function AppContent() {
         const targetLanguage =
           savedConfig.language === 'system' ? getSystemLanguage() : savedConfig.language;
         await i18n.changeLanguage(targetLanguage);
-        await updateWindowTitle(targetLanguage);
+        if (!isAiChatWindow) {
+          await updateWindowTitle(targetLanguage);
+        }
       } else {
-        await updateWindowTitle(i18n.language);
+        if (!isAiChatWindow) {
+          await updateWindowTitle(i18n.language);
+        }
       }
     });
 
-    analytics.trackPerformance(ANALYTICS_EVENTS.STARTUP_TIME, Date.now() - startTime);
-  }, [setupEventListener, startMonitoring, loadConfig, i18n]);
+    if (!isAiChatWindow) {
+      analytics.trackPerformance(ANALYTICS_EVENTS.STARTUP_TIME, Date.now() - startTime);
+    }
+  }, [i18n, isAiChatWindow, loadConfig, setupEventListener, startMonitoring]);
 
   useEffect(() => {
+    if (isAiChatWindow) {
+      return;
+    }
+
     const handleLanguageChange = async (language: string) => {
       await updateWindowTitle(language);
     };
@@ -91,9 +105,13 @@ function AppContent() {
     return () => {
       i18n.off('languageChanged', handleLanguageChange);
     };
-  }, [i18n]);
+  }, [i18n, isAiChatWindow]);
 
   useEffect(() => {
+    if (isAiChatWindow) {
+      return;
+    }
+
     let cleanup: (() => void) | undefined;
 
     void (async () => {
@@ -110,7 +128,7 @@ function AppContent() {
     return () => {
       cleanup?.();
     };
-  }, []);
+  }, [isAiChatWindow]);
 
   const toolbarButtonClass =
     'h-7 w-7 rounded-[9px] border-border/70 bg-background/78 text-foreground shadow-[0_6px_16px_rgba(15,23,42,0.05)] backdrop-blur-xl hover:bg-accent';
@@ -157,6 +175,18 @@ function AppContent() {
     event.preventDefault();
     void startWindowDrag();
   };
+
+  if (isAiChatWindow) {
+    return (
+      <MainLayout>
+        <MenuEventHandler />
+        <Suspense fallback={null}>
+          <PreferencesModal />
+        </Suspense>
+        <AIChatWindow />
+      </MainLayout>
+    );
+  }
 
   return (
     <MainLayout>

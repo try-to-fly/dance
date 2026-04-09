@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Bot,
@@ -19,6 +19,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Tabs, TabsList, TabsTrigger } from '../ui/tabs';
 import { cn } from '../../lib/utils';
+import { openAiChatWindow } from '../../lib/ai/chatWindow';
+import { formatUnknownError } from '../../lib/errors';
 import { copyToClipboard } from '../../stores/clipboardStore';
 import { useAiStore } from '../../stores/aiStore';
 import { useConfigStore } from '../../stores/configStore';
@@ -74,16 +76,51 @@ export function AIAssistantDialog() {
     }
   }, [isOpen, activeSourceKey]);
 
+  const handleOpenChatWindow = useCallback(async () => {
+    if (!session) {
+      return;
+    }
+
+    setMode('translate');
+
+    try {
+      await openAiChatWindow(
+        {
+          sourceKey: session.sourceKey,
+          title: session.title,
+          sourceText: session.sourceText,
+        },
+        {
+          windowTitle: t('detail.ai.chatTitle'),
+        }
+      );
+      closeDialog();
+    } catch (error) {
+      console.error('[AIAssistantDialog] 打开聊天窗口失败:', formatUnknownError(error));
+    }
+  }, [closeDialog, session, setMode, t]);
+
+  useEffect(() => {
+    if (isOpen && mode === 'chat') {
+      void handleOpenChatWindow();
+    }
+  }, [handleOpenChatWindow, isOpen, mode]);
+
   if (!session) {
     return null;
   }
 
-  const handleModeChange = (nextMode: string) => {
-    setMode(nextMode as AiDialogMode);
-  };
-
   const handleOpenPreferences = () => {
     setShowPreferences(true);
+  };
+
+  const handleModeChange = (nextMode: string) => {
+    if (nextMode === 'chat') {
+      void handleOpenChatWindow();
+      return;
+    }
+
+    setMode(nextMode as AiDialogMode);
   };
 
   const handleCopyTranslation = async () => {
@@ -222,7 +259,7 @@ export function AIAssistantDialog() {
               type="button"
               size="icon"
               className="h-8 w-8 rounded-lg"
-              onClick={() => setMode('chat')}
+              onClick={() => void handleOpenChatWindow()}
               aria-label={continueChatLabel}
               title={continueChatLabel}
             >

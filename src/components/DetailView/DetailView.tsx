@@ -14,6 +14,8 @@ import {
   formatAnalysisReasonCopy,
   formatAnalysisStatusCopy,
 } from '../../lib/preview/analysisPresentation';
+import { openAiChatWindow } from '../../lib/ai/chatWindow';
+import { formatUnknownError } from '../../lib/errors';
 import { AIAssistantDialog } from '../AI/AIAssistantDialog';
 import { DetailEmptyState, DetailScene } from './scene/DetailScene';
 
@@ -299,17 +301,35 @@ export function DetailView() {
   };
 
   const openAiWorkspace = async (mode: 'translate' | 'chat') => {
-    const sourceText = selectedEntry.content_data?.trim();
-    if (!sourceText || !selectedEntryKey) {
-      return;
-    }
+    try {
+      const sourceText = selectedEntry.content_data?.trim();
+      if (!sourceText || !selectedEntryKey) {
+        return;
+      }
 
-    await useAiStore.getState().openDialog({
-      sourceKey: selectedEntryKey,
-      title: descriptor.headline,
-      sourceText,
-      mode,
-    });
+      if (mode === 'chat') {
+        await openAiChatWindow(
+          {
+            sourceKey: selectedEntryKey,
+            title: descriptor.headline,
+            sourceText,
+          },
+          {
+            windowTitle: resolveLabel('detail.ai.chatTitle', '基于原文继续对话'),
+          }
+        );
+        return;
+      }
+
+      await useAiStore.getState().openDialog({
+        sourceKey: selectedEntryKey,
+        title: descriptor.headline,
+        sourceText,
+        mode,
+      });
+    } catch (error) {
+      console.error('[DetailView] 打开 AI 工作区失败:', formatUnknownError(error));
+    }
   };
 
   const canUseAi = Boolean(selectedEntry.content_data?.trim());

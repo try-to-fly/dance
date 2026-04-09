@@ -4,6 +4,7 @@ import {
   AiChatMessage,
   AiDialogMode,
   AiSessionState,
+  AiSessionPayload,
   AiTranslationState,
   ProcessTextResponse,
 } from '../types/ai';
@@ -49,18 +50,14 @@ const createSession = (sourceKey: string, title: string, sourceText: string): Ai
   translation: createTranslationState(),
 });
 
-interface OpenDialogPayload {
-  sourceKey: string;
-  title: string;
-  sourceText: string;
-  mode: AiDialogMode;
-}
+type OpenDialogPayload = AiSessionPayload;
 
 interface AiStore {
   isOpen: boolean;
   mode: AiDialogMode;
   activeSourceKey: string | null;
   sessions: Record<string, AiSessionState>;
+  initializeSession: (payload: AiSessionPayload) => void;
   openDialog: (payload: OpenDialogPayload) => Promise<void>;
   closeDialog: () => void;
   setMode: (mode: AiDialogMode) => void;
@@ -73,27 +70,40 @@ interface AiStore {
 const getActiveSession = (state: Pick<AiStore, 'activeSourceKey' | 'sessions'>) =>
   state.activeSourceKey ? state.sessions[state.activeSourceKey] : undefined;
 
+const buildSessionState = (state: Pick<AiStore, 'sessions'>, payload: AiSessionPayload) => ({
+  mode: payload.mode,
+  activeSourceKey: payload.sourceKey,
+  sessions: {
+    ...state.sessions,
+    [payload.sourceKey]: state.sessions[payload.sourceKey]
+      ? {
+          ...state.sessions[payload.sourceKey],
+          title: payload.title,
+          sourceText: payload.sourceText,
+        }
+      : createSession(payload.sourceKey, payload.title, payload.sourceText),
+  },
+});
+
 export const useAiStore = create<AiStore>((set, get) => ({
   isOpen: false,
   mode: 'chat',
   activeSourceKey: null,
   sessions: {},
 
+  initializeSession: (payload) => {
+    set((state) => buildSessionState(state, payload));
+  },
+
   openDialog: async ({ sourceKey, title, sourceText, mode }) => {
     set((state) => ({
       isOpen: true,
-      mode,
-      activeSourceKey: sourceKey,
-      sessions: {
-        ...state.sessions,
-        [sourceKey]: state.sessions[sourceKey]
-          ? {
-              ...state.sessions[sourceKey],
-              title,
-              sourceText,
-            }
-          : createSession(sourceKey, title, sourceText),
-      },
+      ...buildSessionState(state, {
+        sourceKey,
+        title,
+        sourceText,
+        mode,
+      }),
     }));
   },
 

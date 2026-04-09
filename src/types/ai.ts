@@ -18,6 +18,19 @@ export interface ProcessTextResponse {
   model: string;
 }
 
+export interface AiSessionPayload {
+  sourceKey: string;
+  title: string;
+  sourceText: string;
+  mode: AiDialogMode;
+}
+
+export interface AiChatWindowPayload {
+  sourceKey: string;
+  title: string;
+  sourceText: string;
+}
+
 export interface AiChatMessage extends AiConversationMessage {
   id: string;
   createdAt: number;

@@ -12,13 +12,15 @@ use crate::utils::app_list::{AppListManager, InstalledApp};
 use crate::utils::webpage_preview::{
     get_cached_webpage_preview_data_url, get_or_create_webpage_preview_data_url,
 };
+use crate::window_activation;
 use anyhow::Result;
 use base64::{engine::general_purpose, Engine as _};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 use tauri::{AppHandle, State, Window};
 use tauri_plugin_aptabase::EventTracker;
 
@@ -130,6 +132,27 @@ pub struct Base64PreviewResolution {
     pub resolved: ResolvedPreviewData,
     pub filename_suggestion: Option<String>,
     pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiChatWindowPayload {
+    pub source_key: String,
+    pub title: String,
+    pub source_text: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WindowPosition {
+    pub x: i32,
+    pub y: i32,
+}
+
+fn ai_chat_window_payloads() -> &'static Mutex<HashMap<String, AiChatWindowPayload>> {
+    static AI_CHAT_WINDOW_PAYLOADS: OnceLock<Mutex<HashMap<String, AiChatWindowPayload>>> =
+        OnceLock::new();
+
+    AI_CHAT_WINDOW_PAYLOADS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
 #[tauri::command]
@@ -1696,6 +1719,28 @@ pub async fn test_llm_config(config: LlmConfig) -> Result<ProcessTextResponse, S
 }
 
 #[tauri::command]
+pub async fn store_ai_chat_window_payload(
+    token: String,
+    payload: AiChatWindowPayload,
+) -> Result<(), String> {
+    let mut payloads = ai_chat_window_payloads()
+        .lock()
+        .map_err(|error| error.to_string())?;
+    payloads.insert(token, payload);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn take_ai_chat_window_payload(
+    token: String,
+) -> Result<Option<AiChatWindowPayload>, String> {
+    let mut payloads = ai_chat_window_payloads()
+        .lock()
+        .map_err(|error| error.to_string())?;
+    Ok(payloads.remove(&token))
+}
+
+#[tauri::command]
 pub async fn get_cache_statistics(state: State<'_, AppState>) -> Result<CacheStatistics, String> {
     state
         .get_cache_statistics()
@@ -1907,6 +1952,34 @@ pub async fn should_check_for_updates(state: State<'_, AppState>) -> Result<bool
 #[tauri::command]
 pub async fn set_window_title(window: Window, title: String) -> Result<(), String> {
     window.set_title(&title).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn move_window_to_invoker_monitor(
+    app_handle: AppHandle,
+    window: Window,
+    label: String,
+) -> Result<(), String> {
+    window_activation::move_window_to_invoker_monitor(&app_handle, &window, &label)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_invoker_monitor_centered_position(
+    window: Window,
+    width: u32,
+    height: u32,
+) -> Result<WindowPosition, String> {
+    let position = window_activation::centered_position_for_invoker_window(
+        &window,
+        tauri::PhysicalSize::new(width, height),
+    )
+    .map_err(|e| e.to_string())?;
+
+    Ok(WindowPosition {
+        x: position.x,
+        y: position.y,
+    })
 }
 
 // Log management commands

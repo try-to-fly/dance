@@ -5,7 +5,12 @@
   "windows": ["main"],
   "permissions": [
     "core:default",
+    "core:window:allow-get-all-windows",
+    "core:window:allow-set-focus",
+    "core:window:allow-show",
     "core:window:allow-start-dragging",
+    "core:window:allow-unminimize",
+    "core:webview:allow-create-webview-window",
     "opener:default",
     "clipboard-manager:allow-read-text",
     "clipboard-manager:allow-write-text",

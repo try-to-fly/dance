@@ -134,6 +134,10 @@ async fn handle_menu_event(app_handle: &AppHandle, event_id: &str) {
 }
 
 fn handle_window_event(window: &Window, event: &WindowEvent) {
+    if window.label() != "main" {
+        return;
+    }
+
     if let WindowEvent::CloseRequested { api, .. } = event {
         log::info!("Window close requested, hiding instead of closing");
         // Prevent the default close behavior
@@ -404,12 +408,16 @@ pub fn run() {
             install_update,
             should_check_for_updates,
             set_window_title,
+            move_window_to_invoker_monitor,
+            get_invoker_monitor_centered_position,
             get_log_content,
             clear_logs,
             set_log_level,
             get_current_log_level,
             process_text_with_llm,
-            test_llm_config
+            test_llm_config,
+            store_ai_chat_window_payload,
+            take_ai_chat_window_payload
         ])
         .build(tauri::generate_context!())
         .expect("error while running tauri application")
