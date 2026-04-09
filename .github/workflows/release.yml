@@ -6,6 +6,15 @@ on:
       - 'v*'
   workflow_dispatch:
     inputs:
+      release_tag:
+        description: 'Existing release tag to reuse (default: latest tag)'
+        required: false
+        type: string
+      source_ref:
+        description: 'Git ref to build from when retrying manually'
+        required: false
+        default: 'main'
+        type: string
       platform:
         description: 'Platform to build'
         required: false
@@ -13,11 +22,6 @@ on:
         type: choice
         options:
           - macos-latest
-      create_release:
-        description: 'Create a new release'
-        required: false
-        default: true
-        type: boolean
 
 jobs:
   get-latest-tag:
@@ -31,12 +35,18 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Get latest tag
+      - name: Resolve release tag
         id: get_tag
+        shell: bash
         run: |
-          latest_tag=$(git describe --tags --abbrev=0)
+          if [ -n "${{ inputs.release_tag }}" ]; then
+            latest_tag="${{ inputs.release_tag }}"
+          else
+            latest_tag=$(git describe --tags --abbrev=0)
+          fi
+
           echo "tag=$latest_tag" >> $GITHUB_OUTPUT
-          echo "Latest tag: $latest_tag"
+          echo "Resolved release tag: $latest_tag"
       - name: Get existing release
         id: get_release
         run: |
@@ -85,21 +95,29 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             release_tag="${{ needs.get-latest-tag.outputs.latest_tag }}"
+            checkout_ref="${{ inputs.source_ref }}"
           else
             release_tag="${{ github.ref_name }}"
+            checkout_ref="$release_tag"
+          fi
+
+          if [ -z "$checkout_ref" ]; then
+            checkout_ref="$release_tag"
           fi
 
           release_version="${release_tag#v}"
 
           echo "tag=$release_tag" >> "$GITHUB_OUTPUT"
           echo "version=$release_version" >> "$GITHUB_OUTPUT"
+          echo "checkout_ref=$checkout_ref" >> "$GITHUB_OUTPUT"
           echo "Using release tag $release_tag"
           echo "Using release version $release_version"
+          echo "Using checkout ref $checkout_ref"
 
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          ref: ${{ steps.release_meta.outputs.tag }}
+          ref: ${{ steps.release_meta.outputs.checkout_ref }}
 
       - name: Install dependencies
         run: |
