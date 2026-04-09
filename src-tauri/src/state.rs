@@ -17,7 +17,8 @@ use anyhow::Result;
 use arboard::Clipboard;
 use chrono::Utc;
 use sqlx::Row;
-use std::path::PathBuf;
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tauri::AppHandle;
 use tauri_plugin_autostart::ManagerExt;
@@ -246,6 +247,7 @@ impl AppState {
                 monitor,
                 self.tx.clone(),
                 Arc::clone(&self.db),
+                Arc::clone(&self.paths),
                 Arc::clone(&self.app_handle),
             );
             *runtime_guard = Some(runtime);
@@ -347,18 +349,30 @@ impl AppState {
     }
 
     pub async fn delete_entry(&self, id: String) -> Result<()> {
+        let file_path = self.get_entry_file_path(&id).await?;
+
         sqlx::query("DELETE FROM clipboard_entries WHERE id = ?")
             .bind(&id)
             .execute(self.db.pool())
             .await?;
 
+        if let Some(file_path) = file_path {
+            let _ = self.remove_asset_if_unreferenced(&file_path).await?;
+        }
+
         Ok(())
     }
 
     pub async fn clear_history(&self) -> Result<()> {
+        let file_paths = self.get_all_distinct_entry_file_paths().await?;
+
         sqlx::query("DELETE FROM clipboard_entries")
             .execute(self.db.pool())
             .await?;
+
+        for file_path in file_paths {
+            let _ = self.remove_asset_if_unreferenced(&file_path).await?;
+        }
 
         Ok(())
     }
@@ -861,18 +875,18 @@ impl AppState {
 
             // Remove image file if exists
             if let Some(relative_path) = file_path {
-                let images_dir = self.get_images_path()?;
-                let full_path = images_dir.join(relative_path.replace("imgs/", ""));
-
-                if full_path.exists() {
-                    if let Ok(metadata) = std::fs::metadata(&full_path) {
-                        size_freed += metadata.len();
-                    }
-                    let _ = std::fs::remove_file(&full_path);
+                let freed_bytes = self.remove_asset_if_unreferenced(&relative_path).await?;
+                if freed_bytes > 0 {
+                    size_freed += freed_bytes;
                     images_removed += 1;
                 }
             }
         }
+
+        let (orphan_images_removed, orphan_size_freed) =
+            self.cleanup_unreferenced_image_files().await?;
+        images_removed += orphan_images_removed;
+        size_freed += orphan_size_freed;
 
         Ok(CleanupResult {
             entries_removed,
@@ -888,6 +902,137 @@ impl AppState {
 
     fn get_images_path(&self) -> Result<PathBuf> {
         Ok(self.paths.image_assets_dir())
+    }
+
+    async fn get_entry_file_path(&self, id: &str) -> Result<Option<String>> {
+        let row = sqlx::query("SELECT file_path FROM clipboard_entries WHERE id = ?")
+            .bind(id)
+            .fetch_optional(self.db.pool())
+            .await?;
+
+        Ok(row.and_then(|row| row.try_get::<Option<String>, _>("file_path").ok().flatten()))
+    }
+
+    async fn get_all_distinct_entry_file_paths(&self) -> Result<Vec<String>> {
+        let rows = sqlx::query(
+            "SELECT DISTINCT file_path FROM clipboard_entries WHERE file_path IS NOT NULL AND file_path != ''",
+        )
+        .fetch_all(self.db.pool())
+        .await?;
+
+        Ok(rows
+            .into_iter()
+            .filter_map(|row| row.try_get::<Option<String>, _>("file_path").ok().flatten())
+            .collect())
+    }
+
+    async fn remove_asset_if_unreferenced(&self, file_path: &str) -> Result<u64> {
+        if file_path.is_empty() {
+            return Ok(0);
+        }
+
+        let reference_count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM clipboard_entries WHERE file_path = ?")
+                .bind(file_path)
+                .fetch_one(self.db.pool())
+                .await?;
+
+        if reference_count > 0 {
+            return Ok(0);
+        }
+
+        let Some(absolute_path) = self.resolve_managed_asset_path(file_path)? else {
+            return Ok(0);
+        };
+
+        self.remove_asset_file(&absolute_path)
+    }
+
+    async fn cleanup_unreferenced_image_files(&self) -> Result<(u32, u64)> {
+        let images_dir = self.get_images_path()?;
+        if !images_dir.exists() {
+            return Ok((0, 0));
+        }
+
+        let referenced_filenames: HashSet<String> = self
+            .get_all_distinct_entry_file_paths()
+            .await?
+            .into_iter()
+            .filter_map(|file_path| self.managed_image_file_name(&file_path))
+            .collect();
+
+        let mut images_removed = 0u32;
+        let mut size_freed = 0u64;
+
+        for entry in std::fs::read_dir(&images_dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            let metadata = entry.metadata()?;
+            if !metadata.is_file() {
+                continue;
+            }
+
+            let file_name = entry.file_name().to_string_lossy().to_string();
+            if referenced_filenames.contains(&file_name) {
+                continue;
+            }
+
+            let freed_bytes = self.remove_asset_file(&path)?;
+            if freed_bytes > 0 {
+                images_removed += 1;
+                size_freed += freed_bytes;
+            }
+        }
+
+        Ok((images_removed, size_freed))
+    }
+
+    fn managed_image_file_name(&self, file_path: &str) -> Option<String> {
+        if file_path.starts_with("imgs/") {
+            let path = Path::new(file_path);
+            if path.components().count() == 2 {
+                return path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .map(|name| name.to_string());
+            }
+            return None;
+        }
+
+        let absolute_path = PathBuf::from(file_path);
+        if absolute_path.is_absolute()
+            && absolute_path.parent() == Some(self.paths.image_assets_dir().as_path())
+        {
+            return absolute_path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .map(|name| name.to_string());
+        }
+
+        None
+    }
+
+    fn resolve_managed_asset_path(&self, file_path: &str) -> Result<Option<PathBuf>> {
+        if file_path.starts_with("imgs/") {
+            return Ok(Some(self.paths.resolve_relative_asset_path(file_path)?));
+        }
+
+        let absolute_path = PathBuf::from(file_path);
+        if absolute_path.is_absolute() && absolute_path.starts_with(self.paths.image_assets_dir()) {
+            return Ok(Some(absolute_path));
+        }
+
+        Ok(None)
+    }
+
+    fn remove_asset_file(&self, path: &Path) -> Result<u64> {
+        if !path.exists() {
+            return Ok(0);
+        }
+
+        let file_size = std::fs::metadata(path)?.len();
+        std::fs::remove_file(path)?;
+        Ok(file_size)
     }
 
     fn calculate_directory_size(&self, path: &PathBuf) -> Result<u64> {

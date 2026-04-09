@@ -410,6 +410,46 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_delete_entry_removes_unreferenced_image_file() {
+        let (state, roots) = create_test_state().await;
+        let image_path = roots.seed_file("data/imgs/delete-entry-image.png", b"image-bytes");
+
+        let entry = ClipboardEntry::new(
+            ContentType::Image,
+            None,
+            "delete_image_hash".to_string(),
+            Some("ImageApp".to_string()),
+            Some("imgs/delete-entry-image.png".to_string()),
+        );
+
+        sqlx::query(
+            r#"
+            INSERT INTO clipboard_entries
+            (id, content_hash, content_type, content_data, source_app, created_at, copy_count, is_favorite, file_path)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            "#,
+        )
+        .bind(&entry.id)
+        .bind(&entry.content_hash)
+        .bind(&entry.content_type)
+        .bind(&entry.content_data)
+        .bind(&entry.source_app)
+        .bind(entry.created_at)
+        .bind(entry.copy_count)
+        .bind(entry.is_favorite)
+        .bind(&entry.file_path)
+        .execute(state.db.pool())
+        .await
+        .unwrap();
+
+        assert!(image_path.exists());
+
+        state.delete_entry(entry.id.clone()).await.unwrap();
+
+        assert!(!image_path.exists());
+    }
+
+    #[tokio::test]
     async fn test_clear_history() {
         let (state, _temp_dir) = create_test_state().await;
 
@@ -464,6 +504,57 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(count, 0);
+    }
+
+    #[tokio::test]
+    async fn test_clear_history_removes_referenced_image_files() {
+        let (state, roots) = create_test_state().await;
+        let first_image = roots.seed_file("data/imgs/clear-history-1.png", b"img-1");
+        let second_image = roots.seed_file("data/imgs/clear-history-2.png", b"img-2");
+
+        let image_entries = [
+            ClipboardEntry::new(
+                ContentType::Image,
+                None,
+                "clear_history_image_hash_1".to_string(),
+                Some("ImageApp".to_string()),
+                Some("imgs/clear-history-1.png".to_string()),
+            ),
+            ClipboardEntry::new(
+                ContentType::Image,
+                None,
+                "clear_history_image_hash_2".to_string(),
+                Some("ImageApp".to_string()),
+                Some("imgs/clear-history-2.png".to_string()),
+            ),
+        ];
+
+        for entry in &image_entries {
+            sqlx::query(
+                r#"
+                INSERT INTO clipboard_entries
+                (id, content_hash, content_type, content_data, source_app, created_at, copy_count, is_favorite, file_path)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                "#,
+            )
+            .bind(&entry.id)
+            .bind(&entry.content_hash)
+            .bind(&entry.content_type)
+            .bind(&entry.content_data)
+            .bind(&entry.source_app)
+            .bind(entry.created_at)
+            .bind(entry.copy_count)
+            .bind(entry.is_favorite)
+            .bind(&entry.file_path)
+            .execute(state.db.pool())
+            .await
+            .unwrap();
+        }
+
+        state.clear_history().await.unwrap();
+
+        assert!(!first_image.exists());
+        assert!(!second_image.exists());
     }
 
     #[tokio::test]
@@ -612,6 +703,49 @@ mod tests {
         assert_eq!(stats.image_entries, 2);
         assert!(stats.db_size_bytes > 0);
         // images_size_bytes might be 0 if no actual image files exist
+    }
+
+    #[tokio::test]
+    async fn test_cleanup_expired_entries_removes_orphaned_image_files() {
+        let (state, roots) = create_test_state().await;
+        let referenced_image = roots.seed_file("data/imgs/referenced-image.png", b"keep-me");
+        let orphan_image = roots.seed_file("data/imgs/orphan-image.png", b"remove-me");
+
+        let entry = ClipboardEntry::new(
+            ContentType::Image,
+            None,
+            "cleanup_referenced_hash".to_string(),
+            Some("ImageApp".to_string()),
+            Some("imgs/referenced-image.png".to_string()),
+        );
+
+        sqlx::query(
+            r#"
+            INSERT INTO clipboard_entries
+            (id, content_hash, content_type, content_data, source_app, created_at, copy_count, is_favorite, file_path)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            "#,
+        )
+        .bind(&entry.id)
+        .bind(&entry.content_hash)
+        .bind(&entry.content_type)
+        .bind(&entry.content_data)
+        .bind(&entry.source_app)
+        .bind(entry.created_at)
+        .bind(entry.copy_count)
+        .bind(entry.is_favorite)
+        .bind(&entry.file_path)
+        .execute(state.db.pool())
+        .await
+        .unwrap();
+
+        let result = state.cleanup_expired_entries().await.unwrap();
+
+        assert_eq!(result.entries_removed, 0);
+        assert_eq!(result.images_removed, 1);
+        assert!(referenced_image.exists());
+        assert!(!orphan_image.exists());
+        assert!(result.size_freed_bytes >= b"remove-me".len() as u64);
     }
 
     #[tokio::test]

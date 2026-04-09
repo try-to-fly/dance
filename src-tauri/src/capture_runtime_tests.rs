@@ -148,6 +148,45 @@ mod capture_runtime_tests {
     }
 
     #[tokio::test]
+    async fn test_capture_runtime_replaces_old_image_asset_on_upsert() {
+        let (state, roots) = create_test_state().await;
+        state.start_monitoring().await.expect("start monitoring");
+
+        let old_image_path = roots.seed_file("data/imgs/runtime-old.png", b"old-image");
+        let new_image_path = roots.seed_file("data/imgs/runtime-new.png", b"new-image");
+
+        let mut first_entry = ClipboardEntry::new(
+            ContentType::Image,
+            None,
+            "runtime-image-upsert-hash".to_string(),
+            Some("ImageApp".to_string()),
+            Some("imgs/runtime-old.png".to_string()),
+        );
+        first_entry.created_at = 100;
+
+        let mut second_entry = ClipboardEntry::new(
+            ContentType::Image,
+            None,
+            "runtime-image-upsert-hash".to_string(),
+            Some("ImageApp".to_string()),
+            Some("imgs/runtime-new.png".to_string()),
+        );
+        second_entry.created_at = 200;
+
+        assert!(state.tx.send(first_entry).is_ok());
+        assert!(state.tx.send(second_entry).is_ok());
+
+        let stored_entry = wait_for_entry_copy_count(&state, "runtime-image-upsert-hash", 2).await;
+
+        assert_eq!(
+            stored_entry.file_path,
+            Some("imgs/runtime-new.png".to_string())
+        );
+        assert!(!old_image_path.exists());
+        assert!(new_image_path.exists());
+    }
+
+    #[tokio::test]
     async fn test_register_suppression_for_text_uses_normalized_url_hash() {
         let (state, _roots) = create_test_state().await;
         state.start_monitoring().await.expect("start monitoring");

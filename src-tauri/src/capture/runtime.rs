@@ -1,10 +1,12 @@
 use crate::analysis::upsert_entry_analysis;
+use crate::app_paths::AppPaths;
 use crate::clipboard::ClipboardMonitor;
 use crate::database::Database;
 use crate::models::ClipboardEntry;
 use crate::retrieval::upsert_entry_search_document;
 use chrono::Utc;
 use sha2::{Digest, Sha256};
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter};
@@ -32,6 +34,7 @@ impl CaptureRuntime {
         monitor: ClipboardMonitor,
         tx: broadcast::Sender<ClipboardEntry>,
         db: Arc<Database>,
+        paths: Arc<AppPaths>,
         app_handle: Arc<Mutex<Option<AppHandle>>>,
     ) -> Self {
         let cancel = CancellationToken::new();
@@ -73,7 +76,7 @@ impl CaptureRuntime {
                     _ = save_cancel.cancelled() => break,
                     recv_result = rx.recv() => {
                         match recv_result {
-                            Ok(entry) => match persist_entry(&db, entry).await {
+                            Ok(entry) => match persist_entry(&db, &paths, entry).await {
                                 Ok(stored_entry) => {
                                     emit_clipboard_update(&app_handle, &stored_entry).await;
                                 }
@@ -177,7 +180,11 @@ fn now_timestamp_ms() -> i64 {
     Utc::now().timestamp_millis()
 }
 
-async fn persist_entry(db: &Database, entry: ClipboardEntry) -> anyhow::Result<ClipboardEntry> {
+async fn persist_entry(
+    db: &Database,
+    paths: &AppPaths,
+    entry: ClipboardEntry,
+) -> anyhow::Result<ClipboardEntry> {
     log::debug!(
         "[CaptureRuntime] 收到新条目: {} ({})",
         short_hash(&entry.content_hash),
@@ -186,6 +193,13 @@ async fn persist_entry(db: &Database, entry: ClipboardEntry) -> anyhow::Result<C
 
     let snapshot = entry.analysis.clone();
     let mut tx = db.pool().begin().await?;
+    let previous_file_path = sqlx::query_scalar::<_, Option<String>>(
+        "SELECT file_path FROM clipboard_entries WHERE content_hash = ?",
+    )
+    .bind(&entry.content_hash)
+    .fetch_optional(&mut *tx)
+    .await?
+    .flatten();
 
     sqlx::query(
         r#"
@@ -241,7 +255,59 @@ async fn persist_entry(db: &Database, entry: ClipboardEntry) -> anyhow::Result<C
 
     tx.commit().await?;
 
+    if let Some(previous_file_path) = previous_file_path {
+        if stored_entry.file_path.as_deref() != Some(previous_file_path.as_str()) {
+            cleanup_replaced_asset(db, paths, &previous_file_path).await?;
+        }
+    }
+
     Ok(stored_entry)
+}
+
+async fn cleanup_replaced_asset(
+    db: &Database,
+    paths: &AppPaths,
+    file_path: &str,
+) -> anyhow::Result<()> {
+    if file_path.is_empty() {
+        return Ok(());
+    }
+
+    let remaining_references: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM clipboard_entries WHERE file_path = ?")
+            .bind(file_path)
+            .fetch_one(db.pool())
+            .await?;
+
+    if remaining_references > 0 {
+        return Ok(());
+    }
+
+    let Some(absolute_path) = resolve_managed_asset_path(paths, file_path)? else {
+        return Ok(());
+    };
+
+    if absolute_path.exists() {
+        std::fs::remove_file(absolute_path)?;
+    }
+
+    Ok(())
+}
+
+fn resolve_managed_asset_path(
+    paths: &AppPaths,
+    file_path: &str,
+) -> anyhow::Result<Option<PathBuf>> {
+    if file_path.starts_with("imgs/") {
+        return Ok(Some(paths.resolve_relative_asset_path(file_path)?));
+    }
+
+    let absolute_path = PathBuf::from(file_path);
+    if absolute_path.is_absolute() && absolute_path.starts_with(paths.image_assets_dir()) {
+        return Ok(Some(absolute_path));
+    }
+
+    Ok(None)
 }
 
 async fn emit_clipboard_update(app_handle: &Arc<Mutex<Option<AppHandle>>>, entry: &ClipboardEntry) {
