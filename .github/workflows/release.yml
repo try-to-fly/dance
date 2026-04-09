@@ -50,7 +50,7 @@ jobs:
       - name: Get existing release
         id: get_release
         run: |
-          release_id=$(gh release view ${{ steps.get_tag.outputs.tag }} --json id --jq '.id')
+          release_id=$(gh api "repos/${{ github.repository }}/releases/tags/${{ steps.get_tag.outputs.tag }}" --jq '.id')
           echo "release_id=$release_id" >> $GITHUB_OUTPUT
           echo "Release ID: $release_id"
         env:
