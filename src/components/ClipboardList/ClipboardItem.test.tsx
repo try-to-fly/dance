@@ -262,4 +262,18 @@ describe('ClipboardItem', () => {
 
     summarySpy.mockRestore();
   });
+
+  it('展示快捷数字角标时保持圆形并让数字居中', () => {
+    render(
+      <ClipboardItem entry={createEntry({ content_data: 'quick paste' })} showNumber number={7} />
+    );
+
+    expect(screen.getByText('7')).toHaveClass(
+      'h-5',
+      'w-5',
+      'justify-center',
+      'text-center',
+      'leading-none'
+    );
+  });
 });

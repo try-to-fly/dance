@@ -179,7 +179,7 @@ export function DetailView() {
     return (
       <DetailEmptyState
         selectItemLabel={t('detail.selectItem')}
-        helperPills={[t('common:search'), t('paste'), 'Alt + 1-9']}
+        helperPills={[t('common:search'), t('paste'), '⌘ + 1-9']}
       />
     );
   }

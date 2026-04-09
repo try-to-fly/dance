@@ -444,7 +444,7 @@ export function DetailEmptyState({
             <p className="text-[14px] font-medium text-foreground min-[1200px]:text-[15px]">
               {selectItemLabel}
             </p>
-            <p className="mt-1.5 text-[12px] text-muted-foreground">Alt + 1-9</p>
+            <p className="mt-1.5 text-[12px] text-muted-foreground">⌘ + 1-9</p>
           </div>
 
           {helperPills.length > 0 && (

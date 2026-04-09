@@ -121,6 +121,10 @@ export const ClipboardList: React.FC = () => {
     (e: KeyboardEvent) => {
       if (entries.length === 0) return;
 
+      if (e.metaKey) {
+        setShowNumbers(true);
+      }
+
       const currentIndex = entries.findIndex((entry) => entry.id === selectedEntry?.id);
 
       switch (e.key) {
@@ -139,11 +143,11 @@ export const ClipboardList: React.FC = () => {
           scrollToSelectedEntry(nextIndex, 'down');
           break;
         }
-        case 'Alt':
+        case 'Meta':
           setShowNumbers(true);
           break;
         default:
-          if (e.altKey && e.key >= '1' && e.key <= '9') {
+          if (e.metaKey && e.key >= '1' && e.key <= '9') {
             e.preventDefault();
             const visibleItems = virtualizer.getVirtualItems();
             const visibleIndex = parseInt(e.key, 10) - 1;
@@ -169,7 +173,7 @@ export const ClipboardList: React.FC = () => {
   );
 
   const handleKeyUp = useCallback((e: KeyboardEvent) => {
-    if (e.key === 'Alt') {
+    if (e.key === 'Meta' || !e.metaKey) {
       setShowNumbers(false);
     }
   }, []);
@@ -183,6 +187,18 @@ export const ClipboardList: React.FC = () => {
       window.removeEventListener('keyup', handleKeyUp);
     };
   }, [handleKeyDown, handleKeyUp]);
+
+  useEffect(() => {
+    const handleBlur = () => {
+      setShowNumbers(false);
+    };
+
+    window.addEventListener('blur', handleBlur);
+
+    return () => {
+      window.removeEventListener('blur', handleBlur);
+    };
+  }, []);
 
   if (loading && entries.length === 0) {
     return (

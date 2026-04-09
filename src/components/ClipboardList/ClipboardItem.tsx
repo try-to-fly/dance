@@ -378,7 +378,7 @@ export const ClipboardItem: React.FC<ClipboardItemProps> = ({
                 {showNumber && number && number <= 9 && (
                   <Badge
                     variant="default"
-                    className="h-5 w-5 rounded-full p-0 text-[10px] font-semibold shadow-sm min-[1200px]:h-[22px] min-[1200px]:w-[22px]"
+                    className="h-5 w-5 justify-center rounded-full p-0 text-center text-[10px] font-semibold leading-none shadow-sm min-[1200px]:h-[22px] min-[1200px]:w-[22px]"
                   >
                     {number}
                   </Badge>
