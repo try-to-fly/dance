@@ -89,17 +89,29 @@ impl UpdateManager {
 
     /// Download and install update
     pub async fn download_and_install(app: &AppHandle) -> Result<()> {
+        log::info!("[UpdateManager] Starting update download and install flow");
+
         let updater = app.updater_builder().build()?;
 
         if let Some(update) = updater.check().await? {
+            log::info!(
+                "[UpdateManager] Downloading update {} for installation",
+                update.version
+            );
+
             // Emit progress events to frontend
             let app_handle = app.clone();
+            let mut downloaded_bytes = 0usize;
 
             update
                 .download_and_install(
-                    |chunk_length, content_length| {
+                    move |chunk_length, content_length| {
+                        downloaded_bytes = downloaded_bytes.saturating_add(chunk_length);
+
                         let progress = if let Some(total) = content_length {
-                            (chunk_length as f64 / total as f64 * 100.0) as u32
+                            ((downloaded_bytes as f64 / total as f64) * 100.0)
+                                .round()
+                                .clamp(0.0, 100.0) as u32
                         } else {
                             0
                         };
@@ -107,11 +119,15 @@ impl UpdateManager {
                         let _ = app_handle.emit("update-download-progress", progress);
                     },
                     || {
-                        // Called before the update is applied
-                        log::info!("Update is about to be installed");
+                        log::info!("[UpdateManager] Update package downloaded, applying update");
                     },
                 )
                 .await?;
+
+            log::info!("[UpdateManager] Update installed successfully, restarting app");
+            app.restart();
+        } else {
+            log::info!("[UpdateManager] Install requested but no update is currently available");
         }
 
         Ok(())

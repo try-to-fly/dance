@@ -109,6 +109,9 @@ async fn handle_menu_event(app_handle: &AppHandle, event_id: &str) {
                 log::error!("Failed to emit preferences event: {}", e);
             }
         }
+        "quit" => {
+            app_handle.exit(0);
+        }
         "toggle_monitoring" => {
             let is_monitoring = state.is_monitoring().await;
             let result = if is_monitoring {

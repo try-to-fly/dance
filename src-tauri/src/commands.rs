@@ -1916,9 +1916,14 @@ pub async fn check_for_update(
 
 #[tauri::command]
 pub async fn install_update(app_handle: tauri::AppHandle) -> Result<(), String> {
+    log::info!("[install_update] Update installation requested");
+
     UpdateManager::download_and_install(&app_handle)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| {
+            log::error!("[install_update] Update installation failed: {}", e);
+            e.to_string()
+        })
 }
 
 #[tauri::command]
