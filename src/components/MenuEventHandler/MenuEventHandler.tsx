@@ -1,10 +1,14 @@
 import { useEffect } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { useConfigStore } from '../../stores/configStore';
+import { useClipboardStore } from '../../stores/clipboardStore';
+import { useAiStore } from '../../stores/aiStore';
 import { FOCUS_SEARCH_INPUT_EVENT } from '../../lib/appEvents';
 
 export const MenuEventHandler: React.FC = () => {
-  const { setShowPreferences } = useConfigStore();
+  const setShowPreferences = useConfigStore((state) => state.setShowPreferences);
+  const resetRetrievalFilters = useClipboardStore((state) => state.resetRetrievalFilters);
+  const closeDialog = useAiStore((state) => state.closeDialog);
 
   useEffect(() => {
     const setupListeners = async () => {
@@ -27,7 +31,8 @@ export const MenuEventHandler: React.FC = () => {
 
       // Listen for global shortcut events
       const unlistenGlobalShortcut = await listen('global-shortcut', (_event) => {
-        // Show/focus the main window when global shortcut is pressed
+        resetRetrievalFilters();
+        closeDialog();
         window.focus();
         window.scrollTo(0, 0);
         window.dispatchEvent(new Event(FOCUS_SEARCH_INPUT_EVENT));
@@ -42,7 +47,7 @@ export const MenuEventHandler: React.FC = () => {
     };
 
     setupListeners();
-  }, []);
+  }, [closeDialog, resetRetrievalFilters, setShowPreferences]);
 
   return null;
 };
