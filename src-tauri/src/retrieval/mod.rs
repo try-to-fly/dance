@@ -15,6 +15,7 @@ const SEARCH_CANDIDATE_MULTIPLIER: i32 = 4;
 const MIN_SEARCH_CANDIDATES: i32 = 120;
 const MAX_SEARCH_CANDIDATES: i32 = 320;
 const FALLBACK_FUZZY_CANDIDATES: i32 = 400;
+const FALLBACK_RECENT_CANDIDATES: i32 = 400;
 const MAX_SEARCH_TEXT_LENGTH: usize = 4096;
 const MAX_JSON_KEYS: usize = 64;
 
@@ -193,6 +194,7 @@ pub async fn search_clipboard_history(
 
     let candidate_target = ((limit + offset) * SEARCH_CANDIDATE_MULTIPLIER)
         .clamp(MIN_SEARCH_CANDIDATES, MAX_SEARCH_CANDIDATES);
+    let required_candidates = (limit + offset) as usize;
     let mut candidates = load_fts_candidates(
         pool,
         &tokens,
@@ -204,9 +206,15 @@ pub async fn search_clipboard_history(
     )
     .await?;
 
-    if candidates.len() < (limit + offset) as usize {
-        let mut fallback_candidates = load_recent_candidates(
+    let mut seen_ids = candidates
+        .iter()
+        .map(|candidate| candidate.entry.id.clone())
+        .collect::<HashSet<_>>();
+
+    if candidates.len() < required_candidates {
+        let fuzzy_candidates = load_fuzzy_candidates(
             pool,
+            &tokens,
             FALLBACK_FUZZY_CANDIDATES,
             selected_type.as_deref(),
             source_app.as_deref(),
@@ -214,13 +222,20 @@ pub async fn search_clipboard_history(
             recency_after,
         )
         .await?;
+        extend_unique_candidates(&mut candidates, &mut seen_ids, fuzzy_candidates);
+    }
 
-        let seen_ids: HashSet<String> = candidates
-            .iter()
-            .map(|candidate| candidate.entry.id.clone())
-            .collect();
-        fallback_candidates.retain(|candidate| !seen_ids.contains(&candidate.entry.id));
-        candidates.extend(fallback_candidates);
+    if candidates.len() < required_candidates {
+        let recent_candidates = load_recent_candidates(
+            pool,
+            FALLBACK_RECENT_CANDIDATES,
+            selected_type.as_deref(),
+            source_app.as_deref(),
+            query.favorites_only,
+            recency_after,
+        )
+        .await?;
+        extend_unique_candidates(&mut candidates, &mut seen_ids, recent_candidates);
     }
 
     let mut ranked = candidates
@@ -463,6 +478,71 @@ async fn load_recent_candidates(
     rows.into_iter().map(map_search_candidate_row).collect()
 }
 
+async fn load_fuzzy_candidates(
+    pool: &Pool<Sqlite>,
+    tokens: &[String],
+    limit: i32,
+    selected_type: Option<&str>,
+    source_app: Option<&str>,
+    favorites_only: Option<bool>,
+    recency_after: Option<i64>,
+) -> Result<Vec<SearchCandidate>> {
+    let fuzzy_patterns = build_fuzzy_like_patterns(tokens);
+    if fuzzy_patterns.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut builder = QueryBuilder::new(
+        r#"
+        SELECT
+            e.id,
+            e.content_hash,
+            e.content_type,
+            e.content_data,
+            e.source_app,
+            e.created_at,
+            e.copy_count,
+            e.file_path,
+            e.is_favorite,
+            e.content_subtype,
+            e.metadata,
+            e.app_bundle_id,
+            a.contract_version AS analysis_contract_version,
+            a.analysis_version AS analysis_analysis_version,
+            a.status AS analysis_status,
+            a.subtype AS analysis_subtype,
+            a.metadata_json AS analysis_metadata_json,
+            a.diagnostics_json AS analysis_diagnostics_json,
+            a.analyzed_at AS analysis_analyzed_at,
+            d.search_text AS retrieval_search_text,
+            d.structured_terms_json AS retrieval_structured_terms_json
+        FROM entry_search_documents d
+        JOIN clipboard_entries e ON e.id = d.entry_id
+        LEFT JOIN entry_analysis a ON a.entry_id = e.id
+        WHERE 1 = 1
+        "#,
+    );
+
+    for pattern in fuzzy_patterns {
+        builder.push(" AND d.search_text LIKE ");
+        builder.push_bind(pattern);
+        builder.push(" ESCAPE '\\'");
+    }
+
+    append_filter_clause(
+        &mut builder,
+        selected_type,
+        source_app,
+        favorites_only,
+        recency_after,
+    );
+    builder.push(" ORDER BY e.created_at DESC LIMIT ");
+    builder.push_bind(limit);
+
+    let rows = builder.build().fetch_all(pool).await?;
+    rows.into_iter().map(map_search_candidate_row).collect()
+}
+
 fn append_filter_clause<'a>(
     builder: &mut QueryBuilder<'a, Sqlite>,
     selected_type: Option<&'a str>,
@@ -532,6 +612,18 @@ fn map_search_candidate_row(row: sqlx::sqlite::SqliteRow) -> Result<SearchCandid
     };
 
     Ok(SearchCandidate { entry, document })
+}
+
+fn extend_unique_candidates(
+    candidates: &mut Vec<SearchCandidate>,
+    seen_ids: &mut HashSet<String>,
+    new_candidates: Vec<SearchCandidate>,
+) {
+    for candidate in new_candidates {
+        if seen_ids.insert(candidate.entry.id.clone()) {
+            candidates.push(candidate);
+        }
+    }
 }
 
 fn build_search_document(entry: &ClipboardEntry) -> SearchDocument {
@@ -921,11 +1013,39 @@ fn build_fts_query(tokens: &[String]) -> String {
         .join(" ")
 }
 
+fn build_fuzzy_like_patterns(tokens: &[String]) -> Vec<String> {
+    tokens
+        .iter()
+        .filter_map(|token| build_fuzzy_like_pattern(token))
+        .collect()
+}
+
+fn build_fuzzy_like_pattern(token: &str) -> Option<String> {
+    if token.is_empty() {
+        return None;
+    }
+
+    let mut pattern = String::from("%");
+    for ch in token.chars() {
+        push_escaped_like_char(&mut pattern, ch);
+        pattern.push('%');
+    }
+
+    Some(pattern)
+}
+
 fn escape_fts_token(token: &str) -> String {
     token
         .chars()
         .map(|ch| if ch == '"' { ' ' } else { ch })
         .collect::<String>()
+}
+
+fn push_escaped_like_char(buffer: &mut String, ch: char) {
+    if matches!(ch, '%' | '_' | '\\') {
+        buffer.push('\\');
+    }
+    buffer.push(ch);
 }
 
 fn collect_url_terms(

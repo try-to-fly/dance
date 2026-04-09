@@ -38,6 +38,16 @@ describe('SearchBar', () => {
     });
   });
 
+  it('搜索输入框关闭自动大写、拼写检查和自动纠正', () => {
+    render(<SearchBar compact />);
+
+    const input = screen.getByRole('searchbox');
+    expect(input).toHaveAttribute('autocapitalize', 'none');
+    expect(input).toHaveAttribute('autocorrect', 'off');
+    expect(input).toHaveAttribute('autocomplete', 'off');
+    expect(input).toHaveAttribute('spellcheck', 'false');
+  });
+
   it('收到聚焦事件后会激活搜索输入框并选中文本', () => {
     const requestAnimationFrameSpy = vi
       .spyOn(window, 'requestAnimationFrame')

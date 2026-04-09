@@ -223,6 +223,52 @@ async fn retrieval_search_matches_json_key_paths_and_color_formats() {
 }
 
 #[tokio::test]
+async fn retrieval_search_fuzzy_matches_entries_outside_recent_fallback_window() {
+    let (state, _temp_dir) = create_test_state().await;
+    let now = Utc::now().timestamp_millis();
+
+    let target_entry = insert_text_entry(
+        &state,
+        "clipboard release checklist",
+        Some("Warp"),
+        false,
+        Some(now - Duration::days(30).num_milliseconds()),
+    )
+    .await;
+
+    for index in 0..410 {
+        let created_at = now - Duration::minutes(index as i64).num_milliseconds();
+        insert_text_entry(
+            &state,
+            &format!("recent filler note {}", index),
+            Some("Notes"),
+            false,
+            Some(created_at),
+        )
+        .await;
+    }
+
+    let results = state
+        .search_clipboard_history(ClipboardHistoryQuery {
+            text: Some("clpbrd".to_string()),
+            limit: Some(10),
+            offset: Some(0),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(
+        results.first().map(|entry| entry.id.as_str()),
+        Some(target_entry.id.as_str())
+    );
+    assert_eq!(
+        results[0].retrieval.as_ref().map(|value| &value.match_kind),
+        Some(&ClipboardRetrievalMatchKind::Fuzzy)
+    );
+}
+
+#[tokio::test]
 async fn retrieval_query_applies_type_source_favorite_and_recency_filters() {
     let (state, _temp_dir) = create_test_state().await;
     let now = Utc::now().timestamp_millis();

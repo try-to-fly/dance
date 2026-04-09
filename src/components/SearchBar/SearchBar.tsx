@@ -104,6 +104,10 @@ export const SearchBar: React.FC<SearchBarProps> = ({ compact = false, className
         ref={inputRef}
         type="search"
         inputMode="search"
+        autoCapitalize="none"
+        autoCorrect="off"
+        autoComplete="off"
+        spellCheck={false}
         aria-label={t('common:search')}
         placeholder={t('clipboard:retrieval.searchPlaceholder', {
           defaultValue: '搜索内容、URL host、JSON key、命令或应用...',
