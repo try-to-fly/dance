@@ -19,6 +19,21 @@
     "30": "30 Tage"
   },
   "forever": "Für immer",
+  "codeEditor": {
+    "code": "Code",
+    "json": "JSON",
+    "markdown": "Markdown",
+    "command": "Befehl",
+    "text": "Text",
+    "copy": "Kopieren",
+    "copied": "Kopiert",
+    "snapshot": "Code-Screenshot",
+    "snapshotting": "Wird erstellt...",
+    "snapshotCopied": "Screenshot kopiert",
+    "loading": "Editor wird geladen...",
+    "copyFailed": "Kopieren fehlgeschlagen",
+    "snapshotFailed": "Code-Screenshot konnte nicht erstellt werden: {{error}}"
+  },
   "detail": {
     "title": "Detail-Vorschau",
     "selectItem": "Element auswählen, um Details anzuzeigen",

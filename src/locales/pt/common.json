@@ -19,6 +19,21 @@
     "30": "30 Dias"
   },
   "forever": "Para sempre",
+  "codeEditor": {
+    "code": "Código",
+    "json": "JSON",
+    "markdown": "Markdown",
+    "command": "Comando",
+    "text": "Texto",
+    "copy": "Copiar",
+    "copied": "Copiado",
+    "snapshot": "Snapshot do código",
+    "snapshotting": "Gerando...",
+    "snapshotCopied": "Snapshot copiado",
+    "loading": "Carregando editor...",
+    "copyFailed": "Falha ao copiar",
+    "snapshotFailed": "Falha ao gerar snapshot do código: {{error}}"
+  },
   "theme": {
     "toggle": "Alternar tema",
     "light": "Claro",

@@ -65,8 +65,12 @@
     "text": "Texto",
     "copy": "Copiar",
     "copied": "Copiado",
+    "snapshot": "Captura de código",
+    "snapshotting": "Generando...",
+    "snapshotCopied": "Captura copiada",
     "loading": "Cargando editor...",
-    "copyFailed": "Copia fallida"
+    "copyFailed": "Copia fallida",
+    "snapshotFailed": "Error al generar la captura: {{error}}"
   },
   "renderers": {
     "ip": {

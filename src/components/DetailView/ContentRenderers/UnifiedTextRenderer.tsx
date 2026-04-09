@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Check, Copy } from 'lucide-react';
+import { invoke } from '@tauri-apps/api/core';
+import { Check, Copy, Image as ImageIcon, Loader2 } from 'lucide-react';
 import { Button } from '../../ui/button';
 import { Badge } from '../../ui/badge';
 import { ContentSubType } from '../../../types/clipboard';
 import { useResolvedTheme } from '../../../hooks/useResolvedTheme';
 import { defineMonacoThemes } from '../../../utils/monacoTheme';
+import { generateCodeSnapshotDataUrl } from '../../../lib/codeSnapshot';
 import { copyToClipboard } from '../../../stores/clipboardStore';
 import MonacoEditor, { loader } from '@monaco-editor/react';
 import * as monaco from 'monaco-editor';
@@ -82,11 +84,14 @@ export function UnifiedTextRenderer({
   const { t } = useTranslation(['common']);
   const [editedContent, setEditedContent] = useState(content);
   const [isCopied, setIsCopied] = useState(false);
+  const [isGeneratingSnapshot, setIsGeneratingSnapshot] = useState(false);
+  const [isSnapshotCopied, setIsSnapshotCopied] = useState(false);
   const resolvedTheme = useResolvedTheme();
 
   // 切换条目会带来新的 sessionKey；即使原始内容相同，也必须重置本地 workbench。
   useEffect(() => {
     setEditedContent(content);
+    setIsSnapshotCopied(false);
     onContentChange?.(content);
   }, [content, onContentChange, sessionKey]);
 
@@ -97,6 +102,12 @@ export function UnifiedTextRenderer({
     contentSubType === 'plain_text' ? 'clamp(280px, 38vh, 640px)' : 'clamp(360px, 52vh, 920px)';
   const showLineNumbers = contentSubType !== 'plain_text';
   const copyButtonLabel = isCopied ? t('codeEditor.copied') : t('codeEditor.copy');
+  const showSnapshotButton = contentSubType === 'code' || contentSubType === 'command';
+  const snapshotButtonLabel = isGeneratingSnapshot
+    ? t('codeEditor.snapshotting')
+    : isSnapshotCopied
+      ? t('codeEditor.snapshotCopied')
+      : t('codeEditor.snapshot');
 
   const handleCopy = async () => {
     try {
@@ -112,6 +123,33 @@ export function UnifiedTextRenderer({
     const nextValue = value || '';
     setEditedContent(nextValue);
     onContentChange?.(nextValue);
+  };
+
+  const handleCopySnapshot = async () => {
+    setIsGeneratingSnapshot(true);
+
+    try {
+      const snapshotDataUrl = await generateCodeSnapshotDataUrl({
+        content: editedContent,
+        language,
+        theme: resolvedTheme === 'dark' ? 'dark' : 'light',
+        title: displayName,
+        showLineNumbers,
+      });
+
+      await invoke('copy_converted_image', {
+        base64Data: snapshotDataUrl,
+        skipRecording: true,
+      });
+
+      setIsSnapshotCopied(true);
+      window.setTimeout(() => setIsSnapshotCopied(false), 2000);
+    } catch (error) {
+      console.error(t('codeEditor.snapshotFailed', { error: String(error) }), error);
+      alert(t('codeEditor.snapshotFailed', { error: String(error) }));
+    } finally {
+      setIsGeneratingSnapshot(false);
+    }
   };
 
   return (
@@ -132,6 +170,27 @@ export function UnifiedTextRenderer({
           )}
         </div>
         <div className="flex items-center gap-2">
+          {showSnapshotButton && (
+            <Button
+              id="text-renderer-snapshot-btn"
+              onClick={handleCopySnapshot}
+              size="sm"
+              variant="outline"
+              disabled={isGeneratingSnapshot || editedContent.length === 0}
+              aria-label={snapshotButtonLabel}
+              title={snapshotButtonLabel}
+              className="h-8 rounded-lg px-2.5 text-xs"
+            >
+              {isGeneratingSnapshot ? (
+                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+              ) : isSnapshotCopied ? (
+                <Check className="mr-1.5 h-3.5 w-3.5" />
+              ) : (
+                <ImageIcon className="mr-1.5 h-3.5 w-3.5" />
+              )}
+              <span>{snapshotButtonLabel}</span>
+            </Button>
+          )}
           <Button
             id="text-renderer-copy-btn"
             onClick={handleCopy}

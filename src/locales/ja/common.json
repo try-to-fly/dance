@@ -65,8 +65,12 @@
     "text": "テキスト",
     "copy": "コピー",
     "copied": "コピーしました",
+    "snapshot": "コード画像",
+    "snapshotting": "生成中...",
+    "snapshotCopied": "画像をコピーしました",
     "loading": "エディターを読み込み中...",
-    "copyFailed": "コピーに失敗しました"
+    "copyFailed": "コピーに失敗しました",
+    "snapshotFailed": "コード画像の生成に失敗しました: {{error}}"
   },
   "renderers": {
     "ip": {

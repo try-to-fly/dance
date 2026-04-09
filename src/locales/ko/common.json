@@ -19,6 +19,21 @@
     "30": "30일"
   },
   "forever": "영구",
+  "codeEditor": {
+    "code": "코드",
+    "json": "JSON",
+    "markdown": "Markdown",
+    "command": "명령",
+    "text": "텍스트",
+    "copy": "복사",
+    "copied": "복사됨",
+    "snapshot": "코드 스냅샷",
+    "snapshotting": "생성 중...",
+    "snapshotCopied": "스냅샷 복사됨",
+    "loading": "에디터 로딩 중...",
+    "copyFailed": "복사 실패",
+    "snapshotFailed": "코드 스냅샷 생성 실패: {{error}}"
+  },
   "detail": {
     "title": "세부 미리보기",
     "selectItem": "세부 정보를 보려면 항목을 선택하세요",

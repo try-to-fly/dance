@@ -91,8 +91,12 @@
     "text": "Text",
     "copy": "Copy",
     "copied": "Copied",
+    "snapshot": "Code Snapshot",
+    "snapshotting": "Rendering...",
+    "snapshotCopied": "Snapshot Copied",
     "loading": "Loading editor...",
-    "copyFailed": "Copy failed"
+    "copyFailed": "Copy failed",
+    "snapshotFailed": "Failed to create code snapshot: {{error}}"
   },
   "jsonView": {
     "treeView": "Tree View",

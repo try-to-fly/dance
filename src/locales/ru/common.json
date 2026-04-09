@@ -19,6 +19,21 @@
     "30": "30 дней"
   },
   "forever": "Навсегда",
+  "codeEditor": {
+    "code": "Код",
+    "json": "JSON",
+    "markdown": "Markdown",
+    "command": "Команда",
+    "text": "Текст",
+    "copy": "Копировать",
+    "copied": "Скопировано",
+    "snapshot": "Снимок кода",
+    "snapshotting": "Создание...",
+    "snapshotCopied": "Снимок скопирован",
+    "loading": "Загрузка редактора...",
+    "copyFailed": "Не удалось скопировать",
+    "snapshotFailed": "Не удалось создать снимок кода: {{error}}"
+  },
   "theme": {
     "toggle": "Переключить тему",
     "light": "Светлая",

@@ -91,8 +91,12 @@
     "text": "文本",
     "copy": "复制",
     "copied": "已复制",
+    "snapshot": "代码截图",
+    "snapshotting": "生成中...",
+    "snapshotCopied": "截图已复制",
     "loading": "加载编辑器...",
-    "copyFailed": "复制失败"
+    "copyFailed": "复制失败",
+    "snapshotFailed": "代码截图失败: {{error}}"
   },
   "jsonView": {
     "treeView": "树形视图",
