@@ -123,7 +123,7 @@ describe('ClipboardList', () => {
       scrollToIndex,
       scrollToOffset,
       measureElement,
-    } as ReturnType<typeof useVirtualizer>);
+    } as unknown as ReturnType<typeof useVirtualizer>);
   });
 
   it('按下 Command 时展示数字角标，并通过 Command+数字触发快速粘贴', () => {

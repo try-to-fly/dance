@@ -9,12 +9,10 @@ on:
       platform:
         description: 'Platform to build'
         required: false
-        default: 'all'
+        default: 'macos-latest'
         type: choice
         options:
-          - all
           - macos-latest
-          - windows-latest
       create_release:
         description: 'Create a new release'
         required: false
@@ -76,7 +74,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        platform: ${{ github.event_name == 'workflow_dispatch' && inputs.platform != 'all' && fromJSON(format('["{0}"]', inputs.platform)) || fromJSON('["macos-latest", "windows-latest"]') }}
+        platform: ${{ github.event_name == 'workflow_dispatch' && fromJSON(format('["{0}"]', inputs.platform)) || fromJSON('["macos-latest"]') }}
 
     runs-on: ${{ matrix.platform }}
 
@@ -103,16 +101,10 @@ jobs:
         with:
           ref: ${{ steps.release_meta.outputs.tag }}
 
-      - name: Install dependencies (macOS only)
-        if: matrix.platform == 'macos-latest'
+      - name: Install dependencies
         run: |
           rustup target add aarch64-apple-darwin
           rustup target add x86_64-apple-darwin
-
-      - name: Install dependencies (Windows only)
-        if: matrix.platform == 'windows-latest'
-        run: |
-          rustup target add x86_64-pc-windows-msvc
 
       - name: Rust setup
         uses: dtolnay/rust-toolchain@stable
@@ -147,15 +139,9 @@ jobs:
       - name: Build frontend bundle
         run: pnpm build
 
-      - name: Run Rust tests (macOS)
-        if: matrix.platform == 'macos-latest'
+      - name: Run Rust tests
         working-directory: src-tauri
         run: cargo test
-
-      - name: Compile Rust tests (Windows)
-        if: matrix.platform == 'windows-latest'
-        working-directory: src-tauri
-        run: cargo test --no-run
 
       - name: Verify Aptabase Key is set
         run: |
@@ -168,7 +154,6 @@ jobs:
         shell: bash
 
       - name: Build the app (macOS Apple Silicon)
-        if: matrix.platform == 'macos-latest'
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -180,7 +165,6 @@ jobs:
           args: --target aarch64-apple-darwin
 
       - name: Build the app (macOS Intel)
-        if: matrix.platform == 'macos-latest'
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -190,15 +174,3 @@ jobs:
         with:
           releaseId: ${{ github.event_name == 'workflow_dispatch' && needs.get-latest-tag.outputs.release_id || needs.create-release.outputs.release_id }}
           args: --target x86_64-apple-darwin
-
-      - name: Build the app (Windows)
-        if: matrix.platform == 'windows-latest'
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          APTABASE_APP_KEY: ${{ secrets.APTABASE_APP_KEY }}
-        with:
-          releaseId: ${{ github.event_name == 'workflow_dispatch' && needs.get-latest-tag.outputs.release_id || needs.create-release.outputs.release_id }}
-          args: --target x86_64-pc-windows-msvc

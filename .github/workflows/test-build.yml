@@ -3,15 +3,10 @@ name: Test Build
 on:
   workflow_dispatch:
     inputs:
-      build_windows:
-        description: 'Build Windows'
-        required: false
-        default: true
-        type: boolean
       build_macos:
         description: 'Build macOS'
         required: false
-        default: false
+        default: true
         type: boolean
       use_signing:
         description: 'Use code signing (slower but complete)'
@@ -20,73 +15,6 @@ on:
         type: boolean
 
 jobs:
-  test-build-windows:
-    if: inputs.build_windows
-    runs-on: windows-latest
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Install dependencies (Windows)
-        run: |
-          rustup target add x86_64-pc-windows-msvc
-
-      - name: Rust setup
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Rust cache
-        uses: swatinem/rust-cache@v2
-        with:
-          workspaces: './src-tauri -> target'
-
-      - name: Sync node version and setup cache
-        uses: actions/setup-node@v4
-        with:
-          node-version: 'lts/*'
-
-      - name: Install pnpm
-        run: |
-          corepack enable
-          corepack prepare pnpm@latest --activate
-
-      - name: Install frontend dependencies
-        run: pnpm install
-
-      - name: Run frontend tests
-        run: pnpm test
-
-      - name: Build frontend bundle
-        run: pnpm build
-
-      - name: Compile Rust tests (Windows)
-        working-directory: src-tauri
-        run: cargo test --no-run
-
-      - name: Create .env file for Tauri
-        working-directory: src-tauri
-        run: |
-          echo "APTABASE_APP_KEY=${{ secrets.APTABASE_APP_KEY || 'A-DEV-0000000000' }}" > .env
-        shell: bash
-
-      - name: Test Build (Windows) - With Signing
-        if: inputs.use_signing
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          APTABASE_APP_KEY: ${{ secrets.APTABASE_APP_KEY || 'A-DEV-0000000000' }}
-        run: pnpm tauri build --target x86_64-pc-windows-msvc
-
-      - name: Test Build (Windows) - Without Signing
-        if: ${{ !inputs.use_signing }}
-        run: pnpm tauri build --target x86_64-pc-windows-msvc --config src-tauri/tauri.test.conf.json
-
-      - name: Upload build artifacts (Windows)
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows-build
-          path: src-tauri/target/x86_64-pc-windows-msvc/release/bundle/
-
   test-build-macos:
     if: inputs.build_macos
     runs-on: macos-latest
