@@ -62,6 +62,7 @@ const mockedComponents = vi.hoisted(() => ({
     )
   ),
   openAiDialog: vi.fn(),
+  openAiChatWindow: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('../../stores/clipboardStore', () => ({
@@ -74,6 +75,10 @@ vi.mock('../../stores/aiStore', () => ({
       openDialog: mockedComponents.openAiDialog,
     })),
   },
+}));
+
+vi.mock('../../lib/ai/chatWindow', () => ({
+  openAiChatWindow: mockedComponents.openAiChatWindow,
 }));
 
 vi.mock('react-i18next', () => ({
@@ -191,6 +196,7 @@ describe('DetailView', () => {
   beforeEach(() => {
     mockedUseClipboardStore.mockReturnValue(createStoreState(null));
     mockedComponents.openAiDialog.mockReset();
+    mockedComponents.openAiChatWindow.mockClear();
   });
 
   it('在未选中内容时展示空状态', () => {
@@ -250,12 +256,17 @@ describe('DetailView', () => {
         sourceText: 'npm run dev',
         mode: 'translate',
       });
-      expect(mockedComponents.openAiDialog).toHaveBeenNthCalledWith(2, {
-        sourceKey: 'entry-1:hash-1',
-        title: 'npm run dev',
-        sourceText: 'npm run dev',
-        mode: 'chat',
-      });
+      expect(mockedComponents.openAiChatWindow).toHaveBeenNthCalledWith(
+        1,
+        {
+          sourceKey: 'entry-1:hash-1',
+          title: 'npm run dev',
+          sourceText: 'npm run dev',
+        },
+        {
+          windowTitle: '基于原文继续对话',
+        }
+      );
     });
   });
 
