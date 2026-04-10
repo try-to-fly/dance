@@ -63,11 +63,16 @@
       "copied": "Copied",
       "continueChat": "Continue in Chat",
       "chatTitle": "Chat Over Source Text",
+      "chatTitleStandalone": "AI Chat",
+      "chatButton": "Chat",
       "chatHint": "Examples: translate to English, extract all URLs, summarize key points, rewrite in a formal tone.",
+      "chatHintStandalone": "Ask a question or give a task directly and the assistant will reply without any preloaded source text.",
       "clearConversation": "Clear Conversation",
       "chatEmpty": "Start with a concrete instruction and the assistant will keep working against this same source text.",
+      "chatEmptyStandalone": "Start with a question. If you open chat from the detail view, the current source text will be attached automatically.",
       "replying": "Generating reply...",
       "inputPlaceholder": "Describe the operation you want on this source text, for example: extract all URLs as a list",
+      "inputPlaceholderStandalone": "Type your question or task, for example: write a regex that matches URLs",
       "inputHint": "Press Cmd/Ctrl + Enter to send"
     }
   },

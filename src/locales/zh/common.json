@@ -63,11 +63,16 @@
       "copied": "已复制",
       "continueChat": "继续对话",
       "chatTitle": "基于原文继续对话",
+      "chatTitleStandalone": "AI 对话",
+      "chatButton": "Chat",
       "chatHint": "例如：翻译成英文、提取所有 URL、总结重点、改写成更正式的语气。",
+      "chatHintStandalone": "直接输入问题、任务或文本，AI 会按普通对话方式回复。",
       "clearConversation": "清空对话",
       "chatEmpty": "从一个具体指令开始，AI 会始终把当前原文当作处理对象。",
+      "chatEmptyStandalone": "从一个问题开始；如果你从详情页打开，对话会自动带入当前原文。",
       "replying": "正在生成回复...",
       "inputPlaceholder": "输入你希望对这段原始文本执行的操作，例如：提取所有 URL 并按列表输出",
+      "inputPlaceholderStandalone": "输入你的问题或任务，例如：帮我写一个匹配 URL 的正则",
       "inputHint": "按 Cmd/Ctrl + Enter 发送"
     }
   },

@@ -172,6 +172,58 @@ fn sanitize_conversation(conversation: Vec<LlmConversationMessage>) -> Vec<LlmCo
     cleaned
 }
 
+fn build_system_prompt(has_source_text: bool) -> &'static str {
+    if has_source_text {
+        concat!(
+            "你是桌面剪贴板应用里的文本处理助手。用户会提供一段固定的原始文本和后续提示词。",
+            "你的所有回答都必须基于这段原始文本完成，不要臆造原文中不存在的信息。",
+            "如果用户要求翻译、提取 URL、总结、改写、结构化整理或继续追问，都应围绕同一段原始文本处理。"
+        )
+    } else {
+        concat!(
+            "你是桌面剪贴板应用里的 AI 助手。",
+            "当前对话不一定会提供预置原始文本；如果没有看到原始文本，就按普通对话直接回答。",
+            "如果后续消息提供了上下文或约束，请严格依据这些内容作答，不要谎称看到了不存在的原文。"
+        )
+    }
+}
+
+fn build_chat_messages(
+    source_text: &str,
+    conversation: Vec<LlmConversationMessage>,
+    user_prompt: &str,
+) -> Vec<serde_json::Value> {
+    let has_source_text = !source_text.is_empty();
+    let mut messages = vec![json!({
+        "role": "system",
+        "content": build_system_prompt(has_source_text),
+    })];
+
+    if has_source_text {
+        messages.push(json!({
+            "role": "user",
+            "content": format!(
+                "以下是当前选中的原始文本，请在整个对话中始终以它为依据：\n\n<source_text>\n{}\n</source_text>",
+                source_text
+            ),
+        }));
+    }
+
+    for message in conversation {
+        messages.push(json!({
+            "role": message.role.as_api_role(),
+            "content": message.content,
+        }));
+    }
+
+    messages.push(json!({
+        "role": "user",
+        "content": user_prompt,
+    }));
+
+    messages
+}
+
 pub async fn process_text(
     config: &LlmConfig,
     request: ProcessTextRequest,
@@ -187,8 +239,8 @@ pub async fn process_text(
     }
 
     let source_text = request.source_text.trim();
-    if source_text.is_empty() {
-        return Err(anyhow!("当前没有可供 AI 处理的原始文本。"));
+    if !source_text.is_empty() {
+        ensure_text_limit("原始文本", source_text, MAX_SOURCE_CHARS)?;
     }
 
     let user_prompt = request.user_prompt.trim();
@@ -196,42 +248,11 @@ pub async fn process_text(
         return Err(anyhow!("请输入提示词。"));
     }
 
-    ensure_text_limit("原始文本", source_text, MAX_SOURCE_CHARS)?;
     ensure_text_limit("提示词", user_prompt, MAX_PROMPT_CHARS)?;
 
     let endpoint = build_chat_completions_url(&config.base_url)?;
     let conversation = sanitize_conversation(request.conversation);
-    let system_prompt = concat!(
-        "你是桌面剪贴板应用里的文本处理助手。用户会提供一段固定的原始文本和后续提示词。",
-        "你的所有回答都必须基于这段原始文本完成，不要臆造原文中不存在的信息。",
-        "如果用户要求翻译、提取 URL、总结、改写、结构化整理或继续追问，都应围绕同一段原始文本处理。"
-    );
-
-    let mut messages = vec![
-        json!({
-            "role": "system",
-            "content": system_prompt,
-        }),
-        json!({
-            "role": "user",
-            "content": format!(
-                "以下是当前选中的原始文本，请在整个对话中始终以它为依据：\n\n<source_text>\n{}\n</source_text>",
-                source_text
-            ),
-        }),
-    ];
-
-    for message in conversation {
-        messages.push(json!({
-            "role": message.role.as_api_role(),
-            "content": message.content,
-        }));
-    }
-
-    messages.push(json!({
-        "role": "user",
-        "content": user_prompt,
-    }));
+    let messages = build_chat_messages(source_text, conversation, user_prompt);
 
     let payload = json!({
         "model": model,
@@ -316,7 +337,9 @@ pub async fn test_config(config: &LlmConfig) -> Result<ProcessTextResponse> {
 
 #[cfg(test)]
 mod tests {
-    use super::build_chat_completions_url;
+    use super::{
+        build_chat_completions_url, build_chat_messages, LlmConversationMessage, LlmMessageRole,
+    };
 
     #[test]
     fn build_chat_url_supports_root_base_url() {
@@ -335,5 +358,47 @@ mod tests {
         let endpoint =
             build_chat_completions_url("https://example.com/custom/chat/completions").unwrap();
         assert_eq!(endpoint, "https://example.com/custom/chat/completions");
+    }
+
+    #[test]
+    fn build_chat_messages_includes_source_context_when_source_exists() {
+        let messages = build_chat_messages(
+            "hello world",
+            vec![LlmConversationMessage {
+                role: LlmMessageRole::Assistant,
+                content: "收到".to_string(),
+            }],
+            "总结一下",
+        );
+
+        assert_eq!(messages.len(), 4);
+        assert_eq!(messages[0]["role"], "system");
+        assert!(messages[0]["content"]
+            .as_str()
+            .unwrap()
+            .contains("固定的原始文本"));
+        assert_eq!(messages[1]["role"], "user");
+        assert!(messages[1]["content"]
+            .as_str()
+            .unwrap()
+            .contains("<source_text>"));
+        assert_eq!(messages[2]["role"], "assistant");
+        assert_eq!(messages[2]["content"], "收到");
+        assert_eq!(messages[3]["role"], "user");
+        assert_eq!(messages[3]["content"], "总结一下");
+    }
+
+    #[test]
+    fn build_chat_messages_skips_source_context_when_source_is_empty() {
+        let messages = build_chat_messages("", vec![], "帮我写个正则");
+
+        assert_eq!(messages.len(), 2);
+        assert_eq!(messages[0]["role"], "system");
+        assert!(messages[0]["content"]
+            .as_str()
+            .unwrap()
+            .contains("不一定会提供预置原始文本"));
+        assert_eq!(messages[1]["role"], "user");
+        assert_eq!(messages[1]["content"], "帮我写个正则");
     }
 }

@@ -141,6 +141,31 @@ export const useAiStore = create<AiStore>((set, get) => ({
       return;
     }
 
+    const sourceText = session.sourceText.trim();
+    if (!sourceText) {
+      set((current) => {
+        const currentSession = getActiveSession(current);
+        if (!currentSession || !current.activeSourceKey) {
+          return current;
+        }
+
+        return {
+          sessions: {
+            ...current.sessions,
+            [current.activeSourceKey]: {
+              ...currentSession,
+              translation: {
+                ...currentSession.translation,
+                status: 'error',
+                error: '当前没有可供翻译的原始文本。',
+              },
+            },
+          },
+        };
+      });
+      return;
+    }
+
     if (session.loading || session.translation.status === 'loading') {
       return;
     }
@@ -169,7 +194,7 @@ export const useAiStore = create<AiStore>((set, get) => ({
     try {
       const response = await invoke<ProcessTextResponse>('process_text_with_llm', {
         request: {
-          source_text: session.sourceText,
+          source_text: sourceText,
           conversation: [],
           user_prompt: TRANSLATE_TO_CHINESE_PROMPT,
         },

@@ -8,6 +8,7 @@ import { View } from 'lucide-react';
 import { getSystemLanguage } from './i18n/config';
 import { ThemeProvider } from './components/theme-provider';
 import { SettingsButton } from './components/settings-button';
+import { ChatButton } from './components/chat-button';
 import { MainLayout } from './components/Layout/MainLayout';
 import { SearchBar } from './components/SearchBar/SearchBar';
 import { ClipboardList } from './components/ClipboardList/ClipboardList';
@@ -132,6 +133,8 @@ function AppContent() {
 
   const toolbarButtonClass =
     'h-7 w-7 rounded-[9px] border-border/70 bg-background/78 text-foreground shadow-[0_6px_16px_rgba(15,23,42,0.05)] backdrop-blur-xl hover:bg-accent';
+  const toolbarChatButtonClass =
+    'h-7 gap-1.5 rounded-[9px] border-border/70 bg-background/78 px-2.5 text-xs font-medium text-foreground shadow-[0_6px_16px_rgba(15,23,42,0.05)] backdrop-blur-xl hover:bg-accent';
   const contentPaddingClassName = isMacOS ? 'min-h-screen px-3 pb-3 pt-0' : 'min-h-screen p-1.5';
   const shellClassName = isMacOS
     ? 'flex h-[calc(100vh-12px)] flex-col gap-1.5'
@@ -234,7 +237,7 @@ function AppContent() {
               />
               <div
                 aria-hidden="true"
-                className="h-full w-12 shrink-0"
+                className="h-full w-[112px] shrink-0"
                 onMouseDown={handleWindowDragMouseDown}
               />
             </div>
@@ -242,7 +245,7 @@ function AppContent() {
 
           <div className={toolbarCardClassName} onMouseDown={handleToolbarMouseDown}>
             {isMacOS ? (
-              <div className="mb-1 grid grid-cols-[84px_minmax(0,1fr)_48px] gap-2">
+              <div className="mb-1 grid grid-cols-[84px_minmax(0,1fr)_112px] gap-2">
                 <div aria-hidden="true" className="h-1" onMouseDown={handleWindowDragMouseDown} />
                 <div aria-hidden="true" className="h-1" onMouseDown={handleWindowDragMouseDown} />
                 <div aria-hidden="true" className="h-1" onMouseDown={handleWindowDragMouseDown} />
@@ -259,7 +262,11 @@ function AppContent() {
                 <TypeFilter compact className="w-[132px] shrink-0 min-[1200px]:w-[146px]" />
               </div>
 
-              <div className="flex items-center justify-end">
+              <div className="flex items-center justify-end gap-1.5">
+                <ChatButton
+                  variant="outline"
+                  buttonClassName={cn(toolbarChatButtonClass, 'text-muted-foreground')}
+                />
                 <SettingsButton
                   variant="outline"
                   buttonClassName={cn(toolbarButtonClass, 'text-muted-foreground')}

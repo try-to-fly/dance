@@ -33,6 +33,7 @@ export function AIChatWindow() {
   const [focusTick, setFocusTick] = useState(0);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const session = activeSourceKey ? sessions[activeSourceKey] : undefined;
+  const hasSourceText = Boolean(session?.sourceText.trim());
   const hasAiConfig = Boolean(config?.llm.api_key.trim() && config?.llm.model.trim());
   const isMacOS =
     typeof navigator !== 'undefined' && /(Mac|iPhone|iPod|iPad)/i.test(navigator.userAgent);
@@ -105,16 +106,15 @@ export function AIChatWindow() {
   }, [activeSourceKey, focusTick, hasAiConfig]);
 
   useEffect(() => {
-    const nextTitle = session?.title
-      ? `${t('detail.ai.chatTitle')} · ${session.title}`
-      : t('detail.ai.chatTitle');
+    const baseTitle = hasSourceText ? t('detail.ai.chatTitle') : t('detail.ai.chatTitleStandalone');
+    const nextTitle = session?.title ? `${baseTitle} · ${session.title}` : baseTitle;
 
     void getCurrentWindow()
       .setTitle(nextTitle)
       .catch((error) => {
         console.error('[AIChatWindow] 更新窗口标题失败:', formatUnknownError(error));
       });
-  }, [session?.title, t]);
+  }, [hasSourceText, session?.title, t]);
 
   const startWindowDrag = async () => {
     try {
@@ -165,7 +165,7 @@ export function AIChatWindow() {
   );
 
   const renderSourceStrip = () => {
-    if (!session) {
+    if (!session || !hasSourceText) {
       return null;
     }
 
@@ -228,7 +228,7 @@ export function AIChatWindow() {
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex min-w-0 items-center gap-2">
               <CardTitle className="truncate text-sm font-semibold tracking-tight">
-                {t('detail.ai.chatTitle')}
+                {hasSourceText ? t('detail.ai.chatTitle') : t('detail.ai.chatTitleStandalone')}
               </CardTitle>
               {session.title ? (
                 <Badge
@@ -267,7 +267,7 @@ export function AIChatWindow() {
               <div className="flex h-full items-center justify-center">
                 <div className="w-full max-w-2xl rounded-[18px] border border-dashed border-border/80 bg-muted/25 px-4 py-4">
                   <p className="text-sm leading-6 text-muted-foreground">
-                    {t('detail.ai.chatEmpty')}
+                    {hasSourceText ? t('detail.ai.chatEmpty') : t('detail.ai.chatEmptyStandalone')}
                   </p>
                   <div className="mt-4 flex flex-wrap gap-2">
                     {CHAT_SUGGESTIONS.map((suggestion) => (
@@ -348,7 +348,11 @@ export function AIChatWindow() {
                     void sendPrompt();
                   }
                 }}
-                placeholder={t('detail.ai.inputPlaceholder')}
+                placeholder={
+                  hasSourceText
+                    ? t('detail.ai.inputPlaceholder')
+                    : t('detail.ai.inputPlaceholderStandalone')
+                }
                 className="min-h-[56px] flex-1 resize-none border-0 bg-transparent px-1 py-1 text-sm leading-6 outline-none placeholder:text-muted-foreground"
               />
 
@@ -397,9 +401,11 @@ export function AIChatWindow() {
               </div>
               <div className="min-w-0">
                 <h1 className="truncate text-base font-semibold tracking-tight">
-                  {t('detail.ai.chatTitle')}
+                  {hasSourceText ? t('detail.ai.chatTitle') : t('detail.ai.chatTitleStandalone')}
                 </h1>
-                <p className="truncate text-xs text-muted-foreground">{t('detail.ai.chatHint')}</p>
+                <p className="truncate text-xs text-muted-foreground">
+                  {hasSourceText ? t('detail.ai.chatHint') : t('detail.ai.chatHintStandalone')}
+                </p>
               </div>
             </div>
 
@@ -432,7 +438,7 @@ export function AIChatWindow() {
             <Card className="w-full max-w-xl rounded-[24px] border-border/70 bg-card/92 shadow-[0_20px_60px_rgba(15,23,42,0.10)]">
               <CardContent className="p-6">
                 <p className="text-sm leading-7 text-muted-foreground">
-                  {t('detail.ai.chatEmpty')}
+                  {t('detail.ai.chatEmptyStandalone')}
                 </p>
               </CardContent>
             </Card>

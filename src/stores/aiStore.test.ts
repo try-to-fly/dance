@@ -89,4 +89,41 @@ describe('aiStore', () => {
     expect(session.loading).toBe(false);
     expect(session.input).toBe('');
   });
+
+  it('sendPrompt 在没有初始文本时也会发起普通对话请求', async () => {
+    mockedInvoke.mockResolvedValue({
+      content: '当然，可以先告诉我你的目标。',
+      model: 'gpt-4.1-mini',
+    });
+
+    await useAiStore.getState().openDialog({
+      sourceKey: 'global-chat',
+      title: '',
+      sourceText: '',
+      mode: 'chat',
+    });
+
+    useAiStore.getState().setInput('帮我写一个 URL 正则');
+    await useAiStore.getState().sendPrompt();
+
+    expect(mockedInvoke).toHaveBeenCalledWith('process_text_with_llm', {
+      request: {
+        source_text: '',
+        conversation: [],
+        user_prompt: '帮我写一个 URL 正则',
+      },
+    });
+
+    const session = useAiStore.getState().sessions['global-chat'];
+    expect(session.messages).toHaveLength(2);
+    expect(session.messages[0]).toMatchObject({
+      role: 'user',
+      content: '帮我写一个 URL 正则',
+    });
+    expect(session.messages[1]).toMatchObject({
+      role: 'assistant',
+      content: '当然，可以先告诉我你的目标。',
+      model: 'gpt-4.1-mini',
+    });
+  });
 });
