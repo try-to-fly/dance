@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { invoke } from '@tauri-apps/api/core';
 import { Copy, Download, Maximize2 } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { useExternalMediaDrag } from '../../hooks/useExternalMediaDrag';
 import { Button } from '../ui/button';
 import { ScrollArea } from '../ui/scroll-area';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
@@ -49,6 +50,16 @@ export const ImagePreview: React.FC<ImagePreviewProps> = ({
     setConvertedMetadata(null);
     setShowOriginal(true);
   }, [imageUrl]);
+
+  const activeImageSrc = showOriginal ? imageUrl : previewUrl;
+  const dragMedia = useExternalMediaDrag({
+    enabled: Boolean(activeImageSrc),
+    kind: 'image',
+    sourceUrl: activeImageSrc,
+    filePath: showOriginal ? filePath : undefined,
+    fileName: undefined,
+    mimeType: undefined,
+  });
 
   const handleConvert = async () => {
     setIsConverting(true);
@@ -283,10 +294,13 @@ export const ImagePreview: React.FC<ImagePreviewProps> = ({
           >
             <img
               id="image-preview-img"
-              src={showOriginal ? imageUrl : previewUrl}
+              src={activeImageSrc}
               alt={showOriginal ? t('imagePreview.originalAlt') : t('imagePreview.convertedAlt')}
               className="max-h-[66vh] max-w-full rounded-xl border border-border/60 bg-card/60 object-contain transition-colors hover:border-primary/50 min-[1200px]:max-h-[70vh]"
               onClick={onOpenWithSystem}
+              draggable={dragMedia.draggable}
+              onDragStart={dragMedia.onDragStart}
+              title={t('imagePreview.dragToApp', { defaultValue: '拖拽到其他应用发送' })}
             />
           </div>
         </ScrollArea>

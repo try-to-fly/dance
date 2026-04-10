@@ -19,7 +19,7 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 use tauri::{AppHandle, State, Window};
 use tauri_plugin_aptabase::EventTracker;
@@ -150,11 +150,29 @@ pub struct WindowPosition {
     pub y: i32,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PreparedDragMediaFile {
+    pub file_path: String,
+    pub file_name: String,
+    pub mime_type: Option<String>,
+    pub is_temp: bool,
+}
+
 fn ai_chat_window_payloads() -> &'static Mutex<HashMap<String, AiChatWindowPayload>> {
     static AI_CHAT_WINDOW_PAYLOADS: OnceLock<Mutex<HashMap<String, AiChatWindowPayload>>> =
         OnceLock::new();
 
     AI_CHAT_WINDOW_PAYLOADS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn resolve_file_path_for_preview(paths: &AppPaths, file_path: &str) -> Result<PathBuf, String> {
+    if file_path.starts_with("imgs/") {
+        return paths
+            .resolve_relative_asset_path(file_path)
+            .map_err(|e| e.to_string());
+    }
+    Ok(PathBuf::from(file_path))
 }
 
 #[tauri::command]
@@ -334,20 +352,12 @@ pub async fn open_file_with_system(
     file_path: String,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    use std::path::PathBuf;
     use std::process::Command;
 
     log::info!("[open_file_with_system] 打开文件: {}", file_path);
 
     // 如果是相对路径（如 imgs/xxx.png），转换为绝对路径
-    let absolute_path = if file_path.starts_with("imgs/") {
-        state
-            .paths
-            .resolve_relative_asset_path(&file_path)
-            .map_err(|e| e.to_string())?
-    } else {
-        PathBuf::from(&file_path)
-    };
+    let absolute_path = resolve_file_path_for_preview(state.paths.as_ref(), &file_path)?;
 
     if !absolute_path.exists() {
         return Err(format!("File not found: {:?}", absolute_path));
@@ -383,30 +393,20 @@ pub async fn get_image_url(
 ) -> Result<String, String> {
     use base64::Engine;
     use std::fs;
-    use std::path::PathBuf;
 
     // println!("[get_image_url] 请求加载图片: {}", file_path);
 
     // 如果是相对路径（如 imgs/xxx.png），转换为绝对路径
-    let absolute_path = if file_path.starts_with("imgs/") {
-        let resolved = state
-            .paths
-            .resolve_relative_asset_path(&file_path)
-            .map_err(|e| e.to_string())?;
+    let absolute_path = resolve_file_path_for_preview(state.paths.as_ref(), &file_path)?;
 
-        if let Some(parent) = resolved.parent() {
-            if !parent.exists() {
-                log::info!("[get_image_url] 创建 imgs 目录: {:?}", parent);
-                if let Err(e) = fs::create_dir_all(parent) {
-                    return Err(format!("Failed to create imgs directory: {}", e));
-                }
+    if let Some(parent) = absolute_path.parent() {
+        if !parent.exists() && file_path.starts_with("imgs/") {
+            log::info!("[get_image_url] 创建 imgs 目录: {:?}", parent);
+            if let Err(e) = fs::create_dir_all(parent) {
+                return Err(format!("Failed to create imgs directory: {}", e));
             }
         }
-
-        resolved
-    } else {
-        PathBuf::from(&file_path)
-    };
+    }
 
     // println!("[get_image_url] 绝对路径: {:?}", absolute_path);
 
@@ -474,6 +474,262 @@ pub async fn get_image_url(
             Err(format!("Failed to read file: {}", e))
         }
     }
+}
+
+fn sanitize_drag_file_stem(input: Option<&str>, fallback: &str) -> String {
+    let raw = input
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(fallback);
+    let stem = Path::new(raw)
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or(fallback)
+        .trim();
+
+    let mut sanitized = String::with_capacity(stem.len());
+    for ch in stem.chars() {
+        if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' {
+            sanitized.push(ch);
+        } else {
+            sanitized.push('_');
+        }
+    }
+
+    let cleaned = sanitized.trim_matches('_');
+    if cleaned.is_empty() {
+        fallback.to_string()
+    } else {
+        cleaned.to_string()
+    }
+}
+
+fn extension_from_path(path: &str) -> Option<String> {
+    Path::new(path)
+        .extension()
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.trim().is_empty())
+        .map(|value| value.trim().to_lowercase())
+}
+
+fn file_name_from_path(path: &Path) -> Option<String> {
+    path.file_name()
+        .and_then(|value| value.to_str())
+        .map(ToString::to_string)
+}
+
+fn mime_from_extension(path: &Path) -> Option<String> {
+    let extension = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(|value| value.trim().to_ascii_lowercase())?;
+
+    let mime = match extension.as_str() {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "svg" => "image/svg+xml",
+        "bmp" => "image/bmp",
+        "mp4" => "video/mp4",
+        "webm" => "video/webm",
+        "mov" => "video/quicktime",
+        "mkv" => "video/x-matroska",
+        "avi" => "video/x-msvideo",
+        "mp3" => "audio/mpeg",
+        "wav" => "audio/wav",
+        "ogg" => "audio/ogg",
+        "m4a" => "audio/mp4",
+        _ => return None,
+    };
+
+    Some(mime.to_string())
+}
+
+#[tauri::command]
+pub async fn prepare_drag_media_file(
+    state: State<'_, AppState>,
+    source_url: Option<String>,
+    file_path: Option<String>,
+    file_name: Option<String>,
+    mime_type: Option<String>,
+) -> Result<PreparedDragMediaFile, String> {
+    use reqwest::header::CONTENT_TYPE;
+    use std::time::Duration;
+
+    let provided_file_path = file_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string);
+
+    if let Some(original_path) = provided_file_path {
+        let absolute_path = resolve_file_path_for_preview(state.paths.as_ref(), &original_path)?;
+        if !absolute_path.exists() {
+            return Err(format!("File not found: {}", absolute_path.display()));
+        }
+
+        let resolved_file_name = file_name
+            .filter(|value| !value.trim().is_empty())
+            .or_else(|| file_name_from_path(&absolute_path))
+            .unwrap_or_else(|| "clipboard-media.bin".to_string());
+
+        let resolved_mime = mime_type.as_deref().map(normalize_mime).or_else(|| {
+            infer::get_from_path(&absolute_path)
+                .ok()
+                .flatten()
+                .map(|kind| kind.mime_type().to_string())
+        });
+
+        return Ok(PreparedDragMediaFile {
+            file_path: absolute_path.to_string_lossy().to_string(),
+            file_name: resolved_file_name,
+            mime_type: resolved_mime,
+            is_temp: false,
+        });
+    }
+
+    let source = source_url
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "Either file_path or source_url is required".to_string())?;
+
+    let mut resolved_mime = mime_type
+        .as_deref()
+        .map(normalize_mime)
+        .filter(|value| !value.is_empty());
+
+    let bytes: Vec<u8>;
+    let mut source_name_hint = file_name.clone();
+
+    if source.starts_with("data:") {
+        let parsed = parse_base64_input(source)?;
+        bytes = decode_base64_payload(&parsed.payload)?;
+        if resolved_mime.is_none() {
+            resolved_mime = parsed.mime;
+        }
+    } else {
+        let parsed_url = url::Url::parse(source)
+            .map_err(|_| "Only absolute HTTP(S) source_url is supported".to_string())?;
+        if !matches!(parsed_url.scheme(), "http" | "https") || parsed_url.host_str().is_none() {
+            return Err("Only absolute HTTP(S) source_url is supported".to_string());
+        }
+
+        if source_name_hint
+            .as_ref()
+            .map(|value| value.trim().is_empty())
+            .unwrap_or(true)
+        {
+            source_name_hint = parsed_url
+                .path_segments()
+                .and_then(|mut parts| parts.next_back())
+                .filter(|segment| !segment.is_empty())
+                .map(ToString::to_string);
+        }
+
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(30))
+            .user_agent("Dance/drag-export")
+            .build()
+            .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
+
+        let response = client
+            .get(parsed_url.clone())
+            .send()
+            .await
+            .map_err(|e| format!("Network request failed: {}", e))?;
+
+        if !response.status().is_success() {
+            return Err(format!("HTTP error: {}", response.status()));
+        }
+
+        if resolved_mime.is_none() {
+            resolved_mime = response
+                .headers()
+                .get(CONTENT_TYPE)
+                .and_then(|value| value.to_str().ok())
+                .map(normalize_mime);
+        }
+
+        bytes = response
+            .bytes()
+            .await
+            .map_err(|e| format!("Failed to read response bytes: {}", e))?
+            .to_vec();
+    }
+
+    if bytes.is_empty() {
+        return Err("Source produced empty file data".to_string());
+    }
+
+    if resolved_mime.is_none() {
+        resolved_mime = infer::get(&bytes).map(|kind| kind.mime_type().to_string());
+    }
+
+    let extension = resolved_mime
+        .as_deref()
+        .and_then(extension_from_mime)
+        .or_else(|| source_name_hint.as_deref().and_then(extension_from_path))
+        .or_else(|| infer::get(&bytes).map(|kind| kind.extension().to_string()))
+        .unwrap_or_else(|| "bin".to_string());
+
+    let stem = sanitize_drag_file_stem(source_name_hint.as_deref(), "clipboard-media");
+    let normalized_extension = extension.trim_start_matches('.');
+    let resolved_file_name = format!("{stem}.{normalized_extension}");
+
+    let drag_cache_dir = std::env::temp_dir().join("dance-drag-media");
+    std::fs::create_dir_all(&drag_cache_dir)
+        .map_err(|e| format!("Failed to create drag temp directory: {}", e))?;
+    let output_path =
+        drag_cache_dir.join(format!("{}-{}", uuid::Uuid::new_v4(), resolved_file_name));
+    std::fs::write(&output_path, bytes)
+        .map_err(|e| format!("Failed to write temp media: {}", e))?;
+
+    Ok(PreparedDragMediaFile {
+        file_path: output_path.to_string_lossy().to_string(),
+        file_name: resolved_file_name,
+        mime_type: resolved_mime,
+        is_temp: true,
+    })
+}
+
+#[tauri::command]
+pub async fn read_media_file_as_data_url(
+    state: State<'_, AppState>,
+    file_path: String,
+    mime_type: Option<String>,
+) -> Result<String, String> {
+    use base64::Engine;
+
+    let absolute_path = resolve_file_path_for_preview(state.paths.as_ref(), &file_path)?;
+    if !absolute_path.exists() {
+        return Err(format!("File not found: {}", absolute_path.display()));
+    }
+
+    let data =
+        std::fs::read(&absolute_path).map_err(|e| format!("Failed to read media file: {}", e))?;
+    if data.is_empty() {
+        return Err("Media file is empty".to_string());
+    }
+
+    let resolved_mime = mime_type
+        .as_deref()
+        .map(normalize_mime)
+        .filter(|value| !value.is_empty())
+        .or_else(|| infer::get(&data).map(|kind| kind.mime_type().to_string()))
+        .or_else(|| {
+            infer::get_from_path(&absolute_path)
+                .ok()
+                .flatten()
+                .map(|kind| kind.mime_type().to_string())
+        })
+        .or_else(|| mime_from_extension(&absolute_path))
+        .unwrap_or_else(|| "application/octet-stream".to_string());
+
+    let encoded = base64::engine::general_purpose::STANDARD.encode(data);
+    Ok(format!("data:{};base64,{}", resolved_mime, encoded))
 }
 
 #[tauri::command]

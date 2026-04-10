@@ -1,5 +1,6 @@
 import { File, FileCode2, Music, Video } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { useExternalMediaDrag } from '../../../hooks/useExternalMediaDrag';
 import {
   ClipboardEntry,
   ContentMetadata,
@@ -54,6 +55,26 @@ export function PrimaryPreviewRenderer({ kind, payload, onOpenFile }: PrimaryPre
   const resolvedData = data?.resolvedData;
   const content = entry?.content_data || '';
   const metadataString = data?.metadata ? JSON.stringify(data.metadata) : entry?.metadata;
+  const imageSrc =
+    kind === 'image' ? resolvedData?.imageUrl || resolvedData?.base64?.dataUrl || '' : '';
+  const videoSrc =
+    kind === 'video' ? resolvedData?.videoUrl || resolvedData?.base64?.dataUrl || '' : '';
+  const imageDrag = useExternalMediaDrag({
+    enabled: kind === 'image' && Boolean(imageSrc) && !entry?.file_path,
+    kind: 'image',
+    sourceUrl: imageSrc || undefined,
+    filePath: entry?.file_path || undefined,
+    fileName: resolvedData?.fileName,
+    mimeType: resolvedData?.mime,
+  });
+  const videoDrag = useExternalMediaDrag({
+    enabled: kind === 'video' && Boolean(videoSrc),
+    kind: 'video',
+    sourceUrl: videoSrc || undefined,
+    filePath: entry?.file_path || undefined,
+    fileName: resolvedData?.fileName,
+    mimeType: resolvedData?.mime,
+  });
 
   if (!entry) {
     return null;
@@ -71,14 +92,16 @@ export function PrimaryPreviewRenderer({ kind, payload, onOpenFile }: PrimaryPre
       );
     }
 
-    const src = resolvedData?.imageUrl || resolvedData?.base64?.dataUrl || '';
-    if (src) {
+    if (imageSrc) {
       return (
         <div className="flex min-h-[300px] items-center justify-center overflow-hidden rounded-[16px] border border-border/70 bg-background/70 p-2.5 min-[1200px]:min-h-[380px] min-[1200px]:p-3">
           <img
-            src={src}
+            src={imageSrc}
             alt="preview"
-            className="max-h-[68vh] max-w-full rounded-xl object-contain"
+            className="max-h-[68vh] max-w-full cursor-grab rounded-xl object-contain active:cursor-grabbing"
+            draggable={imageDrag.draggable}
+            onDragStart={imageDrag.onDragStart}
+            title={t('detail.dragToApp', { defaultValue: '拖拽到其他应用发送' })}
           />
         </div>
       );
@@ -86,7 +109,6 @@ export function PrimaryPreviewRenderer({ kind, payload, onOpenFile }: PrimaryPre
   }
 
   if (kind === 'video') {
-    const src = resolvedData?.videoUrl || resolvedData?.base64?.dataUrl;
     return (
       <Card>
         <CardHeader className="pb-2">
@@ -98,8 +120,15 @@ export function PrimaryPreviewRenderer({ kind, payload, onOpenFile }: PrimaryPre
           </div>
         </CardHeader>
         <CardContent>
-          {src ? (
-            <video src={src} controls className="max-h-[65vh] w-full rounded-xl border" />
+          {videoSrc ? (
+            <video
+              src={videoSrc}
+              controls
+              draggable={videoDrag.draggable}
+              onDragStart={videoDrag.onDragStart}
+              title={t('detail.dragToApp', { defaultValue: '拖拽到其他应用发送' })}
+              className="max-h-[65vh] w-full cursor-grab rounded-xl border active:cursor-grabbing"
+            />
           ) : (
             <div className="py-8 text-sm text-muted-foreground">{t('detail.unknown')}</div>
           )}

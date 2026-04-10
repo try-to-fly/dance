@@ -386,6 +386,8 @@ pub fn run() {
             paste_text,
             paste_image,
             get_image_url,
+            prepare_drag_media_file,
+            read_media_file_as_data_url,
             open_file_with_system,
             get_app_icon,
             convert_and_scale_image,
