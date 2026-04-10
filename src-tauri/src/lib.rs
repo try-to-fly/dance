@@ -294,9 +294,21 @@ pub fn run() {
                     let _ = dotenvy::dotenv();
                 }
 
-                // Initialize Aptabase plugin
-                let aptabase_key = std::env::var("APTABASE_APP_KEY")
-                    .unwrap_or_else(|_| "A-DEV-0000000000".to_string());
+                // Initialize Aptabase plugin.
+                // Prefer compile-time key (injected by CI at build time), then runtime env for local dev.
+                let compile_time_key = option_env!("APTABASE_APP_KEY")
+                    .filter(|value| !value.trim().is_empty())
+                    .map(|value| value.to_string());
+                let runtime_key = std::env::var("APTABASE_APP_KEY")
+                    .ok()
+                    .filter(|value| !value.trim().is_empty());
+                let (aptabase_key, key_source) = if let Some(key) = compile_time_key {
+                    (key, "compile-time")
+                } else if let Some(key) = runtime_key {
+                    (key, "runtime")
+                } else {
+                    ("A-DEV-0000000000".to_string(), "fallback")
+                };
 
                 // Log Aptabase configuration (with masked key for security)
                 let key_info = if aptabase_key == "A-DEV-0000000000" {
@@ -311,7 +323,11 @@ pub fn run() {
                     "invalid key".to_string()
                 };
 
-                log::info!("Aptabase initialized with: {}", key_info);
+                log::info!(
+                    "Aptabase initialized with: {} (source: {})",
+                    key_info,
+                    key_source
+                );
                 log::info!(
                     "Build mode: {}",
                     if cfg!(debug_assertions) {

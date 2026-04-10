@@ -163,12 +163,12 @@ jobs:
 
       - name: Verify Aptabase Key is set
         run: |
-          if [ -n "${{ secrets.APTABASE_APP_KEY }}" ]; then
-            echo "✓ APTABASE_APP_KEY is configured in GitHub Secrets"
-            echo "Key prefix: $(echo "${{ secrets.APTABASE_APP_KEY }}" | cut -c1-5)..."
-          else
+          if [ -z "${{ secrets.APTABASE_APP_KEY }}" ]; then
             echo "✗ APTABASE_APP_KEY is not configured in GitHub Secrets"
+            exit 1
           fi
+          echo "✓ APTABASE_APP_KEY is configured in GitHub Secrets"
+          echo "Key prefix: $(echo "${{ secrets.APTABASE_APP_KEY }}" | cut -c1-5)..."
         shell: bash
 
       - name: Build the app (macOS Apple Silicon)
