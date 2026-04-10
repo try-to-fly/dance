@@ -8,6 +8,7 @@ use tauri::{AppHandle, Manager};
 
 #[cfg_attr(not(test), allow(dead_code))]
 pub const CAPT04_STORAGE_ROOTS_VERSION: &str = "capt04-storage-roots";
+pub const STORAGE_OWNER_IDENTIFIER_ENV: &str = "DANCE_STORAGE_OWNER_IDENTIFIER";
 
 #[derive(Debug, Clone)]
 pub struct AppPaths {
@@ -22,12 +23,41 @@ pub struct AppPaths {
 
 impl AppPaths {
     pub fn from_app(app: &AppHandle) -> Result<Self> {
+        if let Some(storage_owner_identifier) = storage_owner_identifier_override() {
+            return Self::from_storage_owner_identifier(&storage_owner_identifier);
+        }
+
         let resolver = app.path();
         Ok(Self::from_roots(
             resolver.app_config_dir()?,
             resolver.app_data_dir()?,
             resolver.app_cache_dir()?,
             resolver.app_log_dir()?,
+        ))
+    }
+
+    pub fn from_storage_owner_identifier(identifier: &str) -> Result<Self> {
+        let identifier = identifier.trim();
+        if identifier.is_empty() {
+            return Err(anyhow!("Storage owner identifier cannot be empty"));
+        }
+
+        let config_root = dirs::config_dir()
+            .ok_or_else(|| anyhow!("Unable to get config directory"))?
+            .join(identifier);
+        let data_root = dirs::data_dir()
+            .ok_or_else(|| anyhow!("Unable to get data directory"))?
+            .join(identifier);
+        let cache_root = dirs::cache_dir()
+            .ok_or_else(|| anyhow!("Unable to get cache directory"))?
+            .join(identifier);
+        let log_root = app_log_root_for_identifier(identifier)?;
+
+        Ok(Self::from_roots(
+            config_root,
+            data_root,
+            cache_root,
+            log_root,
         ))
     }
 
@@ -238,4 +268,28 @@ impl AppPaths {
         self.legacy_config_base_dir = Some(base_dir);
         self
     }
+}
+
+fn storage_owner_identifier_override() -> Option<String> {
+    std::env::var(STORAGE_OWNER_IDENTIFIER_ENV)
+        .ok()
+        .or_else(|| option_env!("DANCE_STORAGE_OWNER_IDENTIFIER").map(|value| value.to_string()))
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+#[cfg(target_os = "macos")]
+fn app_log_root_for_identifier(identifier: &str) -> Result<PathBuf> {
+    Ok(dirs::home_dir()
+        .ok_or_else(|| anyhow!("Unable to get home directory"))?
+        .join("Library/Logs")
+        .join(identifier))
+}
+
+#[cfg(not(target_os = "macos"))]
+fn app_log_root_for_identifier(identifier: &str) -> Result<PathBuf> {
+    Ok(dirs::data_local_dir()
+        .ok_or_else(|| anyhow!("Unable to get local data directory"))?
+        .join(identifier)
+        .join("logs"))
 }

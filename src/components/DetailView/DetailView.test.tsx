@@ -385,6 +385,43 @@ describe('DetailView', () => {
     );
   });
 
+  it('图片条目会把 base64 图片一起带入 AI 对话', async () => {
+    const store = {
+      ...createStoreState({
+        ...baseEntry,
+        content_type: 'image/png',
+        content_data: null,
+        file_path: '/tmp/preview.png',
+      }),
+      getImageUrl: vi.fn().mockResolvedValue('data:image/png;base64,preview-image'),
+    };
+
+    mockedUseClipboardStore.mockReturnValue(store);
+
+    render(<DetailView />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '对话' })).toBeInTheDocument();
+    });
+
+    expect(screen.queryByRole('button', { name: '翻译成中文' })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '对话' }));
+
+    await waitFor(() => {
+      expect(mockedComponents.openAiChatWindow).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sourceKey: 'entry-1:hash-1',
+          sourceText: '',
+          sourceImageDataUrl: 'data:image/png;base64,preview-image',
+        }),
+        {
+          windowTitle: '基于原文继续对话',
+        }
+      );
+    });
+  });
+
   it('切换条目时不会短暂复用上一条的解析结果', async () => {
     const firstEntry: ClipboardEntry = {
       ...baseEntry,

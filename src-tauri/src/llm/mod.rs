@@ -41,6 +41,8 @@ pub struct LlmConversationMessage {
 pub struct ProcessTextRequest {
     pub source_text: String,
     #[serde(default)]
+    pub source_image_data_url: Option<String>,
+    #[serde(default)]
     pub conversation: Vec<LlmConversationMessage>,
     pub user_prompt: String,
 }
@@ -172,41 +174,121 @@ fn sanitize_conversation(conversation: Vec<LlmConversationMessage>) -> Vec<LlmCo
     cleaned
 }
 
-fn build_system_prompt(has_source_text: bool) -> &'static str {
-    if has_source_text {
-        concat!(
+fn sanitize_source_image_data_url(source_image_data_url: Option<String>) -> Result<Option<String>> {
+    let Some(source_image_data_url) = source_image_data_url else {
+        return Ok(None);
+    };
+
+    let trimmed = source_image_data_url.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+
+    if !trimmed.starts_with("data:image/") || !trimmed.contains(";base64,") {
+        return Err(anyhow!(
+            "原始图片必须使用 data:image/...;base64,... 格式传入。"
+        ));
+    }
+
+    Ok(Some(trimmed.to_string()))
+}
+
+fn build_system_prompt(has_source_text: bool, has_source_image: bool) -> String {
+    match (has_source_text, has_source_image) {
+        (true, true) => concat!(
+            "你是桌面剪贴板应用里的多模态助手。用户会提供一段固定的原始文本、一张固定的原始图片和后续提示词。",
+            "你的所有回答都必须基于这段文本和这张图片完成，不要臆造其中不存在的信息。",
+            "如果用户要求翻译、提取、总结、改写、结构化整理或继续追问，都应围绕同一份原始上下文处理。"
+        )
+        .to_string(),
+        (true, false) => concat!(
             "你是桌面剪贴板应用里的文本处理助手。用户会提供一段固定的原始文本和后续提示词。",
             "你的所有回答都必须基于这段原始文本完成，不要臆造原文中不存在的信息。",
             "如果用户要求翻译、提取 URL、总结、改写、结构化整理或继续追问，都应围绕同一段原始文本处理。"
         )
-    } else {
-        concat!(
+        .to_string(),
+        (false, true) => concat!(
+            "你是桌面剪贴板应用里的多模态助手。用户会提供一张固定的原始图片和后续提示词。",
+            "你的所有回答都必须基于这张图片完成；如果图片内容不清晰，应明确说明不确定性，不要谎称没有看到图片，也不要臆造图片里不存在的信息。"
+        )
+        .to_string(),
+        (false, false) => concat!(
             "你是桌面剪贴板应用里的 AI 助手。",
             "当前对话不一定会提供预置原始文本；如果没有看到原始文本，就按普通对话直接回答。",
             "如果后续消息提供了上下文或约束，请严格依据这些内容作答，不要谎称看到了不存在的原文。"
         )
+        .to_string(),
     }
 }
 
-fn build_chat_messages(
+fn build_source_context_message(
     source_text: &str,
-    conversation: Vec<LlmConversationMessage>,
-    user_prompt: &str,
-) -> Vec<serde_json::Value> {
+    source_image_data_url: Option<&str>,
+) -> Option<serde_json::Value> {
     let has_source_text = !source_text.is_empty();
-    let mut messages = vec![json!({
-        "role": "system",
-        "content": build_system_prompt(has_source_text),
-    })];
+    let has_source_image = source_image_data_url.is_some();
 
-    if has_source_text {
-        messages.push(json!({
+    if !has_source_text && !has_source_image {
+        return None;
+    }
+
+    if !has_source_image {
+        return Some(json!({
             "role": "user",
             "content": format!(
                 "以下是当前选中的原始文本，请在整个对话中始终以它为依据：\n\n<source_text>\n{}\n</source_text>",
                 source_text
             ),
         }));
+    }
+
+    let mut parts = Vec::with_capacity(2);
+    let source_intro = if has_source_text {
+        format!(
+            "以下是当前选中的原始内容，请在整个对话中始终以它们为依据：\n\n<source_text>\n{}\n</source_text>\n\n另外还附带了一张原始图片，请结合图片内容一起回答。",
+            source_text
+        )
+    } else {
+        "以下是当前选中的原始图片，请在整个对话中始终以它为依据。".to_string()
+    };
+
+    parts.push(json!({
+        "type": "text",
+        "text": source_intro,
+    }));
+
+    if let Some(source_image_data_url) = source_image_data_url {
+        parts.push(json!({
+            "type": "image_url",
+            "image_url": {
+                "url": source_image_data_url,
+            },
+        }));
+    }
+
+    Some(json!({
+        "role": "user",
+        "content": parts,
+    }))
+}
+
+fn build_chat_messages(
+    source_text: &str,
+    source_image_data_url: Option<&str>,
+    conversation: Vec<LlmConversationMessage>,
+    user_prompt: &str,
+) -> Vec<serde_json::Value> {
+    let has_source_text = !source_text.is_empty();
+    let has_source_image = source_image_data_url.is_some();
+    let mut messages = vec![json!({
+        "role": "system",
+        "content": build_system_prompt(has_source_text, has_source_image),
+    })];
+
+    if let Some(source_context_message) =
+        build_source_context_message(source_text, source_image_data_url)
+    {
+        messages.push(source_context_message);
     }
 
     for message in conversation {
@@ -242,6 +324,7 @@ pub async fn process_text(
     if !source_text.is_empty() {
         ensure_text_limit("原始文本", source_text, MAX_SOURCE_CHARS)?;
     }
+    let source_image_data_url = sanitize_source_image_data_url(request.source_image_data_url)?;
 
     let user_prompt = request.user_prompt.trim();
     if user_prompt.is_empty() {
@@ -252,7 +335,12 @@ pub async fn process_text(
 
     let endpoint = build_chat_completions_url(&config.base_url)?;
     let conversation = sanitize_conversation(request.conversation);
-    let messages = build_chat_messages(source_text, conversation, user_prompt);
+    let messages = build_chat_messages(
+        source_text,
+        source_image_data_url.as_deref(),
+        conversation,
+        user_prompt,
+    );
 
     let payload = json!({
         "model": model,
@@ -328,6 +416,7 @@ pub async fn test_config(config: &LlmConfig) -> Result<ProcessTextResponse> {
         config,
         ProcessTextRequest {
             source_text: CONNECTION_TEST_SOURCE_TEXT.to_string(),
+            source_image_data_url: None,
             conversation: vec![],
             user_prompt: CONNECTION_TEST_PROMPT.to_string(),
         },
@@ -364,6 +453,7 @@ mod tests {
     fn build_chat_messages_includes_source_context_when_source_exists() {
         let messages = build_chat_messages(
             "hello world",
+            None,
             vec![LlmConversationMessage {
                 role: LlmMessageRole::Assistant,
                 content: "收到".to_string(),
@@ -390,7 +480,7 @@ mod tests {
 
     #[test]
     fn build_chat_messages_skips_source_context_when_source_is_empty() {
-        let messages = build_chat_messages("", vec![], "帮我写个正则");
+        let messages = build_chat_messages("", None, vec![], "帮我写个正则");
 
         assert_eq!(messages.len(), 2);
         assert_eq!(messages[0]["role"], "system");
@@ -400,5 +490,26 @@ mod tests {
             .contains("不一定会提供预置原始文本"));
         assert_eq!(messages[1]["role"], "user");
         assert_eq!(messages[1]["content"], "帮我写个正则");
+    }
+
+    #[test]
+    fn build_chat_messages_includes_source_image_context_when_source_image_exists() {
+        let messages =
+            build_chat_messages("", Some("data:image/png;base64,AAAA"), vec![], "描述这张图");
+
+        assert_eq!(messages.len(), 3);
+        assert_eq!(messages[0]["role"], "system");
+        assert!(messages[0]["content"]
+            .as_str()
+            .unwrap()
+            .contains("固定的原始图片"));
+        assert_eq!(messages[1]["role"], "user");
+        assert_eq!(messages[1]["content"][0]["type"], "text");
+        assert_eq!(messages[1]["content"][1]["type"], "image_url");
+        assert_eq!(
+            messages[1]["content"][1]["image_url"]["url"],
+            "data:image/png;base64,AAAA"
+        );
+        assert_eq!(messages[2]["content"], "描述这张图");
     }
 }

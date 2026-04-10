@@ -20,6 +20,7 @@ pub struct ClipboardMonitor {
     processor: Arc<ContentProcessor>,
     config_manager: Arc<Mutex<ConfigManager>>,
     analysis_service: TextAnalysisService,
+    self_bundle_identifier: String,
 }
 
 impl ClipboardMonitor {
@@ -27,12 +28,14 @@ impl ClipboardMonitor {
         tx: broadcast::Sender<ClipboardEntry>,
         processor: Arc<ContentProcessor>,
         config_manager: Arc<Mutex<ConfigManager>>,
+        self_bundle_identifier: impl Into<String>,
     ) -> Result<Self> {
         Ok(Self {
             tx,
             processor,
             config_manager,
             analysis_service: TextAnalysisService::new(),
+            self_bundle_identifier: self_bundle_identifier.into(),
         })
     }
 
@@ -56,8 +59,15 @@ impl ClipboardMonitor {
             .or_else(|| app_info.and_then(|info| info.bundle_id.as_deref()))
     }
 
-    fn is_self_generated(source_bundle_id: Option<&str>) -> bool {
-        matches!(source_bundle_id, Some("com.dance.app"))
+    fn matches_self_bundle_identifier(
+        self_bundle_identifier: &str,
+        source_bundle_id: Option<&str>,
+    ) -> bool {
+        source_bundle_id == Some(self_bundle_identifier)
+    }
+
+    fn is_self_generated(&self, source_bundle_id: Option<&str>) -> bool {
+        Self::matches_self_bundle_identifier(&self.self_bundle_identifier, source_bundle_id)
     }
 
     async fn should_emit_hash(
@@ -92,7 +102,7 @@ impl ClipboardMonitor {
 
         decide_capture(
             markers,
-            Self::is_self_generated(source_bundle_id),
+            self.is_self_generated(source_bundle_id),
             excluded_app,
             text_size_valid,
         )
@@ -111,7 +121,7 @@ impl ClipboardMonitor {
 
         decide_capture(
             markers,
-            Self::is_self_generated(source_bundle_id),
+            self.is_self_generated(source_bundle_id),
             excluded_app,
             true,
         )
@@ -478,9 +488,18 @@ mod tests {
 
     #[test]
     fn test_is_self_generated_uses_bundle_id() {
-        assert!(ClipboardMonitor::is_self_generated(Some("com.dance.app")));
-        assert!(!ClipboardMonitor::is_self_generated(Some("com.other.app")));
-        assert!(!ClipboardMonitor::is_self_generated(None));
+        assert!(ClipboardMonitor::matches_self_bundle_identifier(
+            "com.dance.app",
+            Some("com.dance.app")
+        ));
+        assert!(!ClipboardMonitor::matches_self_bundle_identifier(
+            "com.dance.app",
+            Some("com.other.app")
+        ));
+        assert!(!ClipboardMonitor::matches_self_bundle_identifier(
+            "com.dance.app",
+            None
+        ));
     }
 
     #[tokio::test]
@@ -500,7 +519,8 @@ mod tests {
                 .expect("create config manager"),
         ));
         let (tx, mut rx) = broadcast::channel(1);
-        let monitor = ClipboardMonitor::new(tx, processor, config_manager).expect("create monitor");
+        let monitor = ClipboardMonitor::new(tx, processor, config_manager, "com.dance.app.dev")
+            .expect("create monitor");
         let last_observed_hash = Arc::new(Mutex::new(None));
         let suppression_registry = Arc::new(Mutex::new(Vec::<SuppressionEntry>::new()));
 

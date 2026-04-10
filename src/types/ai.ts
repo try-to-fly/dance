@@ -9,6 +9,7 @@ export interface AiConversationMessage {
 
 export interface ProcessTextRequest {
   source_text: string;
+  source_image_data_url?: string | null;
   conversation: AiConversationMessage[];
   user_prompt: string;
 }
@@ -22,6 +23,7 @@ export interface AiSessionPayload {
   sourceKey: string;
   title: string;
   sourceText: string;
+  sourceImageDataUrl?: string | null;
   mode: AiDialogMode;
 }
 
@@ -29,6 +31,7 @@ export interface AiChatWindowPayload {
   sourceKey: string;
   title: string;
   sourceText: string;
+  sourceImageDataUrl?: string | null;
 }
 
 export interface AiChatMessage extends AiConversationMessage {
@@ -49,6 +52,7 @@ export interface AiSessionState {
   sourceKey: string;
   title: string;
   sourceText: string;
+  sourceImageDataUrl: string | null;
   input: string;
   loading: boolean;
   messages: AiChatMessage[];

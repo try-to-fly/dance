@@ -289,6 +289,7 @@ export function DetailView() {
     (activeResolvedPreview?.jsonContent !== undefined
       ? stringifyPreviewValue(activeResolvedPreview.jsonContent)
       : (activeResolvedPreview?.textContent ?? null));
+  const hasDecodedImageSource = activeResolvedPreview?.base64?.decodedKind === 'image';
 
   const handleCopyDecoded = async () => {
     if (decodedContent) {
@@ -300,10 +301,42 @@ export function DetailView() {
     await pasteSelectedEntry(selectedEntry);
   };
 
+  const resolveAiSourceImageDataUrl = async () => {
+    const decodedImageDataUrl =
+      activeResolvedPreview?.base64?.decodedKind === 'image'
+        ? activeResolvedPreview.base64.dataUrl
+        : null;
+
+    if (decodedImageDataUrl?.trim()) {
+      return decodedImageDataUrl.trim();
+    }
+
+    const previewImageUrl = activeResolvedPreview?.imageUrl?.trim();
+    if (previewImageUrl?.startsWith('data:image/')) {
+      return previewImageUrl;
+    }
+
+    if (selectedEntry.file_path && selectedEntry.content_type.toLowerCase().includes('image')) {
+      return (await getImageUrlRef.current(selectedEntry.file_path)).trim();
+    }
+
+    return null;
+  };
+
   const openAiWorkspace = async (mode: 'translate' | 'chat') => {
     try {
-      const sourceText = selectedEntry.content_data?.trim();
-      if (!sourceText || !selectedEntryKey) {
+      const sourceText = hasDecodedImageSource ? '' : (selectedEntry.content_data?.trim() ?? '');
+      const sourceImageDataUrl = mode === 'chat' ? await resolveAiSourceImageDataUrl() : null;
+
+      if (!selectedEntryKey) {
+        return;
+      }
+
+      if (mode === 'translate' && !sourceText) {
+        return;
+      }
+
+      if (mode === 'chat' && !sourceText && !sourceImageDataUrl) {
         return;
       }
 
@@ -313,6 +346,11 @@ export function DetailView() {
             sourceKey: selectedEntryKey,
             title: descriptor.headline,
             sourceText,
+            ...(sourceImageDataUrl
+              ? {
+                  sourceImageDataUrl,
+                }
+              : {}),
           },
           {
             windowTitle: resolveLabel('detail.ai.chatTitle', '基于原文继续对话'),
@@ -332,7 +370,11 @@ export function DetailView() {
     }
   };
 
-  const canUseAi = Boolean(selectedEntry.content_data?.trim());
+  const canTranslateWithAi = Boolean(selectedEntry.content_data?.trim()) && !hasDecodedImageSource;
+  const canChatWithAi =
+    canTranslateWithAi ||
+    selectedEntry.content_type.toLowerCase().includes('image') ||
+    hasDecodedImageSource;
 
   const handleDelete = async () => {
     await deleteEntry(selectedEntry.id);
@@ -395,10 +437,10 @@ export function DetailView() {
         onToggleFavorite={() => toggleFavorite(selectedEntry.id)}
         onOpenUrl={handleOpenUrl}
         onOpenFile={handleOpenFile}
-        onTranslate={() => openAiWorkspace('translate')}
-        onOpenChat={() => openAiWorkspace('chat')}
+        onTranslate={canTranslateWithAi ? () => openAiWorkspace('translate') : undefined}
+        onOpenChat={canChatWithAi ? () => openAiWorkspace('chat') : undefined}
         canCopyDecoded={Boolean(decodedContent)}
-        showAiActions={canUseAi}
+        showAiActions={canTranslateWithAi || canChatWithAi}
       />
       <AIAssistantDialog />
     </>

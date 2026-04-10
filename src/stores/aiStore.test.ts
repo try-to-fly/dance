@@ -126,4 +126,31 @@ describe('aiStore', () => {
       model: 'gpt-4.1-mini',
     });
   });
+
+  it('sendPrompt 会在图片对话时附带 base64 data URL', async () => {
+    mockedInvoke.mockResolvedValue({
+      content: '这张图里是一个浅色界面的截图。',
+      model: 'gpt-4.1-mini',
+    });
+
+    await useAiStore.getState().openDialog({
+      sourceKey: 'entry-image',
+      title: '截图',
+      sourceText: '',
+      sourceImageDataUrl: 'data:image/png;base64,preview-screenshot',
+      mode: 'chat',
+    });
+
+    useAiStore.getState().setInput('描述这张图');
+    await useAiStore.getState().sendPrompt();
+
+    expect(mockedInvoke).toHaveBeenCalledWith('process_text_with_llm', {
+      request: {
+        source_text: '',
+        source_image_data_url: 'data:image/png;base64,preview-screenshot',
+        conversation: [],
+        user_prompt: '描述这张图',
+      },
+    });
+  });
 });

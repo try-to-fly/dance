@@ -34,6 +34,8 @@ export function AIChatWindow() {
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const session = activeSourceKey ? sessions[activeSourceKey] : undefined;
   const hasSourceText = Boolean(session?.sourceText.trim());
+  const hasSourceImage = Boolean(session?.sourceImageDataUrl?.trim());
+  const hasSourceContext = hasSourceText || hasSourceImage;
   const hasAiConfig = Boolean(config?.llm.api_key.trim() && config?.llm.model.trim());
   const isMacOS =
     typeof navigator !== 'undefined' && /(Mac|iPhone|iPod|iPad)/i.test(navigator.userAgent);
@@ -106,7 +108,9 @@ export function AIChatWindow() {
   }, [activeSourceKey, focusTick, hasAiConfig]);
 
   useEffect(() => {
-    const baseTitle = hasSourceText ? t('detail.ai.chatTitle') : t('detail.ai.chatTitleStandalone');
+    const baseTitle = hasSourceContext
+      ? t('detail.ai.chatTitle')
+      : t('detail.ai.chatTitleStandalone');
     const nextTitle = session?.title ? `${baseTitle} · ${session.title}` : baseTitle;
 
     void getCurrentWindow()
@@ -114,7 +118,7 @@ export function AIChatWindow() {
       .catch((error) => {
         console.error('[AIChatWindow] 更新窗口标题失败:', formatUnknownError(error));
       });
-  }, [hasSourceText, session?.title, t]);
+  }, [hasSourceContext, session?.title, t]);
 
   const startWindowDrag = async () => {
     try {
@@ -165,7 +169,7 @@ export function AIChatWindow() {
   );
 
   const renderSourceStrip = () => {
-    if (!session || !hasSourceText) {
+    if (!session || !hasSourceContext) {
       return null;
     }
 
@@ -191,7 +195,9 @@ export function AIChatWindow() {
                 </Badge>
               ) : null}
             </div>
-            <p className="mt-1 truncate text-xs text-muted-foreground">{session.sourceText}</p>
+            <p className="mt-1 truncate text-xs text-muted-foreground">
+              {hasSourceText ? session.sourceText : t('detail.contentTypes.image')}
+            </p>
           </div>
           <ChevronDown
             className={cn(
@@ -203,11 +209,27 @@ export function AIChatWindow() {
 
         {sourceExpanded ? (
           <div className="border-t border-border/70 px-3 pb-3 pt-2">
-            <div className="rounded-[14px] border border-border/70 bg-background/80 p-3">
-              <pre className="max-h-[128px] overflow-y-auto whitespace-pre-wrap break-words font-mono text-xs leading-5 text-foreground">
-                {session.sourceText}
-              </pre>
-            </div>
+            {hasSourceImage ? (
+              <div className="overflow-hidden rounded-[14px] border border-border/70 bg-background/80">
+                <img
+                  src={session.sourceImageDataUrl ?? ''}
+                  alt={session.title || t('detail.contentTypes.image')}
+                  className="max-h-[220px] w-full object-contain"
+                />
+              </div>
+            ) : null}
+            {hasSourceText ? (
+              <div
+                className={cn(
+                  'rounded-[14px] border border-border/70 bg-background/80 p-3',
+                  hasSourceImage ? 'mt-3' : ''
+                )}
+              >
+                <pre className="max-h-[128px] overflow-y-auto whitespace-pre-wrap break-words font-mono text-xs leading-5 text-foreground">
+                  {session.sourceText}
+                </pre>
+              </div>
+            ) : null}
             <p className="mt-2 text-[11px] leading-5 text-muted-foreground">
               {t('detail.ai.sourceHint')}
             </p>
@@ -228,7 +250,7 @@ export function AIChatWindow() {
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex min-w-0 items-center gap-2">
               <CardTitle className="truncate text-sm font-semibold tracking-tight">
-                {hasSourceText ? t('detail.ai.chatTitle') : t('detail.ai.chatTitleStandalone')}
+                {hasSourceContext ? t('detail.ai.chatTitle') : t('detail.ai.chatTitleStandalone')}
               </CardTitle>
               {session.title ? (
                 <Badge
@@ -267,7 +289,9 @@ export function AIChatWindow() {
               <div className="flex h-full items-center justify-center">
                 <div className="w-full max-w-2xl rounded-[18px] border border-dashed border-border/80 bg-muted/25 px-4 py-4">
                   <p className="text-sm leading-6 text-muted-foreground">
-                    {hasSourceText ? t('detail.ai.chatEmpty') : t('detail.ai.chatEmptyStandalone')}
+                    {hasSourceContext
+                      ? t('detail.ai.chatEmpty')
+                      : t('detail.ai.chatEmptyStandalone')}
                   </p>
                   <div className="mt-4 flex flex-wrap gap-2">
                     {CHAT_SUGGESTIONS.map((suggestion) => (
@@ -349,7 +373,7 @@ export function AIChatWindow() {
                   }
                 }}
                 placeholder={
-                  hasSourceText
+                  hasSourceContext
                     ? t('detail.ai.inputPlaceholder')
                     : t('detail.ai.inputPlaceholderStandalone')
                 }
@@ -401,10 +425,10 @@ export function AIChatWindow() {
               </div>
               <div className="min-w-0">
                 <h1 className="truncate text-base font-semibold tracking-tight">
-                  {hasSourceText ? t('detail.ai.chatTitle') : t('detail.ai.chatTitleStandalone')}
+                  {hasSourceContext ? t('detail.ai.chatTitle') : t('detail.ai.chatTitleStandalone')}
                 </h1>
                 <p className="truncate text-xs text-muted-foreground">
-                  {hasSourceText ? t('detail.ai.chatHint') : t('detail.ai.chatHintStandalone')}
+                  {hasSourceContext ? t('detail.ai.chatHint') : t('detail.ai.chatHintStandalone')}
                 </p>
               </div>
             </div>

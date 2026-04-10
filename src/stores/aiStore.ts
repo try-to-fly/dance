@@ -44,6 +44,7 @@ const createSession = (sourceKey: string, title: string, sourceText: string): Ai
   sourceKey,
   title,
   sourceText,
+  sourceImageDataUrl: null,
   input: '',
   loading: false,
   messages: [],
@@ -80,8 +81,12 @@ const buildSessionState = (state: Pick<AiStore, 'sessions'>, payload: AiSessionP
           ...state.sessions[payload.sourceKey],
           title: payload.title,
           sourceText: payload.sourceText,
+          sourceImageDataUrl: payload.sourceImageDataUrl ?? null,
         }
-      : createSession(payload.sourceKey, payload.title, payload.sourceText),
+      : {
+          ...createSession(payload.sourceKey, payload.title, payload.sourceText),
+          sourceImageDataUrl: payload.sourceImageDataUrl ?? null,
+        },
   },
 });
 
@@ -95,15 +100,10 @@ export const useAiStore = create<AiStore>((set, get) => ({
     set((state) => buildSessionState(state, payload));
   },
 
-  openDialog: async ({ sourceKey, title, sourceText, mode }) => {
+  openDialog: async (payload) => {
     set((state) => ({
       isOpen: true,
-      ...buildSessionState(state, {
-        sourceKey,
-        title,
-        sourceText,
-        mode,
-      }),
+      ...buildSessionState(state, payload),
     }));
   },
 
@@ -290,6 +290,11 @@ export const useAiStore = create<AiStore>((set, get) => ({
           source_text: session.sourceText,
           conversation,
           user_prompt: nextPrompt,
+          ...(session.sourceImageDataUrl
+            ? {
+                source_image_data_url: session.sourceImageDataUrl,
+              }
+            : {}),
         },
       });
 

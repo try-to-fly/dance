@@ -68,6 +68,21 @@ fn test_app_paths_from_roots_uses_fixed_layout() {
     );
 }
 
+#[test]
+fn test_app_paths_from_storage_owner_identifier_uses_bundle_scoped_layout() {
+    let paths = AppPaths::from_storage_owner_identifier("com.dance.app").unwrap();
+
+    assert!(paths
+        .config_file_path()
+        .ends_with(PathBuf::from("com.dance.app").join("config.json")));
+    assert!(paths
+        .history_db_path()
+        .ends_with(PathBuf::from("com.dance.app").join("clipboard.db")));
+    assert!(paths
+        .image_assets_dir()
+        .ends_with(PathBuf::from("com.dance.app").join("imgs")));
+}
+
 #[tokio::test]
 async fn test_app_paths_injected_roots_drive_core_modules() {
     let roots = create_temp_app_roots();

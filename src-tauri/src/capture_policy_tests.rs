@@ -89,6 +89,7 @@ async fn test_capture_policy_current_only_is_non_persistent_in_v1() {
         state.tx.clone(),
         Arc::clone(&state.processor),
         Arc::clone(&state.config_manager),
+        "com.dance.app",
     )
     .expect("create clipboard monitor");
     let mut rx = state.tx.subscribe();

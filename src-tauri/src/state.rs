@@ -47,7 +47,7 @@ unsafe extern "C" {
 }
 
 #[cfg(target_os = "macos")]
-fn ensure_macos_accessibility_permission() -> Result<()> {
+fn ensure_macos_accessibility_permission(app_name: &str) -> Result<()> {
     let is_trusted = unsafe { AXIsProcessTrusted() };
     if is_trusted {
         return Ok(());
@@ -69,12 +69,17 @@ fn ensure_macos_accessibility_permission() -> Result<()> {
     {
         log::error!("[paste] 打开辅助功能设置页失败: {}", error);
     } else {
-        log::error!("[paste] Dance 缺少辅助功能权限，已尝试打开辅助功能设置页");
+        log::error!(
+            "[paste] {} 缺少辅助功能权限，已尝试打开辅助功能设置页",
+            app_name
+        );
     }
 
     Err(anyhow::anyhow!(
-        "Dance 缺少辅助功能权限，无法向其他应用发送粘贴按键。当前实际执行文件是：{}。如果你在用 tauri dev，请在“系统设置 > 隐私与安全性 > 辅助功能”里允许这个可执行文件，而不只是安装版 Dance.app。已尝试打开设置页。",
-        current_exe
+        "{} 缺少辅助功能权限，无法向其他应用发送粘贴按键。当前实际执行文件是：{}。如果你在用 tauri dev，请在“系统设置 > 隐私与安全性 > 辅助功能”里允许这个可执行文件，而不只是安装版 {}.app。已尝试打开设置页。",
+        app_name,
+        current_exe,
+        app_name
     ))
 }
 
@@ -120,7 +125,10 @@ fn get_frontmost_application() -> Option<FrontmostApplication> {
 }
 
 #[cfg(target_os = "macos")]
-fn wait_for_macos_paste_target(current_process_id: i32) -> Result<FrontmostApplication> {
+fn wait_for_macos_paste_target(
+    current_process_id: i32,
+    app_name: &str,
+) -> Result<FrontmostApplication> {
     for _ in 0..20 {
         if let Some(frontmost_app) = get_frontmost_application() {
             if frontmost_app.pid != current_process_id {
@@ -132,7 +140,8 @@ fn wait_for_macos_paste_target(current_process_id: i32) -> Result<FrontmostAppli
     }
 
     Err(anyhow::anyhow!(
-        "隐藏 Dance 后没有检测到可接收粘贴的目标应用"
+        "隐藏 {} 后没有检测到可接收粘贴的目标应用",
+        app_name
     ))
 }
 
@@ -150,8 +159,13 @@ fn create_keyboard_event(
 }
 
 #[cfg(target_os = "macos")]
-fn run_macos_paste(current_process_id: u32, label: &str, log_prefix: &str) -> Result<()> {
-    let target_app = wait_for_macos_paste_target(current_process_id as i32)?;
+fn run_macos_paste(
+    current_process_id: u32,
+    label: &str,
+    log_prefix: &str,
+    app_name: &str,
+) -> Result<()> {
+    let target_app = wait_for_macos_paste_target(current_process_id as i32, app_name)?;
     let source = CGEventSource::new(CGEventSourceStateID::CombinedSessionState)
         .map_err(|_| anyhow::anyhow!("Failed to create macOS event source"))?;
     let command_flags = CGEventFlags::CGEventFlagCommand;
@@ -238,10 +252,18 @@ impl AppState {
         let mut runtime_guard = self.capture_runtime.write().await;
 
         if runtime_guard.is_none() {
+            let self_bundle_identifier = self
+                .app_handle
+                .lock()
+                .await
+                .as_ref()
+                .map(|handle| handle.config().identifier.clone())
+                .unwrap_or_else(|| "com.dance.app".to_string());
             let monitor = ClipboardMonitor::new(
                 self.tx.clone(),
                 Arc::clone(&self.processor),
                 Arc::clone(&self.config_manager),
+                self_bundle_identifier,
             )?;
             let runtime = CaptureRuntime::spawn(
                 monitor,
@@ -535,7 +557,12 @@ impl AppState {
         // 切换应用焦点并粘贴（macOS）
         #[cfg(target_os = "macos")]
         {
-            if let Err(error) = ensure_macos_accessibility_permission() {
+            let app_name = app_handle
+                .as_ref()
+                .and_then(|handle| handle.config().product_name.clone())
+                .unwrap_or_else(|| "Dance".to_string());
+
+            if let Err(error) = ensure_macos_accessibility_permission(&app_name) {
                 log::error!("[paste_text] 权限检查失败: {}", error);
                 return Err(error);
             }
@@ -548,9 +575,15 @@ impl AppState {
                     .map_err(|e| anyhow::anyhow!("Failed to hide app before pasting: {}", e))?;
             }
 
+            let app_name_for_paste = app_name.clone();
             let paste_result = tokio::task::spawn_blocking(move || -> Result<()> {
                 log::info!("[paste_text] 开始执行粘贴流程");
-                run_macos_paste(current_process_id, "text", "paste_text")
+                run_macos_paste(
+                    current_process_id,
+                    "text",
+                    "paste_text",
+                    &app_name_for_paste,
+                )
             })
             .await?;
 
@@ -615,7 +648,12 @@ impl AppState {
         // 切换应用焦点并粘贴（macOS）
         #[cfg(target_os = "macos")]
         {
-            if let Err(error) = ensure_macos_accessibility_permission() {
+            let app_name = app_handle
+                .as_ref()
+                .and_then(|handle| handle.config().product_name.clone())
+                .unwrap_or_else(|| "Dance".to_string());
+
+            if let Err(error) = ensure_macos_accessibility_permission(&app_name) {
                 log::error!("[paste_image] 权限检查失败: {}", error);
                 return Err(error);
             }
@@ -628,9 +666,15 @@ impl AppState {
                     .map_err(|e| anyhow::anyhow!("Failed to hide app before pasting: {}", e))?;
             }
 
+            let app_name_for_paste = app_name.clone();
             let paste_result = tokio::task::spawn_blocking(move || -> Result<()> {
                 log::info!("[paste_image] 开始执行图片粘贴流程");
-                run_macos_paste(current_process_id, "image", "paste_image")
+                run_macos_paste(
+                    current_process_id,
+                    "image",
+                    "paste_image",
+                    &app_name_for_paste,
+                )
             })
             .await?;
 
@@ -1046,7 +1090,7 @@ mod macos_paste_permission_tests {
 
     #[test]
     fn accessibility_error_message_is_actionable() {
-        if let Err(error) = ensure_macos_accessibility_permission() {
+        if let Err(error) = ensure_macos_accessibility_permission("Dance") {
             let message = error.to_string();
             assert!(message.contains("辅助功能"));
             assert!(message.contains("Dance"));

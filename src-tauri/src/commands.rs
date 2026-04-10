@@ -140,6 +140,8 @@ pub struct AiChatWindowPayload {
     pub source_key: String,
     pub title: String,
     pub source_text: String,
+    #[serde(default)]
+    pub source_image_data_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
