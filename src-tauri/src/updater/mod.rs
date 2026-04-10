@@ -1,6 +1,10 @@
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::env;
+use std::ffi::OsString;
+use std::net::{SocketAddr, TcpStream};
+use std::time::Duration;
 use tauri::{AppHandle, Emitter};
 use tauri_plugin_updater::UpdaterExt;
 use time::format_description::well_known::Rfc3339;
@@ -15,7 +19,60 @@ pub struct UpdateInfo {
 
 pub struct UpdateManager;
 
+const LOCAL_UPDATE_PROXY_URL: &str = "http://127.0.0.1:7890";
+const PROXY_ENV_KEYS: [&str; 6] = [
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "ALL_PROXY",
+    "http_proxy",
+    "https_proxy",
+    "all_proxy",
+];
+
+#[derive(Debug)]
+struct ProxyEnvGuard {
+    previous_values: Vec<(&'static str, Option<OsString>)>,
+}
+
+impl ProxyEnvGuard {
+    fn enable_for_local_proxy() -> Self {
+        let mut previous_values = Vec::with_capacity(PROXY_ENV_KEYS.len());
+        for key in PROXY_ENV_KEYS {
+            previous_values.push((key, env::var_os(key)));
+            env::set_var(key, LOCAL_UPDATE_PROXY_URL);
+        }
+        Self { previous_values }
+    }
+}
+
+impl Drop for ProxyEnvGuard {
+    fn drop(&mut self) {
+        for (key, value) in &self.previous_values {
+            if let Some(v) = value {
+                env::set_var(key, v);
+            } else {
+                env::remove_var(key);
+            }
+        }
+    }
+}
+
 impl UpdateManager {
+    fn try_enable_local_proxy() -> Option<ProxyEnvGuard> {
+        let proxy_addr = SocketAddr::from(([127, 0, 0, 1], 7890));
+        if TcpStream::connect_timeout(&proxy_addr, Duration::from_millis(300)).is_ok() {
+            log::info!(
+                "[UpdateManager] Detected local proxy on 127.0.0.1:7890, using it for updater requests"
+            );
+            return Some(ProxyEnvGuard::enable_for_local_proxy());
+        }
+
+        log::debug!(
+            "[UpdateManager] Local proxy 127.0.0.1:7890 not available, updater will use default network"
+        );
+        None
+    }
+
     /// Check if we should check for updates (once per day)
     pub fn should_check_for_updates(last_check: Option<&str>) -> bool {
         if let Some(last_check_str) = last_check {
@@ -42,6 +99,7 @@ impl UpdateManager {
             "[UpdateManager] Current app version: {}",
             app.package_info().version
         );
+        let _proxy_guard = Self::try_enable_local_proxy();
 
         let updater = app.updater_builder().build()?;
         log::debug!("[UpdateManager] Updater built successfully");
@@ -90,6 +148,7 @@ impl UpdateManager {
     /// Download and install update
     pub async fn download_and_install(app: &AppHandle) -> Result<()> {
         log::info!("[UpdateManager] Starting update download and install flow");
+        let _proxy_guard = Self::try_enable_local_proxy();
 
         let updater = app.updater_builder().build()?;
 
