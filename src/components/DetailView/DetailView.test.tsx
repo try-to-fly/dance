@@ -478,6 +478,55 @@ describe('DetailView', () => {
     );
   });
 
+  it('URL 图片详情会展示媒体属性信息', async () => {
+    const resolveEntryPreview = vi.fn().mockResolvedValue({
+      imageUrl: 'https://example.com/preview.png',
+      sizeBytes: 2 * 1024 * 1024,
+      mime: 'image/png',
+      extension: 'png',
+      media: {
+        width: 1920,
+        height: 1080,
+        format: 'png',
+      },
+      url: {
+        finalUrl: 'https://example.com/preview.png',
+        previewKind: 'image',
+        contentLength: 2 * 1024 * 1024,
+      },
+    });
+
+    mockedUseClipboardStore.mockReturnValue({
+      ...createStoreState({
+        ...baseEntry,
+        id: 'entry-image-url',
+        content_hash: 'hash-image-url',
+        content_subtype: 'url',
+        content_data: 'https://example.com/preview.png',
+      }),
+      resolveEntryPreview,
+    } as ReturnType<typeof createStoreState> & {
+      resolveEntryPreview: typeof resolveEntryPreview;
+    });
+
+    render(<DetailView />);
+
+    await waitFor(() => {
+      expect(screen.getByAltText('preview')).toHaveAttribute(
+        'src',
+        'https://example.com/preview.png'
+      );
+    });
+
+    expect(screen.getByText('Media')).toBeInTheDocument();
+    expect(screen.getByText('Resolution')).toBeInTheDocument();
+    expect(screen.getByText('1920x1080')).toBeInTheDocument();
+    expect(screen.getByText('Size')).toBeInTheDocument();
+    expect(screen.getByText('2.0 MB')).toBeInTheDocument();
+    expect(screen.getByText('MIME')).toBeInTheDocument();
+    expect(screen.getByText('image/png')).toBeInTheDocument();
+  });
+
   it('D-15 / D-16 / D-17: code detail 复制当前 workbench buffer，关闭后会重置本地编辑', async () => {
     const firstEntry: ClipboardEntry = {
       ...baseEntry,

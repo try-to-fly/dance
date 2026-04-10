@@ -156,12 +156,30 @@ describe('DetailPreview 契约 - Descriptor', () => {
       }),
       {
         imageUrl: 'https://example.com/a.png',
-        url: { previewKind: 'image' },
+        sizeBytes: 2 * 1024 * 1024,
+        mime: 'image/png',
+        extension: 'png',
+        media: {
+          width: 1440,
+          height: 900,
+          format: 'png',
+        },
+        url: { previewKind: 'image', contentLength: 2 * 1024 * 1024 },
       }
     );
 
     expect(descriptor.primaryKind).toBe<PreviewKind>('image');
     expect(descriptor.actions).toContain('open_url');
+    expect(
+      descriptor.inspectorSections.find((section) => section.title === 'Media')?.items
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ label: 'Resolution', value: '1440x900' }),
+        expect.objectContaining({ label: 'Size', value: '2.0 MB' }),
+        expect.objectContaining({ label: 'MIME', value: 'image/png' }),
+        expect.objectContaining({ label: 'Format', value: 'PNG' }),
+      ])
+    );
     expectAlternateKeys(descriptor, []);
   });
 
@@ -173,11 +191,23 @@ describe('DetailPreview 契约 - Descriptor', () => {
       }),
       {
         videoUrl: 'https://example.com/a.mp4',
-        url: { previewKind: 'video' },
+        sizeBytes: 5 * 1024 * 1024,
+        mime: 'video/mp4',
+        extension: 'mp4',
+        url: { previewKind: 'video', contentLength: 5 * 1024 * 1024 },
       }
     );
 
     expect(descriptor.primaryKind).toBe<PreviewKind>('video');
+    expect(
+      descriptor.inspectorSections.find((section) => section.title === 'Media')?.items
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ label: 'Size', value: '5.0 MB' }),
+        expect.objectContaining({ label: 'MIME', value: 'video/mp4' }),
+        expect.objectContaining({ label: 'Format', value: 'MP4' }),
+      ])
+    );
     expectAlternateKeys(descriptor, []);
   });
 

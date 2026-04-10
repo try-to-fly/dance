@@ -316,6 +316,7 @@ export interface MediaPreviewInfo {
   height?: number;
   fps?: string;
   sampleRate?: string;
+  sizeBytes?: number;
   size?: string;
   format?: string;
 }

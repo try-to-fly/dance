@@ -98,32 +98,88 @@ const buildUrlInspector = (metadata: ContentMetadata | null): PreviewInspectorSe
   return { title: 'URL', items };
 };
 
+const MEDIA_PRIMARY_KINDS = new Set<PreviewKind>(['image', 'audio', 'video']);
+
+const formatBinarySize = (bytes?: number | null) => {
+  if (typeof bytes !== 'number' || !Number.isFinite(bytes) || bytes <= 0) {
+    return '';
+  }
+
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
+
+  if (bytes < 1024 * 1024 * 1024) {
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+};
+
+const formatMediaFormat = (value?: string | null) => {
+  if (!value) {
+    return '';
+  }
+
+  return value.replace(/^\./, '').toUpperCase();
+};
+
 const buildMediaInspector = (
   resolvedData?: ResolvedPreviewData
 ): PreviewInspectorSection | null => {
-  if (!resolvedData?.media) {
+  const media = resolvedData?.media;
+  const isUrlMediaPreview = MEDIA_PRIMARY_KINDS.has(
+    resolvedData?.url?.previewKind ?? 'unsupported'
+  );
+
+  if (!media && !isUrlMediaPreview) {
     return null;
   }
 
   const items: PreviewInspectorSection['items'] = [];
-  if (resolvedData.media.width && resolvedData.media.height) {
+  if (media?.width && media.height) {
     items.push({
       label: 'Resolution',
-      value: `${resolvedData.media.width}x${resolvedData.media.height}`,
+      value: `${media.width}x${media.height}`,
       mono: true,
     });
   }
-  if (resolvedData.media.duration) {
-    items.push({ label: 'Duration', value: resolvedData.media.duration, mono: true });
+
+  const resolvedSizeBytes =
+    media?.sizeBytes ?? resolvedData?.sizeBytes ?? resolvedData?.url?.contentLength;
+  const formattedSize = formatBinarySize(resolvedSizeBytes);
+  if (formattedSize) {
+    items.push({ label: 'Size', value: formattedSize, mono: true });
   }
-  if (resolvedData.media.codec) {
-    items.push({ label: 'Codec', value: resolvedData.media.codec, mono: true });
+
+  const resolvedMime = resolvedData?.mime || resolvedData?.url?.contentType;
+  if (resolvedMime) {
+    items.push({ label: 'MIME', value: resolvedMime, mono: true });
   }
-  if (resolvedData.media.bitrate) {
-    items.push({ label: 'Bitrate', value: resolvedData.media.bitrate, mono: true });
+
+  const resolvedFormat = formatMediaFormat(media?.format ?? resolvedData?.extension);
+  if (resolvedFormat) {
+    items.push({ label: 'Format', value: resolvedFormat, mono: true });
   }
-  if (resolvedData.media.sampleRate) {
-    items.push({ label: 'Sample', value: resolvedData.media.sampleRate, mono: true });
+
+  if (media?.duration) {
+    items.push({ label: 'Duration', value: media.duration, mono: true });
+  }
+  if (media?.fps) {
+    items.push({ label: 'FPS', value: media.fps, mono: true });
+  }
+  if (media?.codec) {
+    items.push({ label: 'Codec', value: media.codec, mono: true });
+  }
+  if (media?.bitrate) {
+    items.push({ label: 'Bitrate', value: media.bitrate, mono: true });
+  }
+  if (media?.sampleRate) {
+    items.push({ label: 'Sample Rate', value: media.sampleRate, mono: true });
   }
 
   if (items.length === 0) {

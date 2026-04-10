@@ -187,6 +187,7 @@ const mapMediaPreviewInfo = (
     height: media.height,
     fps: media.fps,
     sampleRate: media.sample_rate,
+    sizeBytes: media.size_bytes,
     size:
       typeof media.size_bytes === 'number'
         ? `${Math.round(media.size_bytes / 1024)} KB`
