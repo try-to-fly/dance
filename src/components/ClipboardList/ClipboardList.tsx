@@ -6,6 +6,14 @@ import { ClipboardItem } from './ClipboardItem';
 import { EmptyState } from './EmptyState';
 import { RetrievalFilterBar } from './RetrievalFilterBar';
 
+const isKeyboardInputTarget = (target: EventTarget | null) =>
+  target instanceof Element &&
+  Boolean(
+    target.closest(
+      'input, textarea, select, button, a, [role="button"], [contenteditable="true"], [data-keyboard-input="true"]'
+    )
+  );
+
 export const ClipboardList: React.FC = () => {
   const {
     loading,
@@ -128,6 +136,20 @@ export const ClipboardList: React.FC = () => {
       const currentIndex = entries.findIndex((entry) => entry.id === selectedEntry?.id);
 
       switch (e.key) {
+        case 'Enter':
+        case 'NumpadEnter': {
+          if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey || isKeyboardInputTarget(e.target)) {
+            break;
+          }
+
+          e.preventDefault();
+          const entryToPaste = currentIndex >= 0 ? entries[currentIndex] : entries[0];
+          setSelectedEntry(entryToPaste);
+          if (pasteSelectedEntry) {
+            pasteSelectedEntry(entryToPaste);
+          }
+          break;
+        }
         case 'ArrowUp': {
           e.preventDefault();
           const prevIndex = currentIndex > 0 ? currentIndex - 1 : 0;

@@ -191,4 +191,33 @@ describe('ClipboardList', () => {
     expect(storeState.setSelectedEntry).not.toHaveBeenCalled();
     expect(storeState.pasteSelectedEntry).not.toHaveBeenCalled();
   });
+
+  it('按下 Enter 时粘贴当前选中的剪贴板条目', () => {
+    const storeState = createStoreState();
+    mockedUseClipboardStore.mockReturnValue(storeState);
+
+    render(<ClipboardList />);
+
+    fireEvent.keyDown(window, { key: 'Enter' });
+
+    expect(storeState.setSelectedEntry).toHaveBeenCalledWith(entries[0]);
+    expect(storeState.pasteSelectedEntry).toHaveBeenCalledWith(entries[0]);
+  });
+
+  it('在输入控件里按 Enter 时不会触发列表粘贴', () => {
+    const storeState = createStoreState();
+    mockedUseClipboardStore.mockReturnValue(storeState);
+
+    render(
+      <>
+        <input aria-label="search" />
+        <ClipboardList />
+      </>
+    );
+
+    fireEvent.keyDown(screen.getByLabelText('search'), { key: 'Enter' });
+
+    expect(storeState.setSelectedEntry).not.toHaveBeenCalledWith(entries[0]);
+    expect(storeState.pasteSelectedEntry).not.toHaveBeenCalled();
+  });
 });
