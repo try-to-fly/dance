@@ -9,6 +9,7 @@ mod config;
 mod database;
 pub mod headless;
 mod llm;
+pub mod media_preview;
 mod models;
 mod presence;
 mod retrieval;

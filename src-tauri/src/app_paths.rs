@@ -115,6 +115,10 @@ impl AppPaths {
         self.cache_root.join("runtime")
     }
 
+    pub fn media_preview_cache_dir(&self) -> PathBuf {
+        self.cache_root.join("media-previews")
+    }
+
     #[cfg_attr(not(test), allow(dead_code))]
     pub fn migration_marker_path(&self) -> PathBuf {
         self.data_root

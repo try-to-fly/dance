@@ -6,10 +6,11 @@ use crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
 };
 use dance_lib::headless::{ClipboardEntry, ClipboardHistoryQuery, HeadlessApp};
+use dance_lib::media_preview::{MediaInspection, PreviewKind, UrlPreviewResolution};
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction, Layout, Rect, Size};
 use ratatui::style::{Color, Style};
-use ratatui::text::Line;
+use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 use ratatui::{Frame, Terminal};
 use ratatui_image::picker::cap_parser::QueryStdioOptions;
@@ -17,9 +18,11 @@ use ratatui_image::picker::{Picker, ProtocolType};
 use ratatui_image::protocol::Protocol;
 use ratatui_image::{Image, Resize};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use std::collections::{HashSet, VecDeque};
 use std::io::{self, Stdout};
 use std::path::{Path, PathBuf};
+use std::process::Command as ProcessCommand;
 use std::time::{Duration, Instant};
 use tokio::task::JoinHandle;
 use tui_input::backend::crossterm::EventHandler;
@@ -34,13 +37,33 @@ const SEARCH_DEBOUNCE_MS: u64 = 180;
 const IMAGE_PREVIEW_DEBOUNCE_MS: u64 = 0;
 const IMAGE_PICKER_QUERY_TIMEOUT_MS: u64 = 120;
 const IMAGE_PROTOCOL_CACHE_LIMIT: usize = 8;
+const URL_MEDIA_PREVIEW_CACHE_LIMIT: usize = 16;
 const APP_ICON_PROTOCOL_WIDTH: u16 = 2;
 const APP_ICON_PROTOCOL_HEIGHT: u16 = 1;
 const APP_ICON_PROTOCOL_CACHE_LIMIT: usize = 48;
+const HISTORY_TYPE_ICON_WIDTH: u16 = 4;
+const HISTORY_META_ICON_GAP: u16 = 1;
 const ATTRIBUTE_PANEL_MAX_HEIGHT: u16 = 10;
 const ATTRIBUTE_PANEL_MIN_CONTENT_HEIGHT: u16 = 4;
 const JSON_PREVIEW_PAGE_SCROLL: usize = 8;
 const JSON_PREVIEW_VALUE_MAX_CHARS: usize = 160;
+const ICON_TEXT: &str = "󰈙";
+const ICON_URL: &str = "󰖟";
+const ICON_IP: &str = "󰩠";
+const ICON_EMAIL: &str = "󰇮";
+const ICON_COLOR: &str = "󰏘";
+const ICON_CODE: &str = "󰅩";
+const ICON_COMMAND: &str = "󰆍";
+const ICON_TIMESTAMP: &str = "󰥔";
+const ICON_JSON: &str = "󰘦";
+const ICON_MARKDOWN: &str = "󰍔";
+const ICON_BASE64: &str = "󰆦";
+const ICON_IMAGE: &str = "󰋩";
+const ICON_FILE: &str = "󰈔";
+const ICON_UNKNOWN: &str = "󰋗";
+const ICON_APP_FALLBACK: &str = "󰣆";
+const ICON_STAR: &str = "󰓎";
+const ICON_COPY: &str = "󰆏";
 
 #[derive(Parser)]
 #[command(name = "dance-tui", about = "Dance clipboard TUI")]
@@ -170,6 +193,7 @@ async fn run_tui_loop(
     let mut search_job: Option<SearchJob> = None;
     let mut pending_image_refresh_at: Option<Instant> = Some(Instant::now());
     let mut image_job: Option<ImageJob> = None;
+    let mut url_media_job: Option<UrlMediaJob> = None;
     let mut icon_job: Option<IconJob> = None;
 
     loop {
@@ -178,6 +202,30 @@ async fn run_tui_loop(
         if state.take_image_refresh_requested() {
             schedule_image_refresh(state, &mut image_job, &mut pending_image_refresh_at);
         }
+
+        if let Some(job) = url_media_job.as_ref() {
+            if job.handle.is_finished() {
+                let job = url_media_job.take().expect("url media job disappeared");
+                state.url_media_loading = false;
+                match job.handle.await {
+                    Ok((entry_id, source_url, result)) => {
+                        if state.apply_url_media_result(&entry_id, &source_url, result) {
+                            schedule_image_refresh(
+                                state,
+                                &mut image_job,
+                                &mut pending_image_refresh_at,
+                            );
+                        }
+                    }
+                    Err(error) if error.is_cancelled() => {}
+                    Err(error) => {
+                        state.error = Some(format!("URL 媒体预览任务失败: {}", error));
+                    }
+                }
+            }
+        }
+
+        start_url_media_job(state, &mut url_media_job);
 
         if let Some(job) = search_job.as_ref() {
             if job.handle.is_finished() {
@@ -289,6 +337,7 @@ async fn run_tui_loop(
         if is_quit_shortcut(&key) {
             abort_search_job(state, &mut search_job);
             abort_image_job(state, &mut image_job);
+            abort_url_media_job(state, &mut url_media_job);
             abort_icon_job(&mut icon_job);
             return Ok(());
         }
@@ -301,6 +350,7 @@ async fn run_tui_loop(
             KeyCode::Char('q') => {
                 abort_search_job(state, &mut search_job);
                 abort_image_job(state, &mut image_job);
+                abort_url_media_job(state, &mut url_media_job);
                 abort_icon_job(&mut icon_job);
                 return Ok(());
             }
@@ -318,11 +368,15 @@ async fn run_tui_loop(
                 state.toggle_json_preview_mode();
             }
             KeyCode::Up => {
+                abort_url_media_job(state, &mut url_media_job);
                 state.select_previous();
+                start_url_media_job(state, &mut url_media_job);
                 schedule_image_refresh(state, &mut image_job, &mut pending_image_refresh_at);
             }
             KeyCode::Down => {
+                abort_url_media_job(state, &mut url_media_job);
                 state.select_next();
+                start_url_media_job(state, &mut url_media_job);
                 schedule_image_refresh(state, &mut image_job, &mut pending_image_refresh_at);
             }
             KeyCode::PageUp => {
@@ -479,6 +533,53 @@ struct ImageJob {
     handle: JoinHandle<(PathBuf, Size, std::result::Result<Protocol, String>)>,
 }
 
+fn start_url_media_job(state: &mut TuiState, url_media_job: &mut Option<UrlMediaJob>) {
+    if url_media_job.is_some() {
+        return;
+    }
+
+    let Some((entry_id, source_url)) = state.selected_http_url() else {
+        state.url_media_preview = None;
+        state.url_media_loading = false;
+        return;
+    };
+
+    if state
+        .url_media_preview
+        .as_ref()
+        .is_some_and(|preview| preview.entry_id == entry_id && preview.source_url == source_url)
+        || state.apply_cached_url_media_preview(&entry_id, &source_url)
+    {
+        state.url_media_loading = false;
+        return;
+    }
+
+    let app = state.app.clone();
+    *url_media_job = Some(UrlMediaJob {
+        handle: tokio::spawn(async move {
+            let result = load_url_media_preview(app, entry_id.clone(), source_url.clone()).await;
+            (entry_id, source_url, result)
+        }),
+    });
+    state.url_media_preview = None;
+    state.url_media_loading = true;
+}
+
+fn abort_url_media_job(state: &mut TuiState, url_media_job: &mut Option<UrlMediaJob>) {
+    if let Some(job) = url_media_job.take() {
+        job.handle.abort();
+    }
+    state.url_media_loading = false;
+}
+
+struct UrlMediaJob {
+    handle: JoinHandle<(
+        String,
+        String,
+        std::result::Result<UrlMediaPreviewState, String>,
+    )>,
+}
+
 fn start_icon_job(state: &mut TuiState, icon_job: &mut Option<IconJob>) {
     if icon_job.is_some() {
         return;
@@ -522,6 +623,8 @@ struct TuiState {
     image_picker: Option<Picker>,
     image_protocol: Option<ImageProtocolState>,
     image_protocol_cache: VecDeque<ImageProtocolState>,
+    url_media_preview: Option<UrlMediaPreviewState>,
+    url_media_preview_cache: VecDeque<UrlMediaPreviewState>,
     icon_protocol_cache: VecDeque<IconProtocolState>,
     failed_icon_bundle_ids: HashSet<String>,
     json_tree_state: TreeState<String>,
@@ -529,6 +632,7 @@ struct TuiState {
     json_preview_mode: JsonPreviewMode,
     json_preview_focused: bool,
     image_loading: bool,
+    url_media_loading: bool,
     error: Option<String>,
     notice: Option<String>,
     searching: bool,
@@ -538,6 +642,17 @@ struct ImageProtocolState {
     path: PathBuf,
     size: Size,
     protocol: Protocol,
+}
+
+#[derive(Clone)]
+struct UrlMediaPreviewState {
+    entry_id: String,
+    source_url: String,
+    final_url: String,
+    preview_kind: PreviewKind,
+    resolution: UrlPreviewResolution,
+    image_path: Option<PathBuf>,
+    error: Option<String>,
 }
 
 struct IconProtocolState {
@@ -582,6 +697,8 @@ impl TuiState {
             image_picker: build_image_picker(),
             image_protocol: None,
             image_protocol_cache: VecDeque::new(),
+            url_media_preview: None,
+            url_media_preview_cache: VecDeque::new(),
             icon_protocol_cache: VecDeque::new(),
             failed_icon_bundle_ids: HashSet::new(),
             json_tree_state: TreeState::default(),
@@ -589,6 +706,7 @@ impl TuiState {
             json_preview_mode: JsonPreviewMode::Tree,
             json_preview_focused: false,
             image_loading: false,
+            url_media_loading: false,
             error: None,
             notice: None,
             searching: false,
@@ -665,6 +783,22 @@ impl TuiState {
 
     fn selected_entry(&self) -> Option<&ClipboardEntry> {
         self.entries.get(self.selected)
+    }
+
+    fn selected_http_url(&self) -> Option<(String, String)> {
+        let entry = self.selected_entry()?;
+        if entry.content_subtype.as_deref() != Some("url") {
+            return None;
+        }
+        let url = normalize_http_url(entry.content_data.as_deref()?)?;
+        Some((entry.id.clone(), url))
+    }
+
+    fn selected_url_media_preview(&self) -> Option<&UrlMediaPreviewState> {
+        let (entry_id, source_url) = self.selected_http_url()?;
+        self.url_media_preview
+            .as_ref()
+            .filter(|preview| preview.entry_id == entry_id && preview.source_url == source_url)
     }
 
     fn selected_json_value(&self) -> Option<Value> {
@@ -895,6 +1029,70 @@ impl TuiState {
         self.image_loading = false;
     }
 
+    fn apply_url_media_result(
+        &mut self,
+        entry_id: &str,
+        source_url: &str,
+        result: std::result::Result<UrlMediaPreviewState, String>,
+    ) -> bool {
+        let Some((selected_entry_id, selected_source_url)) = self.selected_http_url() else {
+            self.url_media_loading = false;
+            return false;
+        };
+        if selected_entry_id != entry_id || selected_source_url != source_url {
+            self.url_media_loading = false;
+            return false;
+        }
+
+        match result {
+            Ok(preview) => {
+                let has_image_path = preview.image_path.is_some();
+                self.store_url_media_preview(preview);
+                self.error = None;
+                has_image_path
+            }
+            Err(error) => {
+                self.url_media_preview = None;
+                self.url_media_loading = false;
+                self.error = Some(error);
+                false
+            }
+        }
+    }
+
+    fn apply_cached_url_media_preview(&mut self, entry_id: &str, source_url: &str) -> bool {
+        let Some(index) = self
+            .url_media_preview_cache
+            .iter()
+            .position(|state| state.entry_id == entry_id && state.source_url == source_url)
+        else {
+            return false;
+        };
+
+        let Some(cached) = self.url_media_preview_cache.remove(index) else {
+            return false;
+        };
+        self.url_media_preview_cache.push_back(cached.clone());
+        if cached.image_path.is_some() {
+            self.image_refresh_requested = true;
+        }
+        self.url_media_preview = Some(cached);
+        self.url_media_loading = false;
+        true
+    }
+
+    fn store_url_media_preview(&mut self, preview: UrlMediaPreviewState) {
+        self.url_media_preview_cache.retain(|state| {
+            state.entry_id != preview.entry_id || state.source_url != preview.source_url
+        });
+        self.url_media_preview_cache.push_back(preview.clone());
+        while self.url_media_preview_cache.len() > URL_MEDIA_PREVIEW_CACHE_LIMIT {
+            self.url_media_preview_cache.pop_front();
+        }
+        self.url_media_preview = Some(preview);
+        self.url_media_loading = false;
+    }
+
     fn update_image_target_size(&mut self, size: Size) {
         let size = if size.width == 0 || size.height == 0 {
             None
@@ -938,6 +1136,13 @@ impl TuiState {
     }
 
     fn selected_image_path(&self) -> Option<PathBuf> {
+        if let Some(path) = self
+            .selected_url_media_preview()
+            .and_then(|preview| preview.image_path.clone())
+        {
+            return Some(path);
+        }
+
         let entry = self.selected_entry()?;
         let path = if entry.content_type.contains("image") {
             entry
@@ -1101,8 +1306,6 @@ fn draw_history_list(frame: &mut Frame<'_>, area: Rect, state: &mut TuiState) {
         let entry = &state.entries[entry_index];
         let is_selected = entry_index == state.selected;
         let y = inner.y + (row_index as u16 * 2);
-        let title_area = Rect::new(inner.x, y, inner.width, 1);
-        let meta_area = Rect::new(inner.x, y.saturating_add(1), inner.width, 1);
         let row_style = if is_selected {
             Style::default().fg(Color::Black).bg(Color::Cyan)
         } else {
@@ -1113,42 +1316,66 @@ fn draw_history_list(frame: &mut Frame<'_>, area: Rect, state: &mut TuiState) {
         } else {
             Style::default().fg(Color::DarkGray)
         };
-        let title_prefix = if is_selected { "> " } else { "  " };
-        let title = format!("{}{}", title_prefix, entry_title(entry));
-        let meta_prefix = "  ";
-        let meta_type = entry
-            .content_subtype
-            .as_deref()
-            .unwrap_or(entry.content_type.as_str());
-        let source_name = source_app_name(entry);
-        let meta = format!(
-            "{}{} ·   {} · {}",
-            meta_prefix,
-            meta_type,
-            source_name,
-            format_time(entry.created_at)
+
+        let type_icon_width = HISTORY_TYPE_ICON_WIDTH.min(inner.width);
+        let content_x = inner.x.saturating_add(type_icon_width);
+        let content_width = inner.width.saturating_sub(type_icon_width);
+        let type_icon_area = Rect::new(inner.x, y, type_icon_width, 2);
+        let summary_area = Rect::new(content_x, y, content_width, 1);
+        let meta_y = y.saturating_add(1);
+        let app_icon_area = Rect::new(
+            content_x,
+            meta_y,
+            APP_ICON_PROTOCOL_WIDTH.min(content_width),
+            APP_ICON_PROTOCOL_HEIGHT,
+        );
+        let meta_text_x = content_x
+            .saturating_add(APP_ICON_PROTOCOL_WIDTH)
+            .saturating_add(HISTORY_META_ICON_GAP);
+        let meta_text_width = inner
+            .x
+            .saturating_add(inner.width)
+            .saturating_sub(meta_text_x);
+        let meta_text_area = Rect::new(meta_text_x, meta_y, meta_text_width, 1);
+
+        let selected_marker = if is_selected { ">" } else { " " };
+        let mut type_icon_style = Style::default().fg(entry_type_icon_color(entry));
+        if is_selected {
+            type_icon_style = type_icon_style.bg(Color::Cyan);
+        }
+        let type_icon_line = Line::from(vec![
+            Span::styled(selected_marker, row_style),
+            Span::styled(" ", row_style),
+            Span::styled(entry_type_icon(entry), type_icon_style),
+        ]);
+        frame.render_widget(Paragraph::new(type_icon_line), type_icon_area);
+        frame.render_widget(
+            Paragraph::new(history_summary_text(entry)).style(row_style),
+            summary_area,
         );
 
-        frame.render_widget(Paragraph::new(title).style(row_style), title_area);
-        frame.render_widget(Paragraph::new(meta).style(meta_style), meta_area);
+        if app_icon_area.width > 0 {
+            let rendered_app_icon = entry
+                .app_bundle_id
+                .as_deref()
+                .and_then(|bundle_id| state.icon_protocol_for(bundle_id))
+                .map(|protocol| {
+                    frame.render_widget(Image::new(protocol), app_icon_area);
+                })
+                .is_some();
 
-        let icon_x = inner.x.saturating_add(
-            (meta_prefix.chars().count() + meta_type.chars().count() + " · ".chars().count())
-                as u16,
-        );
-        if icon_x.saturating_add(APP_ICON_PROTOCOL_WIDTH) <= inner.x.saturating_add(inner.width) {
-            if let Some(bundle_id) = entry.app_bundle_id.as_deref() {
-                if let Some(protocol) = state.icon_protocol_for(bundle_id) {
-                    let icon_area = Rect::new(
-                        icon_x,
-                        meta_area.y,
-                        APP_ICON_PROTOCOL_WIDTH,
-                        APP_ICON_PROTOCOL_HEIGHT,
-                    );
-                    frame.render_widget(Image::new(protocol), icon_area);
-                }
+            if !rendered_app_icon {
+                frame.render_widget(
+                    Paragraph::new(ICON_APP_FALLBACK).style(meta_style),
+                    app_icon_area,
+                );
             }
         }
+
+        frame.render_widget(
+            Paragraph::new(history_meta_text(entry)).style(meta_style),
+            meta_text_area,
+        );
     }
 }
 
@@ -1223,6 +1450,165 @@ fn load_app_icon_protocol(
     (bundle_id, result)
 }
 
+async fn load_url_media_preview(
+    app: HeadlessApp,
+    entry_id: String,
+    source_url: String,
+) -> std::result::Result<UrlMediaPreviewState, String> {
+    let resolution = app.resolve_url_media_preview(&source_url).await?;
+    let preview_kind = resolution.preview_kind.clone();
+    let final_url = resolution.final_url.clone();
+    let mut image_path = None;
+    let mut error = resolution.error.clone();
+
+    match preview_kind {
+        PreviewKind::Image => {
+            match download_remote_image_preview(&app, &final_url, &resolution).await {
+                Ok(path) => image_path = Some(path),
+                Err(err) => error = Some(err),
+            }
+        }
+        PreviewKind::Video => match extract_remote_video_frame(&app, &final_url).await {
+            Ok(path) => image_path = Some(path),
+            Err(err) => error = Some(err),
+        },
+        _ => {}
+    }
+
+    Ok(UrlMediaPreviewState {
+        entry_id,
+        source_url,
+        final_url,
+        preview_kind,
+        resolution,
+        image_path,
+        error,
+    })
+}
+
+async fn download_remote_image_preview(
+    app: &HeadlessApp,
+    url: &str,
+    resolution: &UrlPreviewResolution,
+) -> std::result::Result<PathBuf, String> {
+    let extension = resolution
+        .resolved
+        .extension
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or("img");
+    let cache_path = url_media_cache_path(app, "image", url, extension)?;
+    if cache_path.exists() {
+        return Ok(cache_path);
+    }
+
+    let bytes = reqwest::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .user_agent("Dance/tui-media-preview")
+        .build()
+        .map_err(|error| format!("图片预览 HTTP client 创建失败: {}", error))?
+        .get(url)
+        .send()
+        .await
+        .map_err(|error| format!("图片预览下载失败: {}", error))?
+        .error_for_status()
+        .map_err(|error| format!("图片预览 HTTP 状态失败: {}", error))?
+        .bytes()
+        .await
+        .map_err(|error| format!("图片预览读取失败: {}", error))?;
+
+    if let Some(parent) = cache_path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|error| format!("图片预览缓存目录创建失败: {}", error))?;
+    }
+    std::fs::write(&cache_path, &bytes)
+        .map_err(|error| format!("图片预览缓存写入失败: {}", error))?;
+    Ok(cache_path)
+}
+
+async fn extract_remote_video_frame(
+    app: &HeadlessApp,
+    url: &str,
+) -> std::result::Result<PathBuf, String> {
+    let cache_path = url_media_cache_path(app, "video-frame", url, "png")?;
+    if cache_path.exists() {
+        return Ok(cache_path);
+    }
+    if let Some(parent) = cache_path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|error| format!("视频首帧缓存目录创建失败: {}", error))?;
+    }
+
+    let url = url.to_string();
+    let output_path = cache_path.clone();
+    tokio::task::spawn_blocking(move || extract_remote_video_frame_blocking(&url, &output_path))
+        .await
+        .map_err(|error| format!("视频首帧任务失败: {}", error))??;
+    Ok(cache_path)
+}
+
+fn extract_remote_video_frame_blocking(
+    url: &str,
+    output_path: &Path,
+) -> std::result::Result<(), String> {
+    let available = ProcessCommand::new("ffmpeg")
+        .arg("-version")
+        .output()
+        .map(|output| output.status.success())
+        .unwrap_or(false);
+    if !available {
+        return Err("FFmpeg not available".to_string());
+    }
+
+    let output = ProcessCommand::new("ffmpeg")
+        .args([
+            "-v",
+            "error",
+            "-y",
+            "-ss",
+            "0",
+            "-i",
+            url,
+            "-frames:v",
+            "1",
+            "-f",
+            "image2",
+        ])
+        .arg(output_path)
+        .output()
+        .map_err(|error| format!("Failed to execute ffmpeg: {}", error))?;
+
+    if !output.status.success() {
+        let error_msg = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("FFmpeg execution failed: {}", error_msg));
+    }
+
+    Ok(())
+}
+
+fn url_media_cache_path(
+    app: &HeadlessApp,
+    namespace: &str,
+    url: &str,
+    extension: &str,
+) -> std::result::Result<PathBuf, String> {
+    let mut hasher = Sha256::new();
+    hasher.update(namespace.as_bytes());
+    hasher.update(b":");
+    hasher.update(url.as_bytes());
+    let hash = format!("{:x}", hasher.finalize());
+    let extension = extension.trim_start_matches('.').trim();
+    let extension = if extension.is_empty() {
+        "bin"
+    } else {
+        extension
+    };
+    Ok(app
+        .media_preview_cache_dir()
+        .join(namespace)
+        .join(format!("{}.{}", hash, extension)))
+}
+
 fn draw_preview(frame: &mut Frame<'_>, area: Rect, state: &mut TuiState) {
     let block = Block::default().title("预览").borders(Borders::ALL);
     let inner = block.inner(area);
@@ -1233,7 +1619,12 @@ fn draw_preview(frame: &mut Frame<'_>, area: Rect, state: &mut TuiState) {
         return;
     };
 
-    let attribute_lines = attribute_lines(&entry, inner.width.saturating_sub(2));
+    let url_media_preview = state.selected_url_media_preview().cloned();
+    let attribute_lines = attribute_lines(
+        &entry,
+        inner.width.saturating_sub(2),
+        url_media_preview.as_ref(),
+    );
     let (attribute_area, content_area) = split_preview_sections(inner, attribute_lines.len());
     state.update_image_target_size(Size::new(content_area.width, content_area.height));
 
@@ -1256,6 +1647,11 @@ fn draw_preview(frame: &mut Frame<'_>, area: Rect, state: &mut TuiState) {
         return;
     }
 
+    if state.url_media_loading && state.selected_http_url().is_some() {
+        frame.render_widget(Paragraph::new("媒体预览加载中..."), content_area);
+        return;
+    }
+
     if let Some(value) = parse_json_entry_value(&entry) {
         state.sync_json_tree_state(&entry.id, &value);
         match state.json_preview_mode {
@@ -1269,7 +1665,7 @@ fn draw_preview(frame: &mut Frame<'_>, area: Rect, state: &mut TuiState) {
         state.clear_json_tree_state();
     }
 
-    let lines = preview_lines(&entry);
+    let lines = preview_lines(&entry, url_media_preview.as_ref());
     let paragraph = Paragraph::new(lines)
         .wrap(Wrap { trim: false })
         .scroll((state.preview_scroll, 0));
@@ -1329,8 +1725,16 @@ fn split_preview_sections(area: Rect, attribute_line_count: usize) -> (Option<Re
     (Some(chunks[0]), chunks[1])
 }
 
-fn preview_lines(entry: &ClipboardEntry) -> Vec<Line<'static>> {
+fn preview_lines(
+    entry: &ClipboardEntry,
+    url_media_preview: Option<&UrlMediaPreviewState>,
+) -> Vec<Line<'static>> {
     let mut lines = Vec::new();
+
+    if let Some(preview) = url_media_preview {
+        push_url_media_preview_lines(&mut lines, preview);
+        return lines;
+    }
 
     if entry.content_subtype.as_deref() == Some("json") {
         if let Some(content) = entry.content_data.as_deref() {
@@ -1368,6 +1772,29 @@ fn preview_lines(entry: &ClipboardEntry) -> Vec<Line<'static>> {
     }
 
     lines
+}
+
+fn push_url_media_preview_lines(lines: &mut Vec<Line<'static>>, preview: &UrlMediaPreviewState) {
+    match preview.preview_kind {
+        PreviewKind::Image => {
+            lines.push(Line::from(
+                "当前终端不支持 kitty 图片预览，或远端图片加载失败。",
+            ));
+        }
+        PreviewKind::Video => {
+            lines.push(Line::from(
+                "当前终端不支持 kitty 图片预览，或视频首帧加载失败。",
+            ));
+        }
+        _ => {
+            lines.push(Line::from("当前 URL 不是可直接预览的图片或视频资源。"));
+        }
+    }
+
+    lines.push(Line::from(format!("URL {}", preview.final_url)));
+    if let Some(error) = preview.error.as_deref() {
+        lines.push(Line::from(format!("错误 {}", error)));
+    }
 }
 
 fn push_file_preview(lines: &mut Vec<Line<'static>>, entry: &ClipboardEntry) {
@@ -1483,14 +1910,27 @@ fn json_tree_item(node: &JsonTreeNode) -> TreeItem<'static, String> {
     .expect("JSON tree node identifiers are unique among siblings")
 }
 
-fn attribute_lines(entry: &ClipboardEntry, width: u16) -> Vec<Line<'static>> {
-    build_attribute_text_lines(entry, width)
+fn attribute_lines(
+    entry: &ClipboardEntry,
+    width: u16,
+    url_media_preview: Option<&UrlMediaPreviewState>,
+) -> Vec<Line<'static>> {
+    build_preview_attribute_text_lines(entry, width, url_media_preview)
         .into_iter()
         .map(Line::from)
         .collect()
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 fn build_attribute_text_lines(entry: &ClipboardEntry, width: u16) -> Vec<String> {
+    build_preview_attribute_text_lines(entry, width, None)
+}
+
+fn build_preview_attribute_text_lines(
+    entry: &ClipboardEntry,
+    width: u16,
+    url_media_preview: Option<&UrlMediaPreviewState>,
+) -> Vec<String> {
     let mut lines = Vec::new();
     let metadata = parse_metadata_value(entry);
 
@@ -1506,6 +1946,9 @@ fn build_attribute_text_lines(entry: &ClipboardEntry, width: u16) -> Vec<String>
 
     let Some(metadata) = metadata.as_ref() else {
         append_content_fallback_attributes(&mut lines, entry, width);
+        if let Some(preview) = url_media_preview {
+            append_url_media_attributes(&mut lines, preview, width);
+        }
         return lines;
     };
 
@@ -1524,6 +1967,10 @@ fn build_attribute_text_lines(entry: &ClipboardEntry, width: u16) -> Vec<String>
             append_content_fallback_attributes(&mut lines, entry, width)
         }
         _ => append_text_metadata_attributes(&mut lines, metadata, width),
+    }
+
+    if let Some(preview) = url_media_preview {
+        append_url_media_attributes(&mut lines, preview, width);
     }
 
     lines
@@ -1663,6 +2110,87 @@ fn append_url_attributes(lines: &mut Vec<String>, metadata: &serde_json::Value, 
             ],
             width,
         );
+    }
+}
+
+fn append_url_media_attributes(
+    lines: &mut Vec<String>,
+    preview: &UrlMediaPreviewState,
+    width: u16,
+) {
+    let media = preview.resolution.resolved.media.as_ref();
+    let mime = preview
+        .resolution
+        .resolved
+        .mime
+        .clone()
+        .or_else(|| preview.resolution.content_type.clone());
+    let size_bytes = media
+        .and_then(|value| value.size_bytes)
+        .or(preview.resolution.resolved.size_bytes)
+        .or(preview.resolution.content_length);
+
+    push_compact_fields(
+        lines,
+        [
+            ("媒体", Some(format_preview_kind(&preview.preview_kind))),
+            (
+                "分辨率",
+                media.and_then(|value| {
+                    format_dimensions(value.width.map(u64::from), value.height.map(u64::from))
+                }),
+            ),
+            ("大小", size_bytes.map(format_binary_size)),
+        ],
+        width,
+    );
+    push_compact_fields(
+        lines,
+        [
+            ("MIME", mime),
+            (
+                "格式",
+                media
+                    .and_then(|value| value.format.clone())
+                    .or_else(|| preview.resolution.resolved.extension.clone())
+                    .map(|value| value.to_uppercase()),
+            ),
+            (
+                "ffprobe",
+                media.map(|value| format_bool(value.ffprobe_used)),
+            ),
+        ],
+        width,
+    );
+    if let Some(media) = media {
+        push_media_detail_attributes(lines, media, width);
+    }
+    push_long_field(lines, "最终 URL", Some(preview.final_url.clone()));
+    push_long_field(lines, "错误", preview.error.clone());
+}
+
+fn push_media_detail_attributes(lines: &mut Vec<String>, media: &MediaInspection, width: u16) {
+    push_compact_fields(
+        lines,
+        [
+            ("时长", media.duration.clone()),
+            ("FPS", media.fps.clone()),
+            ("Codec", media.codec.clone()),
+            ("Bitrate", media.bitrate.clone()),
+        ],
+        width,
+    );
+    push_compact_fields(lines, [("Sample Rate", media.sample_rate.clone())], width);
+}
+
+fn format_preview_kind(kind: &PreviewKind) -> String {
+    match kind {
+        PreviewKind::Image => "图片".to_string(),
+        PreviewKind::Video => "视频".to_string(),
+        PreviewKind::Audio => "音频".to_string(),
+        PreviewKind::Json => "JSON".to_string(),
+        PreviewKind::UrlCard => "URL".to_string(),
+        _ => format!("{:?}", kind),
     }
 }
 
@@ -1976,8 +2504,72 @@ fn push_multiline(lines: &mut Vec<Line<'static>>, text: &str) {
     lines.extend(text.lines().map(|line| Line::from(line.to_string())));
 }
 
-fn source_app_name(entry: &ClipboardEntry) -> &str {
-    entry.source_app.as_deref().unwrap_or("未知来源")
+fn entry_type_icon(entry: &ClipboardEntry) -> &'static str {
+    if entry.content_type.contains("image") || entry.content_type.contains("video") {
+        return ICON_IMAGE;
+    }
+
+    if entry.content_type == "file" {
+        return ICON_FILE;
+    }
+
+    match entry.content_subtype.as_deref() {
+        Some("plain_text") | None | Some("") => ICON_TEXT,
+        Some("url") => ICON_URL,
+        Some("ip_address") => ICON_IP,
+        Some("email") => ICON_EMAIL,
+        Some("color") => ICON_COLOR,
+        Some("code") => ICON_CODE,
+        Some("command") => ICON_COMMAND,
+        Some("timestamp") => ICON_TIMESTAMP,
+        Some("json") => ICON_JSON,
+        Some("markdown") => ICON_MARKDOWN,
+        Some("base64") => ICON_BASE64,
+        _ => ICON_UNKNOWN,
+    }
+}
+
+fn entry_type_icon_color(entry: &ClipboardEntry) -> Color {
+    if entry.content_type.contains("image") || entry.content_type.contains("video") {
+        return Color::Rgb(56, 189, 248);
+    }
+
+    if entry.content_type == "file" {
+        return Color::Rgb(148, 163, 184);
+    }
+
+    match entry.content_subtype.as_deref() {
+        Some("plain_text") | None | Some("") => Color::Rgb(203, 213, 225),
+        Some("url") => Color::Rgb(96, 165, 250),
+        Some("ip_address") => Color::Rgb(34, 211, 238),
+        Some("email") => Color::Rgb(244, 114, 182),
+        Some("color") => Color::Rgb(251, 191, 36),
+        Some("code") => Color::Rgb(129, 140, 248),
+        Some("command") => Color::Rgb(52, 211, 153),
+        Some("timestamp") => Color::Rgb(251, 146, 60),
+        Some("json") => Color::Rgb(250, 204, 21),
+        Some("markdown") => Color::Rgb(125, 211, 252),
+        Some("base64") => Color::Rgb(192, 132, 252),
+        _ => Color::Rgb(148, 163, 184),
+    }
+}
+
+fn history_summary_text(entry: &ClipboardEntry) -> String {
+    entry_title(entry)
+}
+
+fn history_meta_text(entry: &ClipboardEntry) -> String {
+    let mut parts = vec![format_time(entry.created_at)];
+
+    if entry.copy_count > 1 {
+        parts.push(format!("{} {}", ICON_COPY, entry.copy_count));
+    }
+
+    if entry.is_favorite {
+        parts.push(ICON_STAR.to_string());
+    }
+
+    parts.join(" · ")
 }
 
 fn entry_title(entry: &ClipboardEntry) -> String {
@@ -1986,14 +2578,14 @@ fn entry_title(entry: &ClipboardEntry) -> String {
             .file_path
             .as_deref()
             .and_then(file_name)
-            .unwrap_or("Image")
+            .unwrap_or("未命名内容")
             .to_string();
     }
 
     if entry.content_type == "file" {
         return single_file_path(entry)
             .and_then(file_name)
-            .unwrap_or("Files")
+            .unwrap_or("未命名内容")
             .to_string();
     }
 
@@ -2002,7 +2594,7 @@ fn entry_title(entry: &ClipboardEntry) -> String {
         .as_deref()
         .map(normalize_preview)
         .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| entry.content_type.clone())
+        .unwrap_or_else(|| "无内容".to_string())
 }
 
 fn normalize_preview(value: &str) -> String {
@@ -2090,6 +2682,19 @@ fn normalize_open_url(value: &str) -> Option<String> {
 
     url::Url::parse(&format!("https://{}", trimmed))
         .ok()
+        .filter(|parsed| parsed.host_str().is_some())
+        .map(|parsed| parsed.to_string())
+}
+
+fn normalize_http_url(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() || trimmed.chars().any(char::is_whitespace) {
+        return None;
+    }
+
+    url::Url::parse(trimmed)
+        .ok()
+        .filter(|parsed| matches!(parsed.scheme(), "http" | "https"))
         .filter(|parsed| parsed.host_str().is_some())
         .map(|parsed| parsed.to_string())
 }
@@ -2212,6 +2817,81 @@ mod tests {
     }
 
     #[test]
+    fn history_list_type_icons_use_nerd_font_glyphs() {
+        let cases = [
+            (
+                "text",
+                Some("url"),
+                Some("https://example.com"),
+                None,
+                ICON_URL,
+            ),
+            (
+                "text",
+                Some("json"),
+                Some(r#"{"ok":true}"#),
+                None,
+                ICON_JSON,
+            ),
+            ("text", Some("code"), Some("fn main() {}"), None, ICON_CODE),
+            (
+                "text",
+                Some("command"),
+                Some("cargo test"),
+                None,
+                ICON_COMMAND,
+            ),
+            (
+                "image/png",
+                None,
+                None,
+                Some("imgs/captured.png"),
+                ICON_IMAGE,
+            ),
+            (
+                "file",
+                None,
+                Some("/tmp/report.csv"),
+                Some("/tmp/report.csv"),
+                ICON_FILE,
+            ),
+        ];
+
+        for (content_type, subtype, content_data, file_path, expected_icon) in cases {
+            let entry = test_entry(content_type, subtype, content_data, file_path, None);
+
+            assert_eq!(entry_type_icon(&entry), expected_icon);
+        }
+    }
+
+    #[test]
+    fn history_list_meta_uses_basic_attributes_without_source_or_type_names() {
+        let mut entry = test_entry("text", Some("url"), Some("https://example.com"), None, None);
+        entry.copy_count = 3;
+        entry.is_favorite = true;
+
+        let meta = history_meta_text(&entry);
+
+        assert!(meta.contains(&format_time(entry.created_at)));
+        assert!(meta.contains(&format!("{} 3", ICON_COPY)));
+        assert!(meta.contains(ICON_STAR));
+        assert!(!meta.contains("Terminal"));
+        assert!(!meta.contains("url"));
+        assert!(!meta.contains("text"));
+    }
+
+    #[test]
+    fn history_summary_does_not_fallback_to_type_name() {
+        let image_entry = test_entry("image/png", None, None, None, None);
+        let file_entry = test_entry("file", None, None, None, None);
+        let empty_text_entry = test_entry("text", Some("plain_text"), None, None, None);
+
+        assert_eq!(history_summary_text(&image_entry), "未命名内容");
+        assert_eq!(history_summary_text(&file_entry), "未命名内容");
+        assert_eq!(history_summary_text(&empty_text_entry), "无内容");
+    }
+
+    #[test]
     fn image_attributes_show_dimensions_size_format_and_path() {
         let entry = test_entry(
             "image/png",
@@ -2265,7 +2945,7 @@ mod tests {
         );
 
         let lines = build_attribute_text_lines(&entry, 120);
-        let preview = preview_lines(&entry)
+        let preview = preview_lines(&entry, None)
             .into_iter()
             .map(|line| line.to_string())
             .collect::<Vec<_>>();
@@ -2336,6 +3016,82 @@ mod tests {
         assert!(base64_lines
             .iter()
             .any(|line| line.contains("Efficiency 1.00")));
+    }
+
+    #[test]
+    fn url_media_attributes_show_ffprobe_metadata() {
+        let entry = test_entry(
+            "text",
+            Some("url"),
+            Some("https://cdn.example.com/video.mp4"),
+            None,
+            Some(
+                json!({
+                    "url_parts": {
+                        "protocol": "https",
+                        "host": "cdn.example.com",
+                        "path": "/video.mp4",
+                        "query_params": []
+                    }
+                })
+                .to_string(),
+            ),
+        );
+        let preview = UrlMediaPreviewState {
+            entry_id: entry.id.clone(),
+            source_url: "https://cdn.example.com/video.mp4".to_string(),
+            final_url: "https://cdn.example.com/video.mp4".to_string(),
+            preview_kind: PreviewKind::Video,
+            resolution: UrlPreviewResolution {
+                final_url: "https://cdn.example.com/video.mp4".to_string(),
+                status: Some(200),
+                content_type: Some("video/mp4".to_string()),
+                content_length: Some(5_242_880),
+                title: None,
+                description: None,
+                preview_kind: PreviewKind::Video,
+                resolved: dance_lib::media_preview::ResolvedPreviewData {
+                    source_kind: "remote".to_string(),
+                    mime: Some("video/mp4".to_string()),
+                    extension: Some("mp4".to_string()),
+                    size_bytes: Some(5_242_880),
+                    media: Some(MediaInspection {
+                        source: "https://cdn.example.com/video.mp4".to_string(),
+                        source_kind: "remote".to_string(),
+                        kind: Some("video".to_string()),
+                        mime: Some("video/mp4".to_string()),
+                        format: Some("mp4".to_string()),
+                        duration: Some("1:23".to_string()),
+                        bitrate: Some("1200 kbps".to_string()),
+                        codec: Some("h264".to_string()),
+                        width: Some(1920),
+                        height: Some(1080),
+                        fps: Some("29.97".to_string()),
+                        sample_rate: Some("48000".to_string()),
+                        size_bytes: Some(5_242_880),
+                        ffprobe_used: true,
+                        error: None,
+                    }),
+                    ..Default::default()
+                },
+                error: None,
+            },
+            image_path: Some(PathBuf::from("/tmp/dance-video-frame.png")),
+            error: None,
+        };
+
+        let lines = build_preview_attribute_text_lines(&entry, 120, Some(&preview));
+
+        assert!(lines.iter().any(|line| line.contains("媒体 视频")));
+        assert!(lines.iter().any(|line| line.contains("分辨率 1920x1080")));
+        assert!(lines.iter().any(|line| line.contains("大小 5.0 MB")));
+        assert!(lines.iter().any(|line| line.contains("MIME video/mp4")));
+        assert!(lines.iter().any(|line| line.contains("格式 MP4")));
+        assert!(lines.iter().any(|line| line.contains("ffprobe 是")));
+        assert!(lines.iter().any(|line| line.contains("时长 1:23")));
+        assert!(lines.iter().any(|line| line.contains("FPS 29.97")));
+        assert!(lines.iter().any(|line| line.contains("Codec h264")));
+        assert!(lines.iter().any(|line| line.contains("Bitrate 1200 kbps")));
     }
 
     #[test]
@@ -2430,7 +3186,7 @@ mod tests {
             None,
         );
 
-        let preview = preview_lines(&entry)
+        let preview = preview_lines(&entry, None)
             .into_iter()
             .map(|line| line.to_string())
             .collect::<Vec<_>>();
@@ -2445,7 +3201,7 @@ mod tests {
 
         assert!(parse_json_entry_value(&entry).is_none());
 
-        let preview = preview_lines(&entry)
+        let preview = preview_lines(&entry, None)
             .into_iter()
             .map(|line| line.to_string())
             .collect::<Vec<_>>();

@@ -1,4 +1,8 @@
 use crate::app_paths::AppPaths;
+use crate::media_preview::{
+    inspect_media_source_internal, resolve_direct_url_preview, MediaInspection,
+    UrlPreviewResolution,
+};
 use crate::presence;
 use crate::retrieval::search_clipboard_history;
 use crate::state::AppState;
@@ -82,5 +86,20 @@ impl HeadlessApp {
 
     pub fn app_icon_path(&self, bundle_id: &str) -> Result<Option<PathBuf>> {
         AppIconExtractor::new_in(self.paths.clone())?.extract_and_cache_icon(bundle_id)
+    }
+
+    pub fn media_preview_cache_dir(&self) -> PathBuf {
+        self.paths.media_preview_cache_dir()
+    }
+
+    pub async fn inspect_media_source(&self, source: &str) -> MediaInspection {
+        inspect_media_source_internal(source, None, None).await
+    }
+
+    pub async fn resolve_url_media_preview(
+        &self,
+        url: &str,
+    ) -> Result<UrlPreviewResolution, String> {
+        resolve_direct_url_preview(url).await
     }
 }
