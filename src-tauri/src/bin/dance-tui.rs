@@ -27,6 +27,7 @@ use tui_input::Input;
 const HISTORY_LIMIT: i32 = 100;
 const DAEMON_TICK_MS: u64 = 500;
 const INPUT_POLL_MS: u64 = 30;
+const AUTO_REFRESH_MS: u64 = 750;
 const SEARCH_DEBOUNCE_MS: u64 = 180;
 const IMAGE_PREVIEW_DEBOUNCE_MS: u64 = 0;
 const IMAGE_PICKER_QUERY_TIMEOUT_MS: u64 = 120;
@@ -52,6 +53,10 @@ enum Command {
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
+    if matches!(cli.command, Some(Command::Daemon)) {
+        init_cli_logger();
+    }
+
     let app = HeadlessApp::new_default().await?;
 
     match cli.command {
@@ -60,8 +65,52 @@ async fn main() -> Result<()> {
     }
 }
 
+struct CliLogger;
+
+impl log::Log for CliLogger {
+    fn enabled(&self, metadata: &log::Metadata<'_>) -> bool {
+        metadata.level() <= log::max_level()
+    }
+
+    fn log(&self, record: &log::Record<'_>) {
+        if self.enabled(record.metadata()) {
+            eprintln!(
+                "[{}] {} {}",
+                chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),
+                record.level(),
+                record.args()
+            );
+        }
+    }
+
+    fn flush(&self) {}
+}
+
+static CLI_LOGGER: CliLogger = CliLogger;
+
+fn init_cli_logger() {
+    let level = match std::env::var("DANCE_TUI_LOG")
+        .unwrap_or_else(|_| "info".to_string())
+        .to_lowercase()
+        .as_str()
+    {
+        "error" => log::LevelFilter::Error,
+        "warn" => log::LevelFilter::Warn,
+        "debug" => log::LevelFilter::Debug,
+        "trace" => log::LevelFilter::Trace,
+        "off" => log::LevelFilter::Off,
+        _ => log::LevelFilter::Info,
+    };
+
+    if log::set_logger(&CLI_LOGGER).is_ok() {
+        log::set_max_level(level);
+    }
+}
+
 async fn run_daemon(app: HeadlessApp) -> Result<()> {
     println!("dance-tui daemon started for {}", app.owner());
+    log::info!("[dance-tui daemon] 已启动，owner={}", app.owner());
+    let mut last_state: Option<&'static str> = None;
 
     loop {
         if app.is_tauri_active() {
@@ -69,17 +118,26 @@ async fn run_daemon(app: HeadlessApp) -> Result<()> {
                 app.stop_capture().await?;
             }
             app.write_daemon_status("paused_by_tauri")?;
+            if last_state != Some("paused_by_tauri") {
+                log::info!("[dance-tui daemon] Tauri 主应用活跃，暂停 daemon 监听");
+                last_state = Some("paused_by_tauri");
+            }
         } else {
             if !app.is_capture_running().await {
                 app.start_capture().await?;
             }
             app.write_daemon_status("listening")?;
+            if last_state != Some("listening") {
+                log::info!("[dance-tui daemon] daemon 正在监听剪贴板");
+                last_state = Some("listening");
+            }
         }
 
         tokio::select! {
             _ = tokio::signal::ctrl_c() => {
                 app.stop_capture().await?;
                 app.write_daemon_status("stopped")?;
+                log::info!("[dance-tui daemon] 已停止");
                 println!("dance-tui daemon stopped");
                 return Ok(());
             }
@@ -103,6 +161,8 @@ async fn run_tui_loop(
     state: &mut TuiState,
 ) -> Result<()> {
     let mut pending_refresh_at: Option<Instant> = None;
+    let mut next_auto_refresh_at: Option<Instant> =
+        Some(Instant::now() + Duration::from_millis(AUTO_REFRESH_MS));
     let mut search_job: Option<SearchJob> = None;
     let mut pending_image_refresh_at: Option<Instant> = Some(Instant::now());
     let mut image_job: Option<ImageJob> = None;
@@ -134,12 +194,25 @@ async fn run_tui_loop(
                         state.error = Some(format!("检索任务失败: {}", error));
                     }
                 }
+                next_auto_refresh_at =
+                    Some(Instant::now() + Duration::from_millis(AUTO_REFRESH_MS));
             }
         }
 
         if pending_refresh_at.is_some_and(|deadline| Instant::now() >= deadline) {
             pending_refresh_at = None;
-            start_search_job(state, &mut search_job);
+            start_search_job(state, &mut search_job, true);
+            next_auto_refresh_at = None;
+        }
+
+        if next_auto_refresh_at.is_some_and(|deadline| Instant::now() >= deadline) {
+            next_auto_refresh_at = None;
+            if search_job.is_none() && pending_refresh_at.is_none() {
+                start_search_job(state, &mut search_job, false);
+            } else {
+                next_auto_refresh_at =
+                    Some(Instant::now() + Duration::from_millis(AUTO_REFRESH_MS));
+            }
         }
 
         if let Some(job) = image_job.as_ref() {
@@ -181,8 +254,12 @@ async fn run_tui_loop(
 
         start_icon_job(state, &mut icon_job);
 
-        let poll_timeout = next_deadline_duration(pending_refresh_at, pending_image_refresh_at)
-            .unwrap_or_else(|| Duration::from_millis(INPUT_POLL_MS));
+        let poll_timeout = next_deadline_duration(&[
+            pending_refresh_at,
+            pending_image_refresh_at,
+            next_auto_refresh_at,
+        ])
+        .unwrap_or_else(|| Duration::from_millis(INPUT_POLL_MS));
         if !event::poll(poll_timeout)? {
             continue;
         }
@@ -223,7 +300,8 @@ async fn run_tui_loop(
                 state.input = Input::default();
                 state.preview_scroll = 0;
                 pending_refresh_at = None;
-                start_search_job(state, &mut search_job);
+                start_search_job(state, &mut search_job, true);
+                next_auto_refresh_at = None;
             }
             KeyCode::Up => {
                 state.select_previous();
@@ -247,6 +325,7 @@ async fn run_tui_loop(
                     abort_search_job(state, &mut search_job);
                     pending_refresh_at =
                         Some(Instant::now() + Duration::from_millis(SEARCH_DEBOUNCE_MS));
+                    next_auto_refresh_at = None;
                 }
             }
         }
@@ -269,18 +348,19 @@ fn is_quit_shortcut(key: &KeyEvent) -> bool {
         && matches!(key.code, KeyCode::Char(value) if value.eq_ignore_ascii_case(&'q'))
 }
 
-fn next_deadline_duration(first: Option<Instant>, second: Option<Instant>) -> Option<Duration> {
-    [first, second]
-        .into_iter()
+fn next_deadline_duration(deadlines: &[Option<Instant>]) -> Option<Duration> {
+    deadlines
+        .iter()
+        .copied()
         .flatten()
         .min()
         .map(|deadline| deadline.saturating_duration_since(Instant::now()))
 }
 
-fn start_search_job(state: &mut TuiState, search_job: &mut Option<SearchJob>) {
+fn start_search_job(state: &mut TuiState, search_job: &mut Option<SearchJob>, show_status: bool) {
     abort_search_job(state, search_job);
     *search_job = Some(state.spawn_search_job());
-    state.searching = true;
+    state.searching = show_status;
 }
 
 fn abort_search_job(state: &mut TuiState, search_job: &mut Option<SearchJob>) {
@@ -498,6 +578,15 @@ impl TuiState {
         self.input.value().trim().to_string()
     }
 
+    fn entry_signature(entry: &ClipboardEntry) -> (&str, i64, i32, bool) {
+        (
+            entry.id.as_str(),
+            entry.created_at,
+            entry.copy_count,
+            entry.is_favorite,
+        )
+    }
+
     fn apply_search_result(
         &mut self,
         text: &str,
@@ -509,6 +598,16 @@ impl TuiState {
 
         match result {
             Ok(entries) => {
+                let previous_selected_id = self.selected_entry().map(|entry| entry.id.clone());
+                let entries_changed = self.entries.len() != entries.len()
+                    || self
+                        .entries
+                        .iter()
+                        .zip(entries.iter())
+                        .any(|(left, right)| {
+                            Self::entry_signature(left) != Self::entry_signature(right)
+                        });
+
                 self.entries = entries;
                 if self.selected >= self.entries.len() {
                     self.selected = self.entries.len().saturating_sub(1);
@@ -516,9 +615,11 @@ impl TuiState {
                 if self.list_scroll > self.selected {
                     self.list_scroll = self.selected;
                 }
+                let selected_changed =
+                    previous_selected_id != self.selected_entry().map(|entry| entry.id.clone());
                 self.error = None;
                 self.notice = None;
-                true
+                entries_changed || selected_changed
             }
             Err(error) => {
                 self.error = Some(error);
