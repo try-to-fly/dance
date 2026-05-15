@@ -8,11 +8,12 @@ use crossterm::terminal::{
 use dance_lib::headless::{ClipboardEntry, ClipboardHistoryQuery, HeadlessApp};
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction, Layout, Rect, Size};
-use ratatui::style::{Color, Modifier, Style};
-use ratatui::text::{Line, Span};
+use ratatui::style::{Color, Style};
+use ratatui::text::Line;
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 use ratatui::{Frame, Terminal};
-use ratatui_image::picker::Picker;
+use ratatui_image::picker::cap_parser::QueryStdioOptions;
+use ratatui_image::picker::{Picker, ProtocolType};
 use ratatui_image::protocol::Protocol;
 use ratatui_image::{Image, Resize};
 use std::collections::{HashSet, VecDeque};
@@ -27,11 +28,14 @@ const HISTORY_LIMIT: i32 = 100;
 const DAEMON_TICK_MS: u64 = 500;
 const INPUT_POLL_MS: u64 = 30;
 const SEARCH_DEBOUNCE_MS: u64 = 180;
-const IMAGE_PREVIEW_DEBOUNCE_MS: u64 = 80;
+const IMAGE_PREVIEW_DEBOUNCE_MS: u64 = 0;
+const IMAGE_PICKER_QUERY_TIMEOUT_MS: u64 = 120;
 const IMAGE_PROTOCOL_CACHE_LIMIT: usize = 8;
 const APP_ICON_PROTOCOL_WIDTH: u16 = 2;
 const APP_ICON_PROTOCOL_HEIGHT: u16 = 1;
 const APP_ICON_PROTOCOL_CACHE_LIMIT: usize = 48;
+const ATTRIBUTE_PANEL_MAX_HEIGHT: u16 = 10;
+const ATTRIBUTE_PANEL_MIN_CONTENT_HEIGHT: u16 = 4;
 
 #[derive(Parser)]
 #[command(name = "dance-tui", about = "Dance clipboard TUI")]
@@ -464,11 +468,7 @@ impl TuiState {
             preview_scroll: 0,
             image_target_size: None,
             image_refresh_requested: false,
-            image_picker: if is_kitty_terminal() {
-                Picker::from_query_stdio().ok()
-            } else {
-                None
-            },
+            image_picker: build_image_picker(),
             image_protocol: None,
             image_protocol_cache: VecDeque::new(),
             icon_protocol_cache: VecDeque::new(),
@@ -969,53 +969,74 @@ fn load_app_icon_protocol(
 fn draw_preview(frame: &mut Frame<'_>, area: Rect, state: &mut TuiState) {
     let block = Block::default().title("预览").borders(Borders::ALL);
     let inner = block.inner(area);
-    state.update_image_target_size(Size::new(inner.width, inner.height));
     frame.render_widget(block, area);
 
-    let Some(entry) = state.selected_entry() else {
+    let Some(entry) = state.selected_entry().cloned() else {
         frame.render_widget(Paragraph::new("没有剪切板记录"), inner);
         return;
     };
 
+    let attribute_lines = attribute_lines(&entry, inner.width.saturating_sub(2));
+    let (attribute_area, content_area) = split_preview_sections(inner, attribute_lines.len());
+    state.update_image_target_size(Size::new(content_area.width, content_area.height));
+
+    if let Some(attribute_area) = attribute_area {
+        let block = Block::default().title("属性").borders(Borders::ALL);
+        let inner = block.inner(attribute_area);
+        frame.render_widget(block, attribute_area);
+        let paragraph = Paragraph::new(attribute_lines).wrap(Wrap { trim: false });
+        frame.render_widget(paragraph, inner);
+    }
+
     if let Some(image_state) = state.image_protocol.as_ref() {
-        frame.render_widget(Clear, inner);
-        frame.render_widget(Image::new(&image_state.protocol), inner);
+        frame.render_widget(Clear, content_area);
+        frame.render_widget(Image::new(&image_state.protocol), content_area);
         return;
     }
 
     if state.image_loading && state.selected_image_path().is_some() {
-        frame.render_widget(Paragraph::new("图片预览加载中..."), inner);
+        frame.render_widget(Paragraph::new("图片预览加载中..."), content_area);
         return;
     }
 
-    let lines = preview_lines(entry);
+    let lines = preview_lines(&entry);
     let paragraph = Paragraph::new(lines)
         .wrap(Wrap { trim: false })
         .scroll((state.preview_scroll, 0));
-    frame.render_widget(paragraph, inner);
+    frame.render_widget(paragraph, content_area);
+}
+
+fn split_preview_sections(area: Rect, attribute_line_count: usize) -> (Option<Rect>, Rect) {
+    if attribute_line_count == 0
+        || area.height < ATTRIBUTE_PANEL_MIN_CONTENT_HEIGHT.saturating_add(3)
+    {
+        return (None, area);
+    }
+
+    let wanted_attribute_height = (attribute_line_count as u16).saturating_add(2);
+    let max_attribute_height = area
+        .height
+        .saturating_sub(ATTRIBUTE_PANEL_MIN_CONTENT_HEIGHT)
+        .min(ATTRIBUTE_PANEL_MAX_HEIGHT);
+    let attribute_height = wanted_attribute_height.min(max_attribute_height);
+
+    if attribute_height < 3 {
+        return (None, area);
+    }
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(attribute_height),
+            Constraint::Min(ATTRIBUTE_PANEL_MIN_CONTENT_HEIGHT),
+        ])
+        .split(area);
+
+    (Some(chunks[0]), chunks[1])
 }
 
 fn preview_lines(entry: &ClipboardEntry) -> Vec<Line<'static>> {
     let mut lines = Vec::new();
-    lines.push(Line::from(Span::styled(
-        entry_title(entry),
-        Style::default().add_modifier(Modifier::BOLD),
-    )));
-    lines.push(Line::from(format!(
-        "{} · {} · copied {}",
-        entry.content_type,
-        source_app_label(entry),
-        entry.copy_count
-    )));
-    if let Some(retrieval) = entry.retrieval.as_ref() {
-        lines.push(Line::from(format!(
-            "命中: {} ({:.1}) {}",
-            retrieval.label,
-            retrieval.score,
-            retrieval.snippet.as_deref().unwrap_or("")
-        )));
-    }
-    lines.push(Line::from(""));
 
     if entry.content_subtype.as_deref() == Some("json") {
         if let Some(content) = entry.content_data.as_deref() {
@@ -1056,24 +1077,503 @@ fn preview_lines(entry: &ClipboardEntry) -> Vec<Line<'static>> {
 }
 
 fn push_file_preview(lines: &mut Vec<Line<'static>>, entry: &ClipboardEntry) {
-    if let Some(metadata) = entry.metadata.as_deref() {
-        lines.push(Line::from("metadata:"));
-        push_multiline(lines, metadata);
-        lines.push(Line::from(""));
-    }
-
     if let Some(content) = entry.content_data.as_deref() {
         lines.push(Line::from("paths:"));
         push_multiline(lines, content);
     }
 }
 
-fn push_multiline(lines: &mut Vec<Line<'static>>, text: &str) {
-    lines.extend(text.lines().map(|line| Line::from(line.to_string())));
+fn attribute_lines(entry: &ClipboardEntry, width: u16) -> Vec<Line<'static>> {
+    build_attribute_text_lines(entry, width)
+        .into_iter()
+        .map(Line::from)
+        .collect()
 }
 
-fn source_app_label(entry: &ClipboardEntry) -> String {
-    source_app_name(entry).to_string()
+fn build_attribute_text_lines(entry: &ClipboardEntry, width: u16) -> Vec<String> {
+    let mut lines = Vec::new();
+    let metadata = parse_metadata_value(entry);
+
+    if entry.content_type.contains("image") {
+        append_image_attributes(&mut lines, entry, metadata.as_ref(), width);
+        return lines;
+    }
+
+    if entry.content_type == "file" {
+        append_file_attributes(&mut lines, entry, metadata.as_ref(), width);
+        return lines;
+    }
+
+    let Some(metadata) = metadata.as_ref() else {
+        append_content_fallback_attributes(&mut lines, entry, width);
+        return lines;
+    };
+
+    match entry.content_subtype.as_deref() {
+        Some("url") => append_url_attributes(&mut lines, metadata, width),
+        Some("color") => append_color_attributes(&mut lines, metadata, width),
+        Some("base64") => append_base64_attributes(&mut lines, metadata, width),
+        Some("timestamp") => append_timestamp_attributes(&mut lines, metadata, width),
+        Some("code") => append_code_attributes(&mut lines, metadata, width),
+        Some("command") => append_command_attributes(&mut lines, metadata, width),
+        Some("json") => append_json_attributes(&mut lines, metadata, width),
+        Some("markdown") => append_markdown_attributes(&mut lines, metadata, width),
+        Some("email") => append_email_attributes(&mut lines, metadata, width),
+        Some("ip_address") => append_ip_attributes(&mut lines, metadata, width),
+        Some("plain_text") | None | Some("") => {
+            append_content_fallback_attributes(&mut lines, entry, width)
+        }
+        _ => append_text_metadata_attributes(&mut lines, metadata, width),
+    }
+
+    lines
+}
+
+fn parse_metadata_value(entry: &ClipboardEntry) -> Option<serde_json::Value> {
+    entry
+        .metadata
+        .as_deref()
+        .and_then(|metadata| serde_json::from_str::<serde_json::Value>(metadata).ok())
+}
+
+fn append_image_attributes(
+    lines: &mut Vec<String>,
+    entry: &ClipboardEntry,
+    metadata: Option<&serde_json::Value>,
+    available_width: u16,
+) {
+    let image_metadata = metadata.and_then(|value| value.get("image_metadata"));
+    let image_width = image_metadata.and_then(|value| json_u64(value, "width"));
+    let height = image_metadata.and_then(|value| json_u64(value, "height"));
+    let path = entry.file_path.as_deref().or(entry.content_data.as_deref());
+
+    push_compact_fields(
+        lines,
+        [
+            ("文件名", path.and_then(file_name).map(str::to_string)),
+            ("尺寸", format_dimensions(image_width, height)),
+            (
+                "格式",
+                image_metadata
+                    .and_then(|value| json_string(value, "format"))
+                    .or_else(|| path.and_then(path_extension))
+                    .map(|value| value.to_uppercase()),
+            ),
+            (
+                "大小",
+                image_metadata
+                    .and_then(|value| json_u64(value, "file_size"))
+                    .map(format_binary_size),
+            ),
+        ],
+        available_width,
+    );
+    push_long_field(lines, "路径", path.map(str::to_string));
+}
+
+fn append_file_attributes(
+    lines: &mut Vec<String>,
+    entry: &ClipboardEntry,
+    metadata: Option<&serde_json::Value>,
+    width: u16,
+) {
+    let file_metadata = metadata.and_then(|value| value.get("file_metadata"));
+    let path = single_file_path(entry);
+
+    push_compact_fields(
+        lines,
+        [
+            (
+                "文件名",
+                file_metadata
+                    .and_then(|value| json_string(value, "name"))
+                    .or_else(|| path.and_then(file_name).map(str::to_string)),
+            ),
+            (
+                "扩展名",
+                file_metadata
+                    .and_then(|value| json_string(value, "extension"))
+                    .or_else(|| path.and_then(path_extension)),
+            ),
+            (
+                "MIME",
+                file_metadata.and_then(|value| json_string(value, "mime")),
+            ),
+            (
+                "大小",
+                file_metadata
+                    .and_then(|value| json_u64(value, "size_bytes"))
+                    .map(format_binary_size),
+            ),
+            (
+                "目录",
+                file_metadata
+                    .and_then(|value| json_bool(value, "is_directory"))
+                    .map(format_bool),
+            ),
+        ],
+        width,
+    );
+    push_compact_fields(
+        lines,
+        [(
+            "修改时间",
+            file_metadata
+                .and_then(|value| json_i64(value, "modified_at"))
+                .map(format_time),
+        )],
+        width,
+    );
+    push_long_field(lines, "路径", path.map(str::to_string));
+}
+
+fn append_url_attributes(lines: &mut Vec<String>, metadata: &serde_json::Value, width: u16) {
+    let Some(url_parts) = metadata.get("url_parts") else {
+        return;
+    };
+
+    push_compact_fields(
+        lines,
+        [
+            ("协议", json_string(url_parts, "protocol")),
+            ("Host", json_string(url_parts, "host")),
+            ("Path", json_string(url_parts, "path")),
+        ],
+        width,
+    );
+
+    let query_params = url_parts
+        .get("query_params")
+        .and_then(|value| value.as_array());
+    if let Some(query_params) = query_params {
+        let query_preview = query_params
+            .iter()
+            .take(6)
+            .filter_map(format_query_param)
+            .collect::<Vec<_>>()
+            .join(", ");
+        push_compact_fields(
+            lines,
+            [
+                ("Query 数量", Some(query_params.len().to_string())),
+                (
+                    "Query",
+                    (!query_preview.is_empty()).then_some(query_preview),
+                ),
+            ],
+            width,
+        );
+    }
+}
+
+fn append_color_attributes(lines: &mut Vec<String>, metadata: &serde_json::Value, width: u16) {
+    let Some(color_formats) = metadata.get("color_formats") else {
+        return;
+    };
+
+    push_compact_fields(
+        lines,
+        [
+            ("HEX", json_string(color_formats, "hex")),
+            ("RGB", json_string(color_formats, "rgb")),
+            ("RGBA", json_string(color_formats, "rgba")),
+            ("HSL", json_string(color_formats, "hsl")),
+        ],
+        width,
+    );
+}
+
+fn append_base64_attributes(lines: &mut Vec<String>, metadata: &serde_json::Value, width: u16) {
+    let Some(base64_metadata) = metadata.get("base64_metadata") else {
+        return;
+    };
+
+    push_compact_fields(
+        lines,
+        [
+            (
+                "Encoded",
+                json_u64(base64_metadata, "encoded_size").map(|value| format!("{} bytes", value)),
+            ),
+            (
+                "Decoded",
+                json_u64(base64_metadata, "estimated_original_size")
+                    .map(|value| format!("{} bytes", value)),
+            ),
+            ("Hint", json_string(base64_metadata, "content_hint")),
+            (
+                "Efficiency",
+                json_f64(base64_metadata, "encoding_efficiency")
+                    .map(|value| format!("{:.2}", value)),
+            ),
+        ],
+        width,
+    );
+}
+
+fn append_timestamp_attributes(lines: &mut Vec<String>, metadata: &serde_json::Value, width: u16) {
+    let Some(timestamp_formats) = metadata.get("timestamp_formats") else {
+        return;
+    };
+
+    push_compact_fields(
+        lines,
+        [
+            (
+                "Unix ms",
+                json_i64(timestamp_formats, "unix_ms").map(|value| value.to_string()),
+            ),
+            ("ISO8601", json_string(timestamp_formats, "iso8601")),
+            ("日期", json_string(timestamp_formats, "date_string")),
+        ],
+        width,
+    );
+}
+
+fn append_code_attributes(lines: &mut Vec<String>, metadata: &serde_json::Value, width: u16) {
+    push_compact_fields(
+        lines,
+        [
+            ("语言", json_string(metadata, "detected_language")),
+            (
+                "行数",
+                json_u64(metadata, "line_count").map(|value| value.to_string()),
+            ),
+        ],
+        width,
+    );
+}
+
+fn append_command_attributes(lines: &mut Vec<String>, metadata: &serde_json::Value, width: u16) {
+    push_compact_fields(
+        lines,
+        [
+            ("命令", json_string(metadata, "command_name")),
+            ("Shell", json_string(metadata, "shell_family")),
+            (
+                "Pipeline",
+                json_bool(metadata, "has_pipeline").map(format_bool),
+            ),
+            (
+                "sudo",
+                json_bool(metadata, "has_sudo_prefix").map(format_bool),
+            ),
+        ],
+        width,
+    );
+}
+
+fn append_json_attributes(lines: &mut Vec<String>, metadata: &serde_json::Value, width: u16) {
+    push_compact_fields(
+        lines,
+        [
+            ("根类型", json_string(metadata, "root_kind")),
+            (
+                "Key 数量",
+                json_u64(metadata, "key_count").map(|value| value.to_string()),
+            ),
+        ],
+        width,
+    );
+}
+
+fn append_markdown_attributes(lines: &mut Vec<String>, metadata: &serde_json::Value, width: u16) {
+    push_compact_fields(
+        lines,
+        [
+            (
+                "Heading",
+                json_bool(metadata, "has_heading").map(format_bool),
+            ),
+            ("List", json_bool(metadata, "has_list").map(format_bool)),
+            (
+                "Code fence",
+                json_bool(metadata, "has_code_fence").map(format_bool),
+            ),
+            ("Link", json_bool(metadata, "has_link").map(format_bool)),
+        ],
+        width,
+    );
+}
+
+fn append_email_attributes(lines: &mut Vec<String>, metadata: &serde_json::Value, width: u16) {
+    push_compact_fields(
+        lines,
+        [
+            ("Local", json_string(metadata, "local_part")),
+            ("Domain", json_string(metadata, "domain")),
+        ],
+        width,
+    );
+}
+
+fn append_ip_attributes(lines: &mut Vec<String>, metadata: &serde_json::Value, width: u16) {
+    push_compact_fields(
+        lines,
+        [
+            ("版本", json_string(metadata, "version")),
+            (
+                "Loopback",
+                json_bool(metadata, "is_loopback").map(format_bool),
+            ),
+            (
+                "Private",
+                json_bool(metadata, "is_private").map(format_bool),
+            ),
+        ],
+        width,
+    );
+}
+
+fn append_text_metadata_attributes(
+    lines: &mut Vec<String>,
+    metadata: &serde_json::Value,
+    width: u16,
+) {
+    push_compact_fields(
+        lines,
+        [
+            ("语言", json_string(metadata, "detected_language")),
+            (
+                "行数",
+                json_u64(metadata, "line_count").map(|value| value.to_string()),
+            ),
+        ],
+        width,
+    );
+}
+
+fn append_content_fallback_attributes(lines: &mut Vec<String>, entry: &ClipboardEntry, width: u16) {
+    if let Some(content) = entry.content_data.as_deref() {
+        push_compact_fields(
+            lines,
+            [
+                ("字符数", Some(content.chars().count().to_string())),
+                ("行数", Some(count_text_lines(content).to_string())),
+            ],
+            width,
+        );
+    }
+}
+
+fn push_compact_fields<const N: usize>(
+    lines: &mut Vec<String>,
+    fields: [(&str, Option<String>); N],
+    width: u16,
+) {
+    let max_width = usize::from(width.max(24));
+    let segments = fields
+        .into_iter()
+        .filter_map(|(label, value)| format_field_segment(label, value))
+        .collect::<Vec<_>>();
+    let mut current = String::new();
+
+    for segment in segments {
+        if current.is_empty() {
+            current = segment;
+            continue;
+        }
+
+        let next_len = current.chars().count() + 5 + segment.chars().count();
+        if next_len <= max_width {
+            current.push_str("  |  ");
+            current.push_str(&segment);
+        } else {
+            lines.push(current);
+            current = segment;
+        }
+    }
+
+    if !current.is_empty() {
+        lines.push(current);
+    }
+}
+
+fn push_long_field(lines: &mut Vec<String>, label: &str, value: Option<String>) {
+    if let Some(segment) = format_field_segment(label, value) {
+        lines.push(segment);
+    }
+}
+
+fn format_field_segment(label: &str, value: Option<String>) -> Option<String> {
+    let value = value?;
+    let value = value.trim();
+    if value.is_empty() {
+        return None;
+    }
+    Some(format!("{} {}", label, value))
+}
+
+fn format_dimensions(width: Option<u64>, height: Option<u64>) -> Option<String> {
+    match (width, height) {
+        (Some(width), Some(height)) => Some(format!("{}x{}", width, height)),
+        (Some(width), None) => Some(format!("{}w", width)),
+        (None, Some(height)) => Some(format!("{}h", height)),
+        (None, None) => None,
+    }
+}
+
+fn json_string(value: &serde_json::Value, key: &str) -> Option<String> {
+    value.get(key)?.as_str().map(str::to_string)
+}
+
+fn json_u64(value: &serde_json::Value, key: &str) -> Option<u64> {
+    value.get(key)?.as_u64()
+}
+
+fn json_i64(value: &serde_json::Value, key: &str) -> Option<i64> {
+    value.get(key)?.as_i64()
+}
+
+fn json_bool(value: &serde_json::Value, key: &str) -> Option<bool> {
+    value.get(key)?.as_bool()
+}
+
+fn json_f64(value: &serde_json::Value, key: &str) -> Option<f64> {
+    value.get(key)?.as_f64()
+}
+
+fn format_query_param(value: &serde_json::Value) -> Option<String> {
+    let array = value.as_array()?;
+    let key = array.first()?.as_str()?;
+    let value = array.get(1)?.as_str()?;
+    Some(format!("{}={}", key, value))
+}
+
+fn format_binary_size(bytes: u64) -> String {
+    if bytes < 1024 {
+        return format!("{} B", bytes);
+    }
+
+    if bytes < 1024 * 1024 {
+        return format!("{:.1} KB", bytes as f64 / 1024.0);
+    }
+
+    if bytes < 1024 * 1024 * 1024 {
+        return format!("{:.1} MB", bytes as f64 / (1024.0 * 1024.0));
+    }
+
+    format!("{:.1} GB", bytes as f64 / (1024.0 * 1024.0 * 1024.0))
+}
+
+fn format_bool(value: bool) -> String {
+    if value {
+        "是".to_string()
+    } else {
+        "否".to_string()
+    }
+}
+
+fn count_text_lines(text: &str) -> usize {
+    if text.is_empty() {
+        0
+    } else {
+        text.lines().count().max(1)
+    }
+}
+
+fn push_multiline(lines: &mut Vec<Line<'static>>, text: &str) {
+    lines.extend(text.lines().map(|line| Line::from(line.to_string())));
 }
 
 fn source_app_name(entry: &ClipboardEntry) -> &str {
@@ -1215,6 +1715,13 @@ fn file_name(path: &str) -> Option<&str> {
     Path::new(path).file_name().and_then(|value| value.to_str())
 }
 
+fn path_extension(path: &str) -> Option<String> {
+    Path::new(path)
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(str::to_string)
+}
+
 fn is_image_path(path: &Path) -> bool {
     matches!(
         path.extension()
@@ -1223,6 +1730,22 @@ fn is_image_path(path: &Path) -> bool {
             .as_deref(),
         Some("png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" | "tiff")
     )
+}
+
+fn build_image_picker() -> Option<Picker> {
+    if !is_kitty_terminal() {
+        return None;
+    }
+
+    let options = QueryStdioOptions {
+        timeout: Duration::from_millis(IMAGE_PICKER_QUERY_TIMEOUT_MS),
+        ..Default::default()
+    };
+
+    let mut picker =
+        Picker::from_query_stdio_with_options(options).unwrap_or_else(|_| Picker::halfblocks());
+    picker.set_protocol_type(ProtocolType::Kitty);
+    Some(picker)
 }
 
 fn format_time(timestamp_ms: i64) -> String {
@@ -1256,4 +1779,226 @@ fn restore_terminal(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
     terminal.show_cursor()?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn test_entry(
+        content_type: &str,
+        content_subtype: Option<&str>,
+        content_data: Option<&str>,
+        file_path: Option<&str>,
+        metadata: Option<String>,
+    ) -> ClipboardEntry {
+        ClipboardEntry {
+            id: "entry-test".to_string(),
+            content_hash: "hash-test".to_string(),
+            content_type: content_type.to_string(),
+            content_data: content_data.map(str::to_string),
+            source_app: Some("Terminal".to_string()),
+            created_at: 0,
+            copy_count: 2,
+            file_path: file_path.map(str::to_string),
+            is_favorite: false,
+            content_subtype: content_subtype.map(str::to_string),
+            metadata,
+            app_bundle_id: Some("com.apple.Terminal".to_string()),
+            analysis: None,
+            retrieval: None,
+        }
+    }
+
+    #[test]
+    fn image_attributes_show_dimensions_size_format_and_path() {
+        let entry = test_entry(
+            "image/png",
+            None,
+            None,
+            Some("imgs/captured.png"),
+            Some(
+                json!({
+                    "image_metadata": {
+                        "width": 1440,
+                        "height": 900,
+                        "file_size": 2048,
+                        "format": "png"
+                    }
+                })
+                .to_string(),
+            ),
+        );
+
+        let lines = build_attribute_text_lines(&entry, 120);
+
+        assert!(lines
+            .iter()
+            .any(|line| line.contains("文件名 captured.png")));
+        assert!(lines.iter().any(|line| line.contains("尺寸 1440x900")));
+        assert!(lines.iter().any(|line| line.contains("大小 2.0 KB")));
+        assert!(lines.iter().any(|line| line.contains("格式 PNG")));
+        assert!(lines.contains(&"路径 imgs/captured.png".to_string()));
+    }
+
+    #[test]
+    fn file_attributes_use_structured_metadata_without_raw_metadata_preview() {
+        let entry = test_entry(
+            "file",
+            None,
+            Some("/tmp/report.csv"),
+            Some("/tmp/report.csv"),
+            Some(
+                json!({
+                    "file_metadata": {
+                        "name": "report.csv",
+                        "extension": "csv",
+                        "mime": "text/csv",
+                        "size_bytes": 1536,
+                        "modified_at": 0,
+                        "is_directory": false
+                    }
+                })
+                .to_string(),
+            ),
+        );
+
+        let lines = build_attribute_text_lines(&entry, 120);
+        let preview = preview_lines(&entry)
+            .into_iter()
+            .map(|line| line.to_string())
+            .collect::<Vec<_>>();
+
+        assert!(lines.iter().any(|line| line.contains("文件名 report.csv")));
+        assert!(lines.iter().any(|line| line.contains("扩展名 csv")));
+        assert!(lines.iter().any(|line| line.contains("MIME text/csv")));
+        assert!(lines.iter().any(|line| line.contains("大小 1.5 KB")));
+        assert!(lines.iter().any(|line| line.contains("目录 否")));
+        assert!(!preview.iter().any(|line| line == "metadata:"));
+        assert!(preview.iter().any(|line| line == "paths:"));
+    }
+
+    #[test]
+    fn url_and_base64_attributes_show_existing_parseable_fields() {
+        let url_entry = test_entry(
+            "text",
+            Some("url"),
+            Some("https://example.com/docs?a=1&b=2"),
+            None,
+            Some(
+                json!({
+                    "url_parts": {
+                        "protocol": "https",
+                        "host": "example.com",
+                        "path": "/docs",
+                        "query_params": [["a", "1"], ["b", "2"]]
+                    }
+                })
+                .to_string(),
+            ),
+        );
+        let base64_entry = test_entry(
+            "text",
+            Some("base64"),
+            Some("aGVsbG8="),
+            None,
+            Some(
+                json!({
+                    "base64_metadata": {
+                        "encoded_size": 8,
+                        "estimated_original_size": 5,
+                        "content_hint": "text",
+                        "encoding_efficiency": 1.0
+                    }
+                })
+                .to_string(),
+            ),
+        );
+
+        let url_lines = build_attribute_text_lines(&url_entry, 120);
+        let base64_lines = build_attribute_text_lines(&base64_entry, 120);
+
+        assert!(url_lines.iter().any(|line| line.contains("协议 https")));
+        assert!(url_lines
+            .iter()
+            .any(|line| line.contains("Host example.com")));
+        assert!(url_lines.iter().any(|line| line.contains("Path /docs")));
+        assert!(url_lines.iter().any(|line| line.contains("Query 数量 2")));
+        assert!(url_lines.iter().any(|line| line.contains("Query a=1, b=2")));
+        assert!(base64_lines
+            .iter()
+            .any(|line| line.contains("Encoded 8 bytes")));
+        assert!(base64_lines
+            .iter()
+            .any(|line| line.contains("Decoded 5 bytes")));
+        assert!(base64_lines.iter().any(|line| line.contains("Hint text")));
+        assert!(base64_lines
+            .iter()
+            .any(|line| line.contains("Efficiency 1.00")));
+    }
+
+    #[test]
+    fn legacy_analysis_metadata_fields_are_rendered_by_exact_names() {
+        let command_entry = test_entry(
+            "text",
+            Some("command"),
+            Some("sudo pnpm test | cat"),
+            None,
+            Some(
+                json!({
+                    "command_name": "pnpm",
+                    "shell_family": "posix",
+                    "has_pipeline": true,
+                    "has_sudo_prefix": true
+                })
+                .to_string(),
+            ),
+        );
+        let json_entry = test_entry(
+            "text",
+            Some("json"),
+            Some(r#"{"a":1,"b":2}"#),
+            None,
+            Some(
+                json!({
+                    "root_kind": "object",
+                    "key_count": 2
+                })
+                .to_string(),
+            ),
+        );
+
+        let command_lines = build_attribute_text_lines(&command_entry, 120);
+        let json_lines = build_attribute_text_lines(&json_entry, 120);
+
+        assert!(command_lines.iter().any(|line| line.contains("命令 pnpm")));
+        assert!(command_lines
+            .iter()
+            .any(|line| line.contains("Shell posix")));
+        assert!(command_lines
+            .iter()
+            .any(|line| line.contains("Pipeline 是")));
+        assert!(command_lines.iter().any(|line| line.contains("sudo 是")));
+        assert!(json_lines.iter().any(|line| line.contains("根类型 object")));
+        assert!(json_lines.iter().any(|line| line.contains("Key 数量 2")));
+    }
+
+    #[test]
+    fn invalid_metadata_does_not_block_plain_text_attributes() {
+        let entry = test_entry(
+            "text",
+            Some("plain_text"),
+            Some("first\nsecond"),
+            None,
+            Some("{not-json".to_string()),
+        );
+
+        let lines = build_attribute_text_lines(&entry, 120);
+
+        assert!(!lines.iter().any(|line| line.contains("类型 text")));
+        assert!(!lines.iter().any(|line| line.contains("子类型 plain_text")));
+        assert!(lines.iter().any(|line| line.contains("字符数 12")));
+        assert!(lines.iter().any(|line| line.contains("行数 2")));
+    }
 }
