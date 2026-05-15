@@ -15,14 +15,22 @@ use ratatui::{Frame, Terminal};
 use ratatui_image::picker::Picker;
 use ratatui_image::protocol::Protocol;
 use ratatui_image::{Image, Resize};
+use std::collections::VecDeque;
 use std::io::{self, Stdout};
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, Instant};
+use tokio::task::JoinHandle;
 use tui_input::backend::crossterm::EventHandler;
 use tui_input::Input;
 
 const HISTORY_LIMIT: i32 = 100;
 const DAEMON_TICK_MS: u64 = 500;
+const INPUT_POLL_MS: u64 = 30;
+const SEARCH_DEBOUNCE_MS: u64 = 180;
+const IMAGE_PREVIEW_DEBOUNCE_MS: u64 = 80;
+const IMAGE_PROTOCOL_WIDTH: u16 = 80;
+const IMAGE_PROTOCOL_HEIGHT: u16 = 40;
+const IMAGE_PROTOCOL_CACHE_LIMIT: usize = 8;
 
 #[derive(Parser)]
 #[command(name = "dance-tui", about = "Dance clipboard TUI")]
@@ -79,7 +87,6 @@ async fn run_tui(app: HeadlessApp) -> Result<()> {
     let mut terminal = setup_terminal()?;
     let mut state = TuiState::new(app);
     state.refresh_entries().await?;
-    state.refresh_image_protocol();
 
     let result = run_tui_loop(&mut terminal, &mut state).await;
     restore_terminal(&mut terminal)?;
@@ -90,10 +97,65 @@ async fn run_tui_loop(
     terminal: &mut Terminal<CrosstermBackend<Stdout>>,
     state: &mut TuiState,
 ) -> Result<()> {
+    let mut pending_refresh_at: Option<Instant> = None;
+    let mut search_job: Option<SearchJob> = None;
+    let mut pending_image_refresh_at: Option<Instant> = Some(Instant::now());
+    let mut image_job: Option<ImageJob> = None;
+
     loop {
         terminal.draw(|frame| draw(frame, state))?;
 
-        if !event::poll(Duration::from_millis(80))? {
+        if let Some(job) = search_job.as_ref() {
+            if job.handle.is_finished() {
+                let job = search_job.take().expect("search job disappeared");
+                state.searching = false;
+                match job.handle.await {
+                    Ok((text, result)) => {
+                        if state.apply_search_result(&text, result) {
+                            schedule_image_refresh(
+                                state,
+                                &mut image_job,
+                                &mut pending_image_refresh_at,
+                            );
+                        }
+                    }
+                    Err(error) if error.is_cancelled() => {}
+                    Err(error) => {
+                        state.error = Some(format!("检索任务失败: {}", error));
+                    }
+                }
+            }
+        }
+
+        if pending_refresh_at.is_some_and(|deadline| Instant::now() >= deadline) {
+            pending_refresh_at = None;
+            start_search_job(state, &mut search_job);
+        }
+
+        if let Some(job) = image_job.as_ref() {
+            if job.handle.is_finished() {
+                let job = image_job.take().expect("image job disappeared");
+                state.image_loading = false;
+                match job.handle.await {
+                    Ok((path, result)) => {
+                        state.apply_image_result(path, result);
+                    }
+                    Err(error) if error.is_cancelled() => {}
+                    Err(error) => {
+                        state.error = Some(format!("图片预览任务失败: {}", error));
+                    }
+                }
+            }
+        }
+
+        if pending_image_refresh_at.is_some_and(|deadline| Instant::now() >= deadline) {
+            pending_image_refresh_at = None;
+            start_image_job(state, &mut image_job);
+        }
+
+        let poll_timeout = next_deadline_duration(pending_refresh_at, pending_image_refresh_at)
+            .unwrap_or_else(|| Duration::from_millis(INPUT_POLL_MS));
+        if !event::poll(poll_timeout)? {
             continue;
         }
 
@@ -106,20 +168,24 @@ async fn run_tui_loop(
         }
 
         match key.code {
-            KeyCode::Char('q') => return Ok(()),
+            KeyCode::Char('q') => {
+                abort_search_job(state, &mut search_job);
+                abort_image_job(state, &mut image_job);
+                return Ok(());
+            }
             KeyCode::Esc => {
                 state.input = Input::default();
                 state.preview_scroll = 0;
-                state.refresh_entries().await?;
-                state.refresh_image_protocol();
+                pending_refresh_at = None;
+                start_search_job(state, &mut search_job);
             }
             KeyCode::Up => {
                 state.select_previous();
-                state.refresh_image_protocol();
+                schedule_image_refresh(state, &mut image_job, &mut pending_image_refresh_at);
             }
             KeyCode::Down => {
                 state.select_next();
-                state.refresh_image_protocol();
+                schedule_image_refresh(state, &mut image_job, &mut pending_image_refresh_at);
             }
             KeyCode::PageUp => {
                 state.preview_scroll = state.preview_scroll.saturating_sub(8);
@@ -135,12 +201,113 @@ async fn run_tui_loop(
                 state.input.handle_event(&Event::Key(key));
                 if state.input.value() != before {
                     state.preview_scroll = 0;
-                    state.refresh_entries().await?;
-                    state.refresh_image_protocol();
+                    abort_search_job(state, &mut search_job);
+                    pending_refresh_at =
+                        Some(Instant::now() + Duration::from_millis(SEARCH_DEBOUNCE_MS));
                 }
             }
         }
     }
+}
+
+fn next_deadline_duration(first: Option<Instant>, second: Option<Instant>) -> Option<Duration> {
+    [first, second]
+        .into_iter()
+        .flatten()
+        .min()
+        .map(|deadline| deadline.saturating_duration_since(Instant::now()))
+}
+
+fn start_search_job(state: &mut TuiState, search_job: &mut Option<SearchJob>) {
+    abort_search_job(state, search_job);
+    *search_job = Some(state.spawn_search_job());
+    state.searching = true;
+}
+
+fn abort_search_job(state: &mut TuiState, search_job: &mut Option<SearchJob>) {
+    if let Some(job) = search_job.take() {
+        job.handle.abort();
+        state.searching = false;
+    }
+}
+
+struct SearchJob {
+    handle: JoinHandle<(String, std::result::Result<Vec<ClipboardEntry>, String>)>,
+}
+
+fn schedule_image_refresh(
+    state: &mut TuiState,
+    image_job: &mut Option<ImageJob>,
+    pending_image_refresh_at: &mut Option<Instant>,
+) {
+    abort_image_job(state, image_job);
+
+    let Some(path) = state.selected_image_path() else {
+        state.image_protocol = None;
+        *pending_image_refresh_at = None;
+        return;
+    };
+
+    if state
+        .image_protocol
+        .as_ref()
+        .is_some_and(|protocol| protocol.path == path)
+    {
+        *pending_image_refresh_at = None;
+        return;
+    }
+
+    if state.apply_cached_image_protocol(&path) {
+        *pending_image_refresh_at = None;
+        return;
+    }
+
+    state.image_protocol = None;
+    state.image_loading = state.image_picker.is_some();
+    *pending_image_refresh_at =
+        Some(Instant::now() + Duration::from_millis(IMAGE_PREVIEW_DEBOUNCE_MS));
+}
+
+fn start_image_job(state: &mut TuiState, image_job: &mut Option<ImageJob>) {
+    abort_image_job(state, image_job);
+
+    let Some(path) = state.selected_image_path() else {
+        state.image_protocol = None;
+        state.image_loading = false;
+        return;
+    };
+
+    if state
+        .image_protocol
+        .as_ref()
+        .is_some_and(|protocol| protocol.path == path)
+        || state.apply_cached_image_protocol(&path)
+    {
+        state.image_loading = false;
+        return;
+    }
+
+    let Some(picker) = state.image_picker.clone() else {
+        state.image_protocol = None;
+        state.image_loading = false;
+        return;
+    };
+
+    *image_job = Some(ImageJob {
+        handle: tokio::task::spawn_blocking(move || load_image_protocol(picker, path)),
+    });
+    state.image_loading = true;
+}
+
+fn abort_image_job(state: &mut TuiState, image_job: &mut Option<ImageJob>) {
+    if let Some(job) = image_job.take() {
+        job.handle.abort();
+        state.image_loading = false;
+    }
+}
+
+struct ImageJob {
+    handle: JoinHandle<(PathBuf, std::result::Result<Protocol, String>)>,
 }
 
 struct TuiState {
@@ -151,7 +318,10 @@ struct TuiState {
     preview_scroll: u16,
     image_picker: Option<Picker>,
     image_protocol: Option<ImageProtocolState>,
+    image_protocol_cache: VecDeque<ImageProtocolState>,
+    image_loading: bool,
     error: Option<String>,
+    searching: bool,
 }
 
 struct ImageProtocolState {
@@ -173,31 +343,52 @@ impl TuiState {
                 None
             },
             image_protocol: None,
+            image_protocol_cache: VecDeque::new(),
+            image_loading: false,
             error: None,
+            searching: false,
         }
     }
 
     async fn refresh_entries(&mut self) -> Result<()> {
-        let text = self.input.value().trim();
-        let query = ClipboardHistoryQuery {
-            text: (!text.is_empty()).then(|| text.to_string()),
-            limit: Some(HISTORY_LIMIT),
-            offset: Some(0),
-            ..Default::default()
-        };
+        let text = self.search_text();
+        let result = search_entries(self.app.clone(), text.clone()).await.1;
+        self.apply_search_result(&text, result);
+        Ok(())
+    }
 
-        match self.app.search_clipboard_history(query).await {
+    fn spawn_search_job(&self) -> SearchJob {
+        let app = self.app.clone();
+        let text = self.search_text();
+        let handle = tokio::spawn(search_entries(app, text));
+        SearchJob { handle }
+    }
+
+    fn search_text(&self) -> String {
+        self.input.value().trim().to_string()
+    }
+
+    fn apply_search_result(
+        &mut self,
+        text: &str,
+        result: std::result::Result<Vec<ClipboardEntry>, String>,
+    ) -> bool {
+        if text != self.search_text() {
+            return false;
+        }
+
+        match result {
             Ok(entries) => {
                 self.entries = entries;
                 if self.selected >= self.entries.len() {
                     self.selected = self.entries.len().saturating_sub(1);
                 }
                 self.error = None;
-                Ok(())
+                true
             }
             Err(error) => {
-                self.error = Some(error.to_string());
-                Ok(())
+                self.error = Some(error);
+                false
             }
         }
     }
@@ -218,51 +409,56 @@ impl TuiState {
         self.preview_scroll = 0;
     }
 
-    fn refresh_image_protocol(&mut self) {
-        let Some(path) = self.selected_image_path() else {
-            self.image_protocol = None;
-            return;
-        };
-
-        if self
-            .image_protocol
-            .as_ref()
-            .is_some_and(|state| state.path == path)
-        {
+    fn apply_image_result(&mut self, path: PathBuf, result: std::result::Result<Protocol, String>) {
+        if self.selected_image_path().as_ref() != Some(&path) {
             return;
         }
 
-        let Some(picker) = self.image_picker.as_mut() else {
-            self.image_protocol = None;
-            return;
-        };
-
-        let reader = match image::ImageReader::open(&path) {
-            Ok(reader) => reader,
-            Err(error) => {
-                self.error = Some(format!("图片读取失败: {}", error));
-                self.image_protocol = None;
-                return;
-            }
-        };
-        let image = match reader.decode() {
-            Ok(image) => image,
-            Err(error) => {
-                self.error = Some(format!("图片解码失败: {}", error));
-                self.image_protocol = None;
-                return;
-            }
-        };
-
-        match picker.new_protocol(image, Size::new(80, 40), Resize::Fit(None)) {
+        match result {
             Ok(protocol) => {
-                self.image_protocol = Some(ImageProtocolState { path, protocol });
+                self.store_image_protocol(path, protocol);
+                self.error = None;
             }
             Err(error) => {
-                self.error = Some(format!("图片协议初始化失败: {}", error));
+                self.error = Some(error);
                 self.image_protocol = None;
             }
         }
+    }
+
+    fn apply_cached_image_protocol(&mut self, path: &Path) -> bool {
+        let Some(index) = self
+            .image_protocol_cache
+            .iter()
+            .position(|state| state.path == path)
+        else {
+            return false;
+        };
+
+        let Some(cached) = self.image_protocol_cache.remove(index) else {
+            return false;
+        };
+        let protocol = cached.protocol.clone();
+        self.image_protocol_cache.push_back(cached);
+        self.image_protocol = Some(ImageProtocolState {
+            path: path.to_path_buf(),
+            protocol,
+        });
+        self.image_loading = false;
+        true
+    }
+
+    fn store_image_protocol(&mut self, path: PathBuf, protocol: Protocol) {
+        self.image_protocol_cache.retain(|state| state.path != path);
+        self.image_protocol_cache.push_back(ImageProtocolState {
+            path: path.clone(),
+            protocol: protocol.clone(),
+        });
+        while self.image_protocol_cache.len() > IMAGE_PROTOCOL_CACHE_LIMIT {
+            self.image_protocol_cache.pop_front();
+        }
+        self.image_protocol = Some(ImageProtocolState { path, protocol });
+        self.image_loading = false;
     }
 
     fn selected_image_path(&self) -> Option<PathBuf> {
@@ -345,10 +541,56 @@ fn draw_left(frame: &mut Frame<'_>, area: Rect, state: &mut TuiState) {
         .unwrap_or_else(|| "daemon_unknown".to_string());
     let status = if let Some(error) = state.error.as_deref() {
         format!("{} | {}", daemon_state, error)
+    } else if state.searching {
+        format!("{} | 检索中...", daemon_state)
     } else {
         daemon_state
     };
     frame.render_widget(Paragraph::new(status), chunks[2]);
+}
+
+async fn search_entries(
+    app: HeadlessApp,
+    text: String,
+) -> (String, std::result::Result<Vec<ClipboardEntry>, String>) {
+    let query = ClipboardHistoryQuery {
+        text: (!text.is_empty()).then(|| text.clone()),
+        limit: Some(HISTORY_LIMIT),
+        offset: Some(0),
+        ..Default::default()
+    };
+    let result = app
+        .search_clipboard_history(query)
+        .await
+        .map_err(|error| error.to_string());
+    (text, result)
+}
+
+fn load_image_protocol(
+    picker: Picker,
+    path: PathBuf,
+) -> (PathBuf, std::result::Result<Protocol, String>) {
+    let result = load_image_protocol_result(&picker, &path);
+    (path, result)
+}
+
+fn load_image_protocol_result(
+    picker: &Picker,
+    path: &Path,
+) -> std::result::Result<Protocol, String> {
+    let reader =
+        image::ImageReader::open(path).map_err(|error| format!("图片读取失败: {}", error))?;
+    let image = reader
+        .decode()
+        .map_err(|error| format!("图片解码失败: {}", error))?;
+
+    picker
+        .new_protocol(
+            image,
+            Size::new(IMAGE_PROTOCOL_WIDTH, IMAGE_PROTOCOL_HEIGHT),
+            Resize::Fit(None),
+        )
+        .map_err(|error| format!("图片协议初始化失败: {}", error))
 }
 
 fn draw_preview(frame: &mut Frame<'_>, area: Rect, state: &mut TuiState) {
@@ -364,6 +606,11 @@ fn draw_preview(frame: &mut Frame<'_>, area: Rect, state: &mut TuiState) {
     if let Some(image_state) = state.image_protocol.as_ref() {
         frame.render_widget(Clear, inner);
         frame.render_widget(Image::new(&image_state.protocol), inner);
+        return;
+    }
+
+    if state.image_loading && state.selected_image_path().is_some() {
+        frame.render_widget(Paragraph::new("图片预览加载中..."), inner);
         return;
     }
 
