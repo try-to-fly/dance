@@ -16,6 +16,7 @@ use ratatui_image::picker::cap_parser::QueryStdioOptions;
 use ratatui_image::picker::{Picker, ProtocolType};
 use ratatui_image::protocol::Protocol;
 use ratatui_image::{Image, Resize};
+use serde_json::Value;
 use std::collections::{HashSet, VecDeque};
 use std::io::{self, Stdout};
 use std::path::{Path, PathBuf};
@@ -23,6 +24,7 @@ use std::time::{Duration, Instant};
 use tokio::task::JoinHandle;
 use tui_input::backend::crossterm::EventHandler;
 use tui_input::Input;
+use tui_tree_widget::{Tree, TreeItem, TreeState};
 
 const HISTORY_LIMIT: i32 = 100;
 const DAEMON_TICK_MS: u64 = 500;
@@ -37,6 +39,8 @@ const APP_ICON_PROTOCOL_HEIGHT: u16 = 1;
 const APP_ICON_PROTOCOL_CACHE_LIMIT: usize = 48;
 const ATTRIBUTE_PANEL_MAX_HEIGHT: u16 = 10;
 const ATTRIBUTE_PANEL_MIN_CONTENT_HEIGHT: u16 = 4;
+const JSON_PREVIEW_PAGE_SCROLL: usize = 8;
+const JSON_PREVIEW_VALUE_MAX_CHARS: usize = 160;
 
 #[derive(Parser)]
 #[command(name = "dance-tui", about = "Dance clipboard TUI")]
@@ -289,6 +293,10 @@ async fn run_tui_loop(
             return Ok(());
         }
 
+        if state.handle_json_preview_key(&key) {
+            continue;
+        }
+
         match key.code {
             KeyCode::Char('q') => {
                 abort_search_job(state, &mut search_job);
@@ -302,6 +310,12 @@ async fn run_tui_loop(
                 pending_refresh_at = None;
                 start_search_job(state, &mut search_job, true);
                 next_auto_refresh_at = None;
+            }
+            KeyCode::Tab => {
+                state.toggle_json_preview_focus();
+            }
+            KeyCode::Char('r') if state.json_preview_focused => {
+                state.toggle_json_preview_mode();
             }
             KeyCode::Up => {
                 state.select_previous();
@@ -510,6 +524,10 @@ struct TuiState {
     image_protocol_cache: VecDeque<ImageProtocolState>,
     icon_protocol_cache: VecDeque<IconProtocolState>,
     failed_icon_bundle_ids: HashSet<String>,
+    json_tree_state: TreeState<String>,
+    json_tree_entry_id: Option<String>,
+    json_preview_mode: JsonPreviewMode,
+    json_preview_focused: bool,
     image_loading: bool,
     error: Option<String>,
     notice: Option<String>,
@@ -537,6 +555,19 @@ enum CopyItem {
     Image(PathBuf),
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum JsonPreviewMode {
+    Tree,
+    Raw,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct JsonTreeNode {
+    id: String,
+    label: String,
+    children: Vec<JsonTreeNode>,
+}
+
 impl TuiState {
     fn new(app: HeadlessApp) -> Self {
         Self {
@@ -553,6 +584,10 @@ impl TuiState {
             image_protocol_cache: VecDeque::new(),
             icon_protocol_cache: VecDeque::new(),
             failed_icon_bundle_ids: HashSet::new(),
+            json_tree_state: TreeState::default(),
+            json_tree_entry_id: None,
+            json_preview_mode: JsonPreviewMode::Tree,
+            json_preview_focused: false,
             image_loading: false,
             error: None,
             notice: None,
@@ -630,6 +665,113 @@ impl TuiState {
 
     fn selected_entry(&self) -> Option<&ClipboardEntry> {
         self.entries.get(self.selected)
+    }
+
+    fn selected_json_value(&self) -> Option<Value> {
+        parse_json_entry_value(self.selected_entry()?)
+    }
+
+    fn selected_entry_has_json_tree(&self) -> bool {
+        self.selected_json_value().is_some()
+    }
+
+    fn sync_json_tree_state(&mut self, entry_id: &str, value: &Value) {
+        if self.json_tree_entry_id.as_deref() == Some(entry_id) {
+            return;
+        }
+
+        self.json_tree_entry_id = Some(entry_id.to_string());
+        self.json_tree_state = TreeState::default();
+        self.json_preview_mode = JsonPreviewMode::Tree;
+        self.json_preview_focused = false;
+
+        let nodes = build_json_tree_nodes(value);
+        if let Some(root) = nodes.first() {
+            let root_path = vec![root.id.clone()];
+            self.json_tree_state.select(root_path.clone());
+            self.json_tree_state.open(root_path);
+        }
+    }
+
+    fn clear_json_tree_state(&mut self) {
+        self.json_tree_entry_id = None;
+        self.json_tree_state = TreeState::default();
+        self.json_preview_mode = JsonPreviewMode::Tree;
+        self.json_preview_focused = false;
+    }
+
+    fn toggle_json_preview_focus(&mut self) {
+        if self.selected_entry_has_json_tree() {
+            self.json_preview_focused = !self.json_preview_focused;
+        } else {
+            self.json_preview_focused = false;
+        }
+    }
+
+    fn toggle_json_preview_mode(&mut self) {
+        if self.selected_entry_has_json_tree() {
+            self.json_preview_mode = match self.json_preview_mode {
+                JsonPreviewMode::Tree => JsonPreviewMode::Raw,
+                JsonPreviewMode::Raw => JsonPreviewMode::Tree,
+            };
+            self.preview_scroll = 0;
+        }
+    }
+
+    fn handle_json_preview_key(&mut self, key: &KeyEvent) -> bool {
+        if !self.json_preview_focused || !self.selected_entry_has_json_tree() {
+            return false;
+        }
+
+        if self.json_preview_mode == JsonPreviewMode::Raw {
+            match key.code {
+                KeyCode::Up => {
+                    self.preview_scroll = self.preview_scroll.saturating_sub(1);
+                    return true;
+                }
+                KeyCode::Down => {
+                    self.preview_scroll = self.preview_scroll.saturating_add(1);
+                    return true;
+                }
+                KeyCode::PageUp => {
+                    self.preview_scroll = self.preview_scroll.saturating_sub(8);
+                    return true;
+                }
+                KeyCode::PageDown => {
+                    self.preview_scroll = self.preview_scroll.saturating_add(8);
+                    return true;
+                }
+                _ => return false,
+            }
+        }
+
+        match key.code {
+            KeyCode::Up => {
+                self.json_tree_state.key_up();
+                true
+            }
+            KeyCode::Down => {
+                self.json_tree_state.key_down();
+                true
+            }
+            KeyCode::Left => {
+                self.json_tree_state.key_left();
+                true
+            }
+            KeyCode::Right => {
+                self.json_tree_state.key_right();
+                true
+            }
+            KeyCode::PageUp => {
+                self.json_tree_state.scroll_up(JSON_PREVIEW_PAGE_SCROLL);
+                true
+            }
+            KeyCode::PageDown => {
+                self.json_tree_state.scroll_down(JSON_PREVIEW_PAGE_SCROLL);
+                true
+            }
+            _ => false,
+        }
     }
 
     fn next_uncached_icon_bundle_id(&self) -> Option<String> {
@@ -913,7 +1055,21 @@ fn draw_left(frame: &mut Frame<'_>, area: Rect, state: &mut TuiState) {
         .read_daemon_status()
         .map(|status| status.state)
         .unwrap_or_else(|| "daemon_unknown".to_string());
-    let action_hint = "↑/↓ 选择 · Enter 打开 · Ctrl+C 复制 · Esc 清空搜索 · q 退出";
+    let action_hint = if state.selected_entry_has_json_tree() {
+        match (state.json_preview_focused, state.json_preview_mode) {
+            (true, JsonPreviewMode::Tree) => {
+                "JSON树: ↑/↓ 选择 · ←/→ 折叠/展开 · r Raw · Tab 返回 · q 退出"
+            }
+            (true, JsonPreviewMode::Raw) => {
+                "JSON Raw: PageUp/PageDown 滚动 · r 树形 · Tab 返回 · q 退出"
+            }
+            (false, _) => {
+                "↑/↓ 选择 · Tab JSON预览 · Enter 打开 · Ctrl+C 复制 · Esc 清空搜索 · q 退出"
+            }
+        }
+    } else {
+        "↑/↓ 选择 · Enter 打开 · Ctrl+C 复制 · Esc 清空搜索 · q 退出"
+    };
     let status = if let Some(error) = state.error.as_deref() {
         format!("{} | {}", daemon_state, error)
     } else if let Some(notice) = state.notice.as_deref() {
@@ -1100,11 +1256,48 @@ fn draw_preview(frame: &mut Frame<'_>, area: Rect, state: &mut TuiState) {
         return;
     }
 
+    if let Some(value) = parse_json_entry_value(&entry) {
+        state.sync_json_tree_state(&entry.id, &value);
+        match state.json_preview_mode {
+            JsonPreviewMode::Tree => {
+                draw_json_tree_preview(frame, content_area, state, &value);
+                return;
+            }
+            JsonPreviewMode::Raw => {}
+        }
+    } else {
+        state.clear_json_tree_state();
+    }
+
     let lines = preview_lines(&entry);
     let paragraph = Paragraph::new(lines)
         .wrap(Wrap { trim: false })
         .scroll((state.preview_scroll, 0));
     frame.render_widget(paragraph, content_area);
+}
+
+fn draw_json_tree_preview(frame: &mut Frame<'_>, area: Rect, state: &mut TuiState, value: &Value) {
+    let nodes = build_json_tree_nodes(value);
+    let items = json_tree_items(&nodes);
+    let Ok(tree) = Tree::new(&items) else {
+        let paragraph = Paragraph::new("JSON 树构建失败").wrap(Wrap { trim: false });
+        frame.render_widget(paragraph, area);
+        return;
+    };
+
+    let highlight_style = if state.json_preview_focused {
+        Style::default().fg(Color::Black).bg(Color::Cyan)
+    } else {
+        Style::default().fg(Color::Cyan)
+    };
+    let tree = tree
+        .highlight_style(highlight_style)
+        .highlight_symbol("> ")
+        .node_closed_symbol("+ ")
+        .node_open_symbol("- ")
+        .node_no_children_symbol("  ");
+
+    frame.render_stateful_widget(tree, area, &mut state.json_tree_state);
 }
 
 fn split_preview_sections(area: Rect, attribute_line_count: usize) -> (Option<Rect>, Rect) {
@@ -1182,6 +1375,112 @@ fn push_file_preview(lines: &mut Vec<Line<'static>>, entry: &ClipboardEntry) {
         lines.push(Line::from("paths:"));
         push_multiline(lines, content);
     }
+}
+
+fn parse_json_entry_value(entry: &ClipboardEntry) -> Option<Value> {
+    if entry.content_subtype.as_deref() != Some("json") {
+        return None;
+    }
+
+    serde_json::from_str::<Value>(entry.content_data.as_deref()?).ok()
+}
+
+fn build_json_tree_nodes(value: &Value) -> Vec<JsonTreeNode> {
+    vec![build_json_tree_node("$".to_string(), None, value)]
+}
+
+fn build_json_tree_node(id: String, label: Option<&str>, value: &Value) -> JsonTreeNode {
+    match value {
+        Value::Object(object) => {
+            let children = object
+                .iter()
+                .map(|(key, value)| build_json_tree_node(format!("k:{}", key), Some(key), value))
+                .collect();
+            JsonTreeNode {
+                id,
+                label: container_label(label, &format!("{{{} keys}}", object.len())),
+                children,
+            }
+        }
+        Value::Array(items) => {
+            let children = items
+                .iter()
+                .enumerate()
+                .map(|(index, value)| {
+                    let index_label = format!("[{}]", index);
+                    build_json_tree_node(format!("i:{}", index), Some(&index_label), value)
+                })
+                .collect();
+            JsonTreeNode {
+                id,
+                label: container_label(label, &format!("[{}]", items.len())),
+                children,
+            }
+        }
+        _ => JsonTreeNode {
+            id,
+            label: scalar_label(label, value),
+            children: Vec::new(),
+        },
+    }
+}
+
+fn container_label(label: Option<&str>, summary: &str) -> String {
+    match label {
+        Some(label) => format!("{} {}", label, summary),
+        None => summary.to_string(),
+    }
+}
+
+fn scalar_label(label: Option<&str>, value: &Value) -> String {
+    let value = truncate_json_value(value);
+    match label {
+        Some(label) => format!("{}: {}", label, value),
+        None => value,
+    }
+}
+
+fn truncate_json_value(value: &Value) -> String {
+    let text = match value {
+        Value::String(value) => serde_json::to_string(value).unwrap_or_else(|_| "\"\"".to_string()),
+        Value::Number(value) => value.to_string(),
+        Value::Bool(value) => value.to_string(),
+        Value::Null => "null".to_string(),
+        Value::Array(_) | Value::Object(_) => {
+            serde_json::to_string(value).unwrap_or_else(|_| String::new())
+        }
+    };
+    truncate_chars(&text, JSON_PREVIEW_VALUE_MAX_CHARS)
+}
+
+fn truncate_chars(value: &str, max_chars: usize) -> String {
+    if value.chars().count() <= max_chars {
+        return value.to_string();
+    }
+
+    let mut truncated = value
+        .chars()
+        .take(max_chars.saturating_sub(3))
+        .collect::<String>();
+    truncated.push_str("...");
+    truncated
+}
+
+fn json_tree_items(nodes: &[JsonTreeNode]) -> Vec<TreeItem<'static, String>> {
+    nodes.iter().map(json_tree_item).collect()
+}
+
+fn json_tree_item(node: &JsonTreeNode) -> TreeItem<'static, String> {
+    if node.children.is_empty() {
+        return TreeItem::new_leaf(node.id.clone(), node.label.clone());
+    }
+
+    TreeItem::new(
+        node.id.clone(),
+        node.label.clone(),
+        json_tree_items(&node.children),
+    )
+    .expect("JSON tree node identifiers are unique among siblings")
 }
 
 fn attribute_lines(entry: &ClipboardEntry, width: u16) -> Vec<Line<'static>> {
@@ -2086,6 +2385,78 @@ mod tests {
     }
 
     #[test]
+    fn json_tree_nodes_preserve_real_object_keys_and_array_indexes() {
+        let value = json!({
+            "error_msg": "missing field",
+            "items": [
+                { "id": 1 },
+                true
+            ]
+        });
+
+        let nodes = build_json_tree_nodes(&value);
+        let labels = collect_json_tree_labels(&nodes);
+
+        assert!(labels.contains(&"{2 keys}".to_string()));
+        assert!(labels.contains(&"error_msg: \"missing field\"".to_string()));
+        assert!(labels.contains(&"items [2]".to_string()));
+        assert!(labels.contains(&"[0] {1 keys}".to_string()));
+        assert!(labels.contains(&"id: 1".to_string()));
+        assert!(labels.contains(&"[1]: true".to_string()));
+        assert!(!labels.iter().any(|label| label.contains("errorMsg")));
+    }
+
+    #[test]
+    fn json_tree_nodes_render_scalar_root_and_truncate_long_values() {
+        let long_value = "x".repeat(JSON_PREVIEW_VALUE_MAX_CHARS + 20);
+        let value = json!(long_value);
+
+        let nodes = build_json_tree_nodes(&value);
+        let labels = collect_json_tree_labels(&nodes);
+        let root_label = labels.first().expect("root label should exist");
+
+        assert!(root_label.starts_with("\"xxx"));
+        assert!(root_label.ends_with("..."));
+        assert!(root_label.chars().count() <= JSON_PREVIEW_VALUE_MAX_CHARS);
+    }
+
+    #[test]
+    fn json_preview_lines_keep_pretty_raw_fallback() {
+        let entry = test_entry(
+            "text",
+            Some("json"),
+            Some(r#"{"items":[{"id":1}],"ok":true}"#),
+            None,
+            None,
+        );
+
+        let preview = preview_lines(&entry)
+            .into_iter()
+            .map(|line| line.to_string())
+            .collect::<Vec<_>>();
+
+        assert!(preview.iter().any(|line| line == "  \"items\": ["));
+        assert!(preview.iter().any(|line| line == "  \"ok\": true"));
+    }
+
+    #[test]
+    fn invalid_json_preview_still_shows_parse_error_and_original_content() {
+        let entry = test_entry("text", Some("json"), Some("{not-json"), None, None);
+
+        assert!(parse_json_entry_value(&entry).is_none());
+
+        let preview = preview_lines(&entry)
+            .into_iter()
+            .map(|line| line.to_string())
+            .collect::<Vec<_>>();
+
+        assert!(preview
+            .iter()
+            .any(|line| line.starts_with("JSON 解析失败:")));
+        assert!(preview.iter().any(|line| line == "{not-json"));
+    }
+
+    #[test]
     fn invalid_metadata_does_not_block_plain_text_attributes() {
         let entry = test_entry(
             "text",
@@ -2101,5 +2472,14 @@ mod tests {
         assert!(!lines.iter().any(|line| line.contains("子类型 plain_text")));
         assert!(lines.iter().any(|line| line.contains("字符数 12")));
         assert!(lines.iter().any(|line| line.contains("行数 2")));
+    }
+
+    fn collect_json_tree_labels(nodes: &[JsonTreeNode]) -> Vec<String> {
+        let mut labels = Vec::new();
+        for node in nodes {
+            labels.push(node.label.clone());
+            labels.extend(collect_json_tree_labels(&node.children));
+        }
+        labels
     }
 }

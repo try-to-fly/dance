@@ -44,6 +44,7 @@ crossterm = "0.29"
 opener = "0.8"
 ratatui = "0.30"
 ratatui-image = { version = "11.0", default-features = false, features = ["crossterm", "image-defaults"] }
+tui-tree-widget = "0.24"
 tui-input = "0.15"
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-autostart = "2"
