@@ -2,6 +2,7 @@ use crate::app_paths::AppPaths;
 use crate::presence;
 use crate::retrieval::search_clipboard_history;
 use crate::state::AppState;
+use crate::utils::app_icon_extractor::AppIconExtractor;
 use anyhow::Result;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -77,5 +78,9 @@ impl HeadlessApp {
             return self.paths.resolve_relative_asset_path(file_path);
         }
         Ok(PathBuf::from(file_path))
+    }
+
+    pub fn app_icon_path(&self, bundle_id: &str) -> Result<Option<PathBuf>> {
+        AppIconExtractor::new_in(self.paths.clone())?.extract_and_cache_icon(bundle_id)
     }
 }
