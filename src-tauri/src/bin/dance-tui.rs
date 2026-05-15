@@ -28,8 +28,8 @@ const DAEMON_TICK_MS: u64 = 500;
 const INPUT_POLL_MS: u64 = 30;
 const SEARCH_DEBOUNCE_MS: u64 = 180;
 const IMAGE_PREVIEW_DEBOUNCE_MS: u64 = 80;
-const IMAGE_PROTOCOL_WIDTH: u16 = 80;
-const IMAGE_PROTOCOL_HEIGHT: u16 = 40;
+const IMAGE_PROTOCOL_MAX_WIDTH: u16 = 120;
+const IMAGE_PROTOCOL_MAX_HEIGHT: u16 = 48;
 const IMAGE_PROTOCOL_CACHE_LIMIT: usize = 8;
 const APP_ICON_PROTOCOL_WIDTH: u16 = 2;
 const APP_ICON_PROTOCOL_HEIGHT: u16 = 1;
@@ -109,6 +109,10 @@ async fn run_tui_loop(
     loop {
         terminal.draw(|frame| draw(frame, state))?;
 
+        if state.take_image_refresh_requested() {
+            schedule_image_refresh(state, &mut image_job, &mut pending_image_refresh_at);
+        }
+
         if let Some(job) = search_job.as_ref() {
             if job.handle.is_finished() {
                 let job = search_job.take().expect("search job disappeared");
@@ -141,14 +145,15 @@ async fn run_tui_loop(
                 let job = image_job.take().expect("image job disappeared");
                 state.image_loading = false;
                 match job.handle.await {
-                    Ok((path, result)) => {
-                        state.apply_image_result(path, result);
+                    Ok((path, size, result)) => {
+                        state.apply_image_result(path, size, result);
                     }
                     Err(error) if error.is_cancelled() => {}
                     Err(error) => {
                         state.error = Some(format!("图片预览任务失败: {}", error));
                     }
                 }
+                schedule_image_refresh(state, &mut image_job, &mut pending_image_refresh_at);
             }
         }
 
@@ -292,9 +297,12 @@ fn schedule_image_refresh(
     image_job: &mut Option<ImageJob>,
     pending_image_refresh_at: &mut Option<Instant>,
 ) {
-    abort_image_job(state, image_job);
-
     let Some(path) = state.selected_image_path() else {
+        state.image_protocol = None;
+        *pending_image_refresh_at = None;
+        return;
+    };
+    let Some(size) = state.image_target_size else {
         state.image_protocol = None;
         *pending_image_refresh_at = None;
         return;
@@ -303,27 +311,40 @@ fn schedule_image_refresh(
     if state
         .image_protocol
         .as_ref()
-        .is_some_and(|protocol| protocol.path == path)
+        .is_some_and(|protocol| protocol.path == path && protocol.size == size)
     {
         *pending_image_refresh_at = None;
         return;
     }
 
-    if state.apply_cached_image_protocol(&path) {
+    if state.apply_cached_image_protocol(&path, size) {
         *pending_image_refresh_at = None;
         return;
     }
 
     state.image_protocol = None;
     state.image_loading = state.image_picker.is_some();
+    if image_job.is_some() {
+        *pending_image_refresh_at = None;
+        return;
+    }
+
     *pending_image_refresh_at =
         Some(Instant::now() + Duration::from_millis(IMAGE_PREVIEW_DEBOUNCE_MS));
 }
 
 fn start_image_job(state: &mut TuiState, image_job: &mut Option<ImageJob>) {
-    abort_image_job(state, image_job);
+    if image_job.is_some() {
+        state.image_loading = state.image_picker.is_some();
+        return;
+    }
 
     let Some(path) = state.selected_image_path() else {
+        state.image_protocol = None;
+        state.image_loading = false;
+        return;
+    };
+    let Some(size) = state.image_target_size else {
         state.image_protocol = None;
         state.image_loading = false;
         return;
@@ -332,8 +353,8 @@ fn start_image_job(state: &mut TuiState, image_job: &mut Option<ImageJob>) {
     if state
         .image_protocol
         .as_ref()
-        .is_some_and(|protocol| protocol.path == path)
-        || state.apply_cached_image_protocol(&path)
+        .is_some_and(|protocol| protocol.path == path && protocol.size == size)
+        || state.apply_cached_image_protocol(&path, size)
     {
         state.image_loading = false;
         return;
@@ -346,7 +367,7 @@ fn start_image_job(state: &mut TuiState, image_job: &mut Option<ImageJob>) {
     };
 
     *image_job = Some(ImageJob {
-        handle: tokio::task::spawn_blocking(move || load_image_protocol(picker, path)),
+        handle: tokio::task::spawn_blocking(move || load_image_protocol(picker, path, size)),
     });
     state.image_loading = true;
 }
@@ -359,7 +380,7 @@ fn abort_image_job(state: &mut TuiState, image_job: &mut Option<ImageJob>) {
 }
 
 struct ImageJob {
-    handle: JoinHandle<(PathBuf, std::result::Result<Protocol, String>)>,
+    handle: JoinHandle<(PathBuf, Size, std::result::Result<Protocol, String>)>,
 }
 
 fn start_icon_job(state: &mut TuiState, icon_job: &mut Option<IconJob>) {
@@ -400,6 +421,8 @@ struct TuiState {
     selected: usize,
     list_scroll: usize,
     preview_scroll: u16,
+    image_target_size: Option<Size>,
+    image_refresh_requested: bool,
     image_picker: Option<Picker>,
     image_protocol: Option<ImageProtocolState>,
     image_protocol_cache: VecDeque<ImageProtocolState>,
@@ -413,6 +436,7 @@ struct TuiState {
 
 struct ImageProtocolState {
     path: PathBuf,
+    size: Size,
     protocol: Protocol,
 }
 
@@ -440,6 +464,8 @@ impl TuiState {
             selected: 0,
             list_scroll: 0,
             preview_scroll: 0,
+            image_target_size: None,
+            image_refresh_requested: false,
             image_picker: if is_kitty_terminal() {
                 Picker::from_query_stdio().ok()
             } else {
@@ -562,14 +588,21 @@ impl TuiState {
         self.preview_scroll = 0;
     }
 
-    fn apply_image_result(&mut self, path: PathBuf, result: std::result::Result<Protocol, String>) {
-        if self.selected_image_path().as_ref() != Some(&path) {
+    fn apply_image_result(
+        &mut self,
+        path: PathBuf,
+        size: Size,
+        result: std::result::Result<Protocol, String>,
+    ) {
+        if self.selected_image_path().as_ref() != Some(&path)
+            || self.image_target_size != Some(size)
+        {
             return;
         }
 
         match result {
             Ok(protocol) => {
-                self.store_image_protocol(path, protocol);
+                self.store_image_protocol(path, size, protocol);
                 self.error = None;
             }
             Err(error) => {
@@ -579,11 +612,11 @@ impl TuiState {
         }
     }
 
-    fn apply_cached_image_protocol(&mut self, path: &Path) -> bool {
+    fn apply_cached_image_protocol(&mut self, path: &Path, size: Size) -> bool {
         let Some(index) = self
             .image_protocol_cache
             .iter()
-            .position(|state| state.path == path)
+            .position(|state| state.path == path && state.size == size)
         else {
             return false;
         };
@@ -595,23 +628,73 @@ impl TuiState {
         self.image_protocol_cache.push_back(cached);
         self.image_protocol = Some(ImageProtocolState {
             path: path.to_path_buf(),
+            size,
             protocol,
         });
         self.image_loading = false;
         true
     }
 
-    fn store_image_protocol(&mut self, path: PathBuf, protocol: Protocol) {
-        self.image_protocol_cache.retain(|state| state.path != path);
+    fn store_image_protocol(&mut self, path: PathBuf, size: Size, protocol: Protocol) {
+        self.image_protocol_cache
+            .retain(|state| state.path != path || state.size != size);
         self.image_protocol_cache.push_back(ImageProtocolState {
             path: path.clone(),
+            size,
             protocol: protocol.clone(),
         });
         while self.image_protocol_cache.len() > IMAGE_PROTOCOL_CACHE_LIMIT {
             self.image_protocol_cache.pop_front();
         }
-        self.image_protocol = Some(ImageProtocolState { path, protocol });
+        self.image_protocol = Some(ImageProtocolState {
+            path,
+            size,
+            protocol,
+        });
         self.image_loading = false;
+    }
+
+    fn update_image_target_size(&mut self, size: Size) {
+        let size = normalize_image_target_size(size);
+        let size = if size.width == 0 || size.height == 0 {
+            None
+        } else {
+            Some(size)
+        };
+
+        if self.image_target_size == size {
+            return;
+        }
+
+        self.image_target_size = size;
+
+        let Some(path) = self.selected_image_path() else {
+            self.image_protocol = None;
+            return;
+        };
+
+        let Some(size) = self.image_target_size else {
+            self.image_protocol = None;
+            return;
+        };
+
+        if self
+            .image_protocol
+            .as_ref()
+            .is_some_and(|protocol| protocol.path == path && protocol.size == size)
+        {
+            return;
+        }
+
+        self.image_protocol = None;
+        self.image_loading = self.image_picker.is_some();
+        self.image_refresh_requested = true;
+    }
+
+    fn take_image_refresh_requested(&mut self) -> bool {
+        let requested = self.image_refresh_requested;
+        self.image_refresh_requested = false;
+        requested
     }
 
     fn selected_image_path(&self) -> Option<PathBuf> {
@@ -835,19 +918,24 @@ async fn search_entries(
 fn load_image_protocol(
     picker: Picker,
     path: PathBuf,
-) -> (PathBuf, std::result::Result<Protocol, String>) {
-    let result = load_image_protocol_result(&picker, &path);
-    (path, result)
+    size: Size,
+) -> (PathBuf, Size, std::result::Result<Protocol, String>) {
+    let result = load_image_protocol_result(&picker, &path, size);
+    (path, size, result)
 }
 
 fn load_image_protocol_result(
     picker: &Picker,
     path: &Path,
+    size: Size,
 ) -> std::result::Result<Protocol, String> {
-    load_protocol_result(
-        picker,
-        path,
-        Size::new(IMAGE_PROTOCOL_WIDTH, IMAGE_PROTOCOL_HEIGHT),
+    load_protocol_result(picker, path, size)
+}
+
+fn normalize_image_target_size(size: Size) -> Size {
+    Size::new(
+        size.width.min(IMAGE_PROTOCOL_MAX_WIDTH),
+        size.height.min(IMAGE_PROTOCOL_MAX_HEIGHT),
     )
 }
 
@@ -891,6 +979,7 @@ fn load_app_icon_protocol(
 fn draw_preview(frame: &mut Frame<'_>, area: Rect, state: &mut TuiState) {
     let block = Block::default().title("预览").borders(Borders::ALL);
     let inner = block.inner(area);
+    state.update_image_target_size(Size::new(inner.width, inner.height));
     frame.render_widget(block, area);
 
     let Some(entry) = state.selected_entry() else {
