@@ -28,8 +28,6 @@ const DAEMON_TICK_MS: u64 = 500;
 const INPUT_POLL_MS: u64 = 30;
 const SEARCH_DEBOUNCE_MS: u64 = 180;
 const IMAGE_PREVIEW_DEBOUNCE_MS: u64 = 80;
-const IMAGE_PROTOCOL_MAX_WIDTH: u16 = 120;
-const IMAGE_PROTOCOL_MAX_HEIGHT: u16 = 48;
 const IMAGE_PROTOCOL_CACHE_LIMIT: usize = 8;
 const APP_ICON_PROTOCOL_WIDTH: u16 = 2;
 const APP_ICON_PROTOCOL_HEIGHT: u16 = 1;
@@ -655,7 +653,6 @@ impl TuiState {
     }
 
     fn update_image_target_size(&mut self, size: Size) {
-        let size = normalize_image_target_size(size);
         let size = if size.width == 0 || size.height == 0 {
             None
         } else {
@@ -930,13 +927,6 @@ fn load_image_protocol_result(
     size: Size,
 ) -> std::result::Result<Protocol, String> {
     load_protocol_result(picker, path, size)
-}
-
-fn normalize_image_target_size(size: Size) -> Size {
-    Size::new(
-        size.width.min(IMAGE_PROTOCOL_MAX_WIDTH),
-        size.height.min(IMAGE_PROTOCOL_MAX_HEIGHT),
-    )
 }
 
 fn load_protocol_result(
