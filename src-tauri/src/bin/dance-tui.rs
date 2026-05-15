@@ -31,6 +31,7 @@ const IMAGE_PREVIEW_DEBOUNCE_MS: u64 = 80;
 const IMAGE_PROTOCOL_WIDTH: u16 = 80;
 const IMAGE_PROTOCOL_HEIGHT: u16 = 40;
 const IMAGE_PROTOCOL_CACHE_LIMIT: usize = 8;
+const SOURCE_APP_ICON: &str = "▣";
 
 #[derive(Parser)]
 #[command(name = "dance-tui", about = "Dance clipboard TUI")]
@@ -629,7 +630,7 @@ fn result_lines(entry: &ClipboardEntry) -> Vec<Line<'static>> {
             .content_subtype
             .as_deref()
             .unwrap_or(entry.content_type.as_str()),
-        entry.source_app.as_deref().unwrap_or("未知来源"),
+        source_app_label(entry),
         format_time(entry.created_at)
     );
 
@@ -651,7 +652,7 @@ fn preview_lines(entry: &ClipboardEntry) -> Vec<Line<'static>> {
     lines.push(Line::from(format!(
         "{} · {} · copied {}",
         entry.content_type,
-        entry.source_app.as_deref().unwrap_or("未知来源"),
+        source_app_label(entry),
         entry.copy_count
     )));
     if let Some(retrieval) = entry.retrieval.as_ref() {
@@ -717,6 +718,14 @@ fn push_file_preview(lines: &mut Vec<Line<'static>>, entry: &ClipboardEntry) {
 
 fn push_multiline(lines: &mut Vec<Line<'static>>, text: &str) {
     lines.extend(text.lines().map(|line| Line::from(line.to_string())));
+}
+
+fn source_app_label(entry: &ClipboardEntry) -> String {
+    format!(
+        "{} {}",
+        SOURCE_APP_ICON,
+        entry.source_app.as_deref().unwrap_or("未知来源")
+    )
 }
 
 fn entry_title(entry: &ClipboardEntry) -> String {
