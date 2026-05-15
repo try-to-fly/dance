@@ -440,27 +440,24 @@ pub async fn get_image_url(
                 "jpg" | "jpeg" => "image/jpeg",
                 "gif" => "image/gif",
                 "webp" => "image/webp",
-                "bin" => {
+                "bin" if data.len() >= 4 => {
                     // 对于 .bin 文件，尝试检测实际格式
-                    if data.len() >= 4 {
-                        if data.starts_with(&[0x89, 0x50, 0x4E, 0x47]) {
-                            "image/png"
-                        } else if data.starts_with(&[0xFF, 0xD8, 0xFF]) {
-                            "image/jpeg"
-                        } else if data.starts_with(&[0x47, 0x49, 0x46, 0x38]) {
-                            "image/gif"
-                        } else if data.starts_with(&[0x52, 0x49, 0x46, 0x46])
-                            && data.len() >= 12
-                            && &data[8..12] == b"WEBP"
-                        {
-                            "image/webp"
-                        } else {
-                            "image/png" // 默认使用 PNG
-                        }
-                    } else {
+                    if data.starts_with(&[0x89, 0x50, 0x4E, 0x47]) {
                         "image/png"
+                    } else if data.starts_with(&[0xFF, 0xD8, 0xFF]) {
+                        "image/jpeg"
+                    } else if data.starts_with(&[0x47, 0x49, 0x46, 0x38]) {
+                        "image/gif"
+                    } else if data.starts_with(&[0x52, 0x49, 0x46, 0x46])
+                        && data.len() >= 12
+                        && &data[8..12] == b"WEBP"
+                    {
+                        "image/webp"
+                    } else {
+                        "image/png" // 默认使用 PNG
                     }
                 }
+                "bin" => "image/png",
                 _ => "image/png",
             };
 

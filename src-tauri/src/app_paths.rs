@@ -111,6 +111,10 @@ impl AppPaths {
         self.log_root.clone()
     }
 
+    pub fn runtime_dir(&self) -> PathBuf {
+        self.cache_root.join("runtime")
+    }
+
     #[cfg_attr(not(test), allow(dead_code))]
     pub fn migration_marker_path(&self) -> PathBuf {
         self.data_root

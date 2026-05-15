@@ -4,6 +4,7 @@ use tokio::sync::broadcast;
 use tokio::sync::Mutex;
 
 use crate::analysis::{AnalysisSnapshot, TextAnalysisService};
+use crate::capture::macos_files::read_pasteboard_file_paths;
 use crate::capture::macos_markers::read_pasteboard_markers;
 use crate::capture::{
     calculate_content_hash, consume_suppression_key, decide_capture, remember_observed_hash,
@@ -14,6 +15,8 @@ use crate::clipboard::processor::ContentProcessor;
 use crate::config::ConfigManager;
 use crate::models::{ClipboardEntry, ContentType};
 use crate::utils::app_detector::{get_active_app_info, AppInfo};
+use serde_json::{Map, Value};
+use std::path::{Path, PathBuf};
 
 pub struct ClipboardMonitor {
     tx: broadcast::Sender<ClipboardEntry>,
@@ -125,6 +128,73 @@ impl ClipboardMonitor {
             excluded_app,
             true,
         )
+    }
+
+    async fn process_file_capture(
+        &self,
+        last_observed_hash: &Arc<Mutex<Option<String>>>,
+        app_info: Option<&AppInfo>,
+        markers: &PasteboardMarkers,
+        file_paths: Vec<PathBuf>,
+    ) -> Result<bool> {
+        if file_paths.is_empty() {
+            return Ok(false);
+        }
+
+        let joined_paths = file_paths
+            .iter()
+            .map(|path| path.to_string_lossy())
+            .collect::<Vec<_>>()
+            .join("\n");
+        let hash = calculate_content_hash(joined_paths.as_bytes());
+
+        let disposition = self.image_capture_disposition(markers, app_info).await;
+        if disposition != CaptureDisposition::Persist {
+            remember_observed_hash(last_observed_hash, hash).await;
+            log::debug!(
+                "[ClipboardMonitor] 文件命中 capture policy: {}",
+                Self::capture_disposition_label(disposition)
+            );
+            return Ok(true);
+        }
+
+        if !Self::should_emit_hash(last_observed_hash, &hash).await {
+            log::debug!("[ClipboardMonitor] 重复文件Hash，跳过处理");
+            return Ok(true);
+        }
+
+        let file_path = if file_paths.len() == 1 {
+            Some(file_paths[0].to_string_lossy().to_string())
+        } else {
+            None
+        };
+        let metadata = if file_paths.len() == 1 {
+            build_file_metadata_json(&file_paths[0]).map(|value| value.to_string())
+        } else {
+            None
+        };
+
+        let mut entry = ClipboardEntry::new(
+            ContentType::File,
+            Some(joined_paths),
+            hash,
+            app_info.map(|info| info.name.clone()),
+            file_path,
+        );
+        entry.app_bundle_id = Self::resolve_source_bundle_id(markers, app_info)
+            .map(|bundle_id| bundle_id.to_string());
+        entry.metadata = metadata;
+
+        log::info!(
+            "[ClipboardMonitor] 发现文件剪贴板内容: {} 个文件 | 来源: {}",
+            file_paths.len(),
+            app_info
+                .map(|info| info.name.as_str())
+                .unwrap_or("未知应用")
+        );
+
+        let _ = self.tx.send(entry);
+        Ok(true)
     }
 
     fn capture_disposition_label(disposition: CaptureDisposition) -> &'static str {
@@ -243,6 +313,14 @@ impl ClipboardMonitor {
         // 获取当前活跃应用信息
         let app_info = get_active_app_info();
         let markers = read_pasteboard_markers();
+
+        let file_paths = read_pasteboard_file_paths();
+        if self
+            .process_file_capture(last_observed_hash, app_info.as_ref(), &markers, file_paths)
+            .await?
+        {
+            return Ok(());
+        }
 
         // 检查文本内容 - 使用独立的剪切板实例，避免长时间锁定
         let text_result = tokio::task::spawn_blocking(|| match arboard::Clipboard::new() {
@@ -455,9 +533,56 @@ impl ClipboardMonitor {
     }
 }
 
+fn build_file_metadata_json(path: &Path) -> Option<Value> {
+    let metadata = std::fs::metadata(path).ok();
+    let mut file_metadata = Map::new();
+
+    if let Some(name) = path.file_name().and_then(|value| value.to_str()) {
+        file_metadata.insert("name".to_string(), Value::String(name.to_string()));
+    }
+    if let Some(extension) = path.extension().and_then(|value| value.to_str()) {
+        file_metadata.insert(
+            "extension".to_string(),
+            Value::String(extension.to_lowercase()),
+        );
+    }
+    if let Some(mime) = infer::get_from_path(path)
+        .ok()
+        .flatten()
+        .map(|kind| kind.mime_type().to_string())
+    {
+        file_metadata.insert("mime".to_string(), Value::String(mime));
+    }
+    if let Some(metadata) = metadata.as_ref() {
+        file_metadata.insert("is_directory".to_string(), Value::Bool(metadata.is_dir()));
+        if metadata.is_file() {
+            file_metadata.insert(
+                "size_bytes".to_string(),
+                Value::Number(serde_json::Number::from(metadata.len())),
+            );
+        }
+        if let Ok(modified) = metadata.modified() {
+            if let Ok(duration) = modified.duration_since(std::time::UNIX_EPOCH) {
+                file_metadata.insert(
+                    "modified_at".to_string(),
+                    Value::Number(serde_json::Number::from(duration.as_millis() as u64)),
+                );
+            }
+        }
+    }
+
+    if file_metadata.is_empty() {
+        return None;
+    }
+
+    let mut root = Map::new();
+    root.insert("file_metadata".to_string(), Value::Object(file_metadata));
+    Some(Value::Object(root))
+}
+
 #[cfg(test)]
 mod tests {
-    use super::ClipboardMonitor;
+    use super::{build_file_metadata_json, ClipboardMonitor};
     use crate::app_paths::AppPaths;
     use crate::capture::{
         calculate_content_hash, CaptureDisposition, PasteboardMarkers, SuppressionEntry,
@@ -466,6 +591,7 @@ mod tests {
     use crate::config::ConfigManager;
     use crate::test_support::create_temp_app_roots;
     use crate::utils::app_detector::AppInfo;
+    use std::fs;
     use std::sync::Arc;
     use tokio::sync::{broadcast, Mutex};
 
@@ -546,5 +672,41 @@ mod tests {
             calculate_content_hash(normalized_url.as_bytes())
         );
         assert_eq!(entry.content_subtype.as_deref(), Some("url"));
+    }
+
+    #[test]
+    fn test_build_file_metadata_json_uses_existing_file_metadata_contract() {
+        let temp_dir = tempfile::TempDir::new().expect("create temp dir");
+        let file_path = temp_dir.path().join("preview.txt");
+        fs::write(&file_path, "hello").expect("write file");
+
+        let metadata = build_file_metadata_json(&file_path).expect("build file metadata");
+        let file_metadata = metadata
+            .get("file_metadata")
+            .and_then(|value| value.as_object())
+            .expect("file_metadata object");
+
+        assert_eq!(
+            file_metadata.get("name").and_then(|value| value.as_str()),
+            Some("preview.txt")
+        );
+        assert_eq!(
+            file_metadata
+                .get("extension")
+                .and_then(|value| value.as_str()),
+            Some("txt")
+        );
+        assert_eq!(
+            file_metadata
+                .get("is_directory")
+                .and_then(|value| value.as_bool()),
+            Some(false)
+        );
+        assert_eq!(
+            file_metadata
+                .get("size_bytes")
+                .and_then(|value| value.as_u64()),
+            Some(5)
+        );
     }
 }

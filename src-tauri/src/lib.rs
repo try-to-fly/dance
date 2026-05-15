@@ -7,8 +7,10 @@ mod clipboard;
 mod commands;
 mod config;
 mod database;
+pub mod headless;
 mod llm;
 mod models;
+mod presence;
 mod retrieval;
 mod shortcuts;
 mod state;
@@ -344,6 +346,10 @@ pub fn run() {
                 let app_handle = app.handle().clone();
                 let paths = Arc::new(AppPaths::from_app(&app_handle)?);
                 paths.migrate_legacy_roots()?;
+                let presence_heartbeat = presence::spawn_tauri_presence_heartbeat(
+                    paths.clone(),
+                    app_handle.config().identifier.clone(),
+                );
                 let state = AppState::new(paths).await?;
                 state.set_app_handle(app_handle.clone());
 
@@ -368,6 +374,7 @@ pub fn run() {
                 }
 
                 app.manage(state);
+                app.manage(presence_heartbeat);
 
                 // Create system tray
                 tray::create_tray_icon(app.handle())?;

@@ -50,6 +50,7 @@ pub struct ClipboardEntry {
 pub enum ContentType {
     Text,
     Image,
+    File,
     Unknown,
 }
 
@@ -58,6 +59,7 @@ impl ContentType {
         match self {
             ContentType::Text => "text",
             ContentType::Image => "image",
+            ContentType::File => "file",
             ContentType::Unknown => "unknown",
         }
     }
@@ -382,6 +384,7 @@ mod tests {
     fn test_content_type_as_str() {
         assert_eq!(ContentType::Text.as_str(), "text");
         assert_eq!(ContentType::Image.as_str(), "image");
+        assert_eq!(ContentType::File.as_str(), "file");
         assert_eq!(ContentType::Unknown.as_str(), "unknown");
     }
 
