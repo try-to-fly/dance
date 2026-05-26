@@ -19,7 +19,7 @@ use ratatui_image::protocol::Protocol;
 use ratatui_image::{Image, Resize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 use std::io::{self, Stdout};
 use std::path::{Path, PathBuf};
 use std::process::Command as ProcessCommand;
@@ -38,27 +38,29 @@ const IMAGE_PREVIEW_DEBOUNCE_MS: u64 = 0;
 const IMAGE_PICKER_QUERY_TIMEOUT_MS: u64 = 120;
 const IMAGE_PROTOCOL_CACHE_LIMIT: usize = 8;
 const URL_MEDIA_PREVIEW_CACHE_LIMIT: usize = 16;
-const APP_ICON_PROTOCOL_WIDTH: u16 = 1;
+const APP_ICON_PROTOCOL_WIDTH: u16 = 2;
+const APP_ICON_PROTOCOL_HEIGHT: u16 = 1;
+const APP_ICON_PROTOCOL_CACHE_LIMIT: usize = 48;
 const HISTORY_TYPE_ICON_WIDTH: u16 = 6;
-const HISTORY_META_ICON_GAP: u16 = 2;
+const HISTORY_META_ICON_GAP: u16 = 1;
 const ATTRIBUTE_PANEL_MAX_HEIGHT: u16 = 10;
 const ATTRIBUTE_PANEL_MIN_CONTENT_HEIGHT: u16 = 4;
 const JSON_PREVIEW_PAGE_SCROLL: usize = 8;
 const JSON_PREVIEW_VALUE_MAX_CHARS: usize = 160;
-const ICON_TEXT: &str = "󰈙";
-const ICON_URL: &str = "󰖟";
-const ICON_IP: &str = "󰩠";
-const ICON_EMAIL: &str = "󰇮";
-const ICON_COLOR: &str = "󰏘";
-const ICON_CODE: &str = "󰅩";
-const ICON_COMMAND: &str = "󰆍";
-const ICON_TIMESTAMP: &str = "󰥔";
-const ICON_JSON: &str = "󰘦";
-const ICON_MARKDOWN: &str = "󰍔";
-const ICON_BASE64: &str = "󰆦";
-const ICON_IMAGE: &str = "󰋩";
-const ICON_FILE: &str = "󰈔";
-const ICON_UNKNOWN: &str = "󰋗";
+const ICON_TEXT: &str = "";
+const ICON_URL: &str = "";
+const ICON_IP: &str = "";
+const ICON_EMAIL: &str = "";
+const ICON_COLOR: &str = "";
+const ICON_CODE: &str = "";
+const ICON_COMMAND: &str = "";
+const ICON_TIMESTAMP: &str = "";
+const ICON_JSON: &str = "";
+const ICON_MARKDOWN: &str = "";
+const ICON_BASE64: &str = "";
+const ICON_IMAGE: &str = "";
+const ICON_FILE: &str = "";
+const ICON_UNKNOWN: &str = "";
 const ICON_APP_FALLBACK: &str = "󰣆";
 const ICON_STAR: &str = "󰓎";
 const ICON_COPY: &str = "󰆏";
@@ -192,6 +194,7 @@ async fn run_tui_loop(
     let mut pending_image_refresh_at: Option<Instant> = Some(Instant::now());
     let mut image_job: Option<ImageJob> = None;
     let mut url_media_job: Option<UrlMediaJob> = None;
+    let mut icon_job: Option<IconJob> = None;
 
     loop {
         terminal.draw(|frame| draw(frame, state))?;
@@ -286,6 +289,23 @@ async fn run_tui_loop(
             start_image_job(state, &mut image_job);
         }
 
+        if let Some(job) = icon_job.as_ref() {
+            if job.handle.is_finished() {
+                let job = icon_job.take().expect("icon job disappeared");
+                match job.handle.await {
+                    Ok((bundle_id, result)) => {
+                        state.apply_icon_result(bundle_id, result);
+                    }
+                    Err(error) if error.is_cancelled() => {}
+                    Err(error) => {
+                        state.error = Some(format!("应用图标任务失败: {}", error));
+                    }
+                }
+            }
+        }
+
+        start_icon_job(state, &mut icon_job);
+
         let poll_timeout = next_deadline_duration(&[
             pending_refresh_at,
             pending_image_refresh_at,
@@ -318,6 +338,7 @@ async fn run_tui_loop(
             abort_search_job(state, &mut search_job);
             abort_image_job(state, &mut image_job);
             abort_url_media_job(state, &mut url_media_job);
+            abort_icon_job(&mut icon_job);
             return Ok(());
         }
 
@@ -330,6 +351,7 @@ async fn run_tui_loop(
                 abort_search_job(state, &mut search_job);
                 abort_image_job(state, &mut image_job);
                 abort_url_media_job(state, &mut url_media_job);
+                abort_icon_job(&mut icon_job);
                 return Ok(());
             }
             KeyCode::Esc => {
@@ -558,6 +580,37 @@ struct UrlMediaJob {
     )>,
 }
 
+fn start_icon_job(state: &mut TuiState, icon_job: &mut Option<IconJob>) {
+    if icon_job.is_some() {
+        return;
+    }
+
+    let Some(bundle_id) = state.next_uncached_icon_bundle_id() else {
+        return;
+    };
+    let Some(picker) = state.image_picker.clone() else {
+        return;
+    };
+
+    let app = state.app.clone();
+    let job_bundle_id = bundle_id.clone();
+    *icon_job = Some(IconJob {
+        handle: tokio::task::spawn_blocking(move || {
+            load_app_icon_protocol(app, picker, job_bundle_id)
+        }),
+    });
+}
+
+fn abort_icon_job(icon_job: &mut Option<IconJob>) {
+    if let Some(job) = icon_job.take() {
+        job.handle.abort();
+    }
+}
+
+struct IconJob {
+    handle: JoinHandle<(String, std::result::Result<Option<Protocol>, String>)>,
+}
+
 struct TuiState {
     app: HeadlessApp,
     input: Input,
@@ -572,6 +625,8 @@ struct TuiState {
     image_protocol_cache: VecDeque<ImageProtocolState>,
     url_media_preview: Option<UrlMediaPreviewState>,
     url_media_preview_cache: VecDeque<UrlMediaPreviewState>,
+    icon_protocol_cache: VecDeque<IconProtocolState>,
+    failed_icon_bundle_ids: HashSet<String>,
     json_tree_state: TreeState<String>,
     json_tree_entry_id: Option<String>,
     json_preview_mode: JsonPreviewMode,
@@ -598,6 +653,11 @@ struct UrlMediaPreviewState {
     resolution: UrlPreviewResolution,
     image_path: Option<PathBuf>,
     error: Option<String>,
+}
+
+struct IconProtocolState {
+    bundle_id: String,
+    protocol: Protocol,
 }
 
 enum OpenTarget {
@@ -639,6 +699,8 @@ impl TuiState {
             image_protocol_cache: VecDeque::new(),
             url_media_preview: None,
             url_media_preview_cache: VecDeque::new(),
+            icon_protocol_cache: VecDeque::new(),
+            failed_icon_bundle_ids: HashSet::new(),
             json_tree_state: TreeState::default(),
             json_tree_entry_id: None,
             json_preview_mode: JsonPreviewMode::Tree,
@@ -843,6 +905,46 @@ impl TuiState {
                 true
             }
             _ => false,
+        }
+    }
+
+    fn next_uncached_icon_bundle_id(&self) -> Option<String> {
+        self.entries.iter().find_map(|entry| {
+            let bundle_id = entry.app_bundle_id.as_deref()?.trim();
+            if bundle_id.is_empty()
+                || self.failed_icon_bundle_ids.contains(bundle_id)
+                || self
+                    .icon_protocol_cache
+                    .iter()
+                    .any(|state| state.bundle_id == bundle_id)
+            {
+                return None;
+            }
+
+            Some(bundle_id.to_string())
+        })
+    }
+
+    fn apply_icon_result(
+        &mut self,
+        bundle_id: String,
+        result: std::result::Result<Option<Protocol>, String>,
+    ) {
+        match result {
+            Ok(Some(protocol)) => {
+                self.icon_protocol_cache
+                    .retain(|state| state.bundle_id != bundle_id);
+                self.icon_protocol_cache.push_back(IconProtocolState {
+                    bundle_id,
+                    protocol,
+                });
+                while self.icon_protocol_cache.len() > APP_ICON_PROTOCOL_CACHE_LIMIT {
+                    self.icon_protocol_cache.pop_front();
+                }
+            }
+            Ok(None) | Err(_) => {
+                self.failed_icon_bundle_ids.insert(bundle_id);
+            }
         }
     }
 
@@ -1115,6 +1217,13 @@ impl TuiState {
             self.list_scroll = self.selected + 1 - visible_rows;
         }
     }
+
+    fn icon_protocol_for(&self, bundle_id: &str) -> Option<&Protocol> {
+        self.icon_protocol_cache
+            .iter()
+            .find(|state| state.bundle_id == bundle_id)
+            .map(|state| &state.protocol)
+    }
 }
 
 fn draw(frame: &mut Frame<'_>, state: &mut TuiState) {
@@ -1237,36 +1346,43 @@ fn draw_history_list(frame: &mut Frame<'_>, area: Rect, state: &mut TuiState) {
             .saturating_add(inner.width)
             .saturating_sub(meta_text_x);
         let meta_text_area = Rect::new(meta_text_x, meta_y, meta_text_width, 1);
+        let icon_color = entry_type_icon_color(entry);
+        let icon_text = entry_type_icon(entry);
+        let summary_text = history_summary_text(entry);
+        let meta_text = history_meta_text(entry);
 
         let selected_marker = if is_selected { ">" } else { " " };
-        let mut type_icon_style = Style::default()
-            .fg(entry_type_icon_color(entry))
-            .add_modifier(Modifier::BOLD);
+        let mut type_icon_style = Style::default().fg(icon_color).add_modifier(Modifier::BOLD);
         if is_selected {
             type_icon_style = type_icon_style.bg(Color::Cyan);
         }
         let type_icon_line = Line::from(vec![
             Span::styled(selected_marker, row_style),
             Span::styled("  ", row_style),
-            Span::styled(entry_type_icon(entry), type_icon_style),
+            Span::styled(icon_text, type_icon_style),
         ]);
         frame.render_widget(Paragraph::new(type_icon_line), type_icon_area);
-        frame.render_widget(
-            Paragraph::new(history_summary_text(entry)).style(row_style),
-            summary_area,
-        );
+        frame.render_widget(Paragraph::new(summary_text).style(row_style), summary_area);
 
         if app_icon_area.width > 0 {
-            frame.render_widget(
-                Paragraph::new(ICON_APP_FALLBACK).style(meta_style),
-                app_icon_area,
-            );
+            let rendered_app_icon = entry
+                .app_bundle_id
+                .as_deref()
+                .and_then(|bundle_id| state.icon_protocol_for(bundle_id))
+                .map(|protocol| {
+                    frame.render_widget(Image::new(protocol), app_icon_area);
+                })
+                .is_some();
+
+            if !rendered_app_icon {
+                frame.render_widget(
+                    Paragraph::new(ICON_APP_FALLBACK).style(meta_style),
+                    app_icon_area,
+                );
+            }
         }
 
-        frame.render_widget(
-            Paragraph::new(history_meta_text(entry)).style(meta_style),
-            meta_text_area,
-        );
+        frame.render_widget(Paragraph::new(meta_text).style(meta_style), meta_text_area);
     }
 }
 
@@ -1318,6 +1434,27 @@ fn load_protocol_result(
     picker
         .new_protocol(image, size, Resize::Fit(None))
         .map_err(|error| format!("图片协议初始化失败: {}", error))
+}
+
+fn load_app_icon_protocol(
+    app: HeadlessApp,
+    picker: Picker,
+    bundle_id: String,
+) -> (String, std::result::Result<Option<Protocol>, String>) {
+    let result = app
+        .app_icon_path(&bundle_id)
+        .map_err(|error| format!("应用图标读取失败: {}", error))
+        .and_then(|path| {
+            path.map(|path| {
+                load_protocol_result(
+                    &picker,
+                    &path,
+                    Size::new(APP_ICON_PROTOCOL_WIDTH, APP_ICON_PROTOCOL_HEIGHT),
+                )
+            })
+            .transpose()
+        });
+    (bundle_id, result)
 }
 
 async fn load_url_media_preview(
