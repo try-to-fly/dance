@@ -165,6 +165,26 @@ const decodeBase64Fallback = (input: string): ResolvedPreviewData['base64'] | un
 const getPreviewCacheTtlMs = (resolvedData: ResolvedPreviewData) =>
   resolvedData.url?.error ? DEGRADED_PREVIEW_CACHE_TTL_MS : DEFAULT_PREVIEW_CACHE_TTL_MS;
 
+const formatBinarySize = (bytes?: number | null) => {
+  if (typeof bytes !== 'number' || !Number.isFinite(bytes) || bytes <= 0) {
+    return undefined;
+  }
+
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
+
+  if (bytes < 1024 * 1024 * 1024) {
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+};
+
 const hasResolvedJsonContent = (
   resolvedData?: Pick<ResolvedPreviewData, 'jsonContent'>
 ): resolvedData is Pick<ResolvedPreviewData, 'jsonContent'> & { jsonContent: unknown } =>
@@ -188,10 +208,7 @@ const mapMediaPreviewInfo = (
     fps: media.fps,
     sampleRate: media.sample_rate,
     sizeBytes: media.size_bytes,
-    size:
-      typeof media.size_bytes === 'number'
-        ? `${Math.round(media.size_bytes / 1024)} KB`
-        : undefined,
+    size: formatBinarySize(media.size_bytes),
     format: media.format,
   };
 };
@@ -334,6 +351,13 @@ const applyUrlPreviewFallback = async ({
   if (category === 'image' || category === 'video' || category === 'audio') {
     try {
       const metadata = await extractMediaMetadata(finalUrl);
+      const sizeBytes =
+        typeof metadata.size_bytes === 'number' && Number.isFinite(metadata.size_bytes)
+          ? metadata.size_bytes
+          : undefined;
+      if (!nextResolved.sizeBytes && sizeBytes) {
+        nextResolved.sizeBytes = sizeBytes;
+      }
       nextResolved.media = {
         width: Number(metadata.width) || undefined,
         height: Number(metadata.height) || undefined,
@@ -342,6 +366,9 @@ const applyUrlPreviewFallback = async ({
         codec: metadata.codec,
         fps: metadata.fps ? String(metadata.fps) : undefined,
         sampleRate: metadata.sample_rate ? String(metadata.sample_rate) : undefined,
+        sizeBytes,
+        size: formatBinarySize(sizeBytes),
+        format: metadata.format,
       };
     } catch (mediaError) {
       console.error('[resolveUrlPreview] 媒体探测失败:', mediaError);

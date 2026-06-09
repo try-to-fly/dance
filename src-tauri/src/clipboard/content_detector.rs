@@ -779,27 +779,30 @@ impl ContentDetector {
     }
 
     fn detect_base64(text: &str) -> Option<Base64Metadata> {
+        let data_url_payload = Self::extract_base64_data_url_payload(text);
+        let explicit_data_url = data_url_payload.is_some();
+        let candidate = data_url_payload.unwrap_or(text);
+
         // 最小长度检查 - 对于短字符串需要更严格的验证
-        if text.len() < 4 {
+        if candidate.len() < 4 {
             return None;
         }
 
         // 对于较短的字符串（4-40字符），需要更严格的base64格式检查
-        let is_short = text.len() <= 40;
+        let is_short = candidate.len() <= 40;
 
-        // 排除明显的URL和数据URL
-        if text.starts_with("http://") || text.starts_with("https://") || text.starts_with("data:")
-        {
+        // 排除明显的URL；显式 data:*;base64,... 由上面的 payload 分支处理
+        if !explicit_data_url && (text.starts_with("http://") || text.starts_with("https://")) {
             return None;
         }
 
         // 检查是否主要由base64字符组成
-        let base64_chars = text
+        let base64_chars = candidate
             .chars()
-            .filter(|c| c.is_ascii_alphanumeric() || *c == '+' || *c == '/' || *c == '=')
+            .filter(|c| Self::is_standard_base64_char(*c))
             .count();
 
-        let total_chars = text.chars().count();
+        let total_chars = candidate.chars().count();
         let base64_ratio = base64_chars as f32 / total_chars as f32;
 
         // Base64字符占比需要足够高
@@ -811,7 +814,7 @@ impl ContentDetector {
         // 对于短字符串，额外检查：不应该是常见的英文单词或简单文本
         if is_short {
             // 排除常见的英文单词和简单模式
-            let lowercase_text = text.to_lowercase();
+            let lowercase_text = candidate.to_lowercase();
             let common_words = [
                 "the", "and", "for", "are", "but", "not", "you", "all", "can", "had", "her", "was",
                 "one", "our", "out", "day", "get", "has", "him", "his", "how", "its", "may", "new",
@@ -832,31 +835,36 @@ impl ContentDetector {
             }
 
             // 排除看起来像普通词汇的纯字母模式，避免把 ANALYSIS 之类的单词误报成 base64
-            let is_alpha_only = text.chars().all(|c| c.is_ascii_alphabetic());
+            let is_alpha_only = candidate.chars().all(|c| c.is_ascii_alphabetic());
             let is_title_case = {
-                let mut chars = text.chars();
+                let mut chars = candidate.chars();
                 matches!(chars.next(), Some(first) if first.is_ascii_uppercase())
                     && chars.all(|c| c.is_ascii_lowercase())
             };
             if is_alpha_only
-                && text.len() >= 3
-                && (text.chars().all(|c| c.is_ascii_lowercase())
-                    || text.chars().all(|c| c.is_ascii_uppercase())
+                && candidate.len() >= 3
+                && (candidate.chars().all(|c| c.is_ascii_lowercase())
+                    || candidate.chars().all(|c| c.is_ascii_uppercase())
                     || is_title_case)
             {
                 return None;
             }
 
             // 排除简单的重复模式
-            if text.len() <= 8 && text.chars().collect::<std::collections::HashSet<_>>().len() <= 2
+            if candidate.len() <= 8
+                && candidate
+                    .chars()
+                    .collect::<std::collections::HashSet<_>>()
+                    .len()
+                    <= 2
             {
                 return None;
             }
         }
 
         // 检查是否是长字符串中的重复模式（如10000个"A"）
-        if text.len() > 100 {
-            let unique_chars: std::collections::HashSet<char> = text.chars().collect();
+        if candidate.len() > 100 {
+            let unique_chars: std::collections::HashSet<char> = candidate.chars().collect();
             if unique_chars.len() <= 3 {
                 // 只有3个或更少的不同字符，可能是重复模式
                 return None;
@@ -864,14 +872,21 @@ impl ContentDetector {
         }
 
         // 检查换行符数量，排除格式化的代码或文档
-        let newlines = text.chars().filter(|c| *c == '\n').count();
-        if newlines > text.len() / 50 {
+        let newlines = candidate.chars().filter(|c| *c == '\n').count();
+        if newlines > candidate.len() / 50 {
             // 如果换行符过多，可能是格式化文本
             return None;
         }
 
         // 清理空白字符后再验证
-        let cleaned: String = text.chars().filter(|c| !c.is_whitespace()).collect();
+        let cleaned: String = candidate.chars().filter(|c| !c.is_whitespace()).collect();
+        if cleaned.len() < 4 || cleaned.chars().any(|c| !Self::is_standard_base64_char(c)) {
+            return None;
+        }
+
+        if !Self::has_valid_base64_padding(&cleaned) {
+            return None;
+        }
 
         // 验证base64格式：去除padding后，长度应该符合base64规则
         let without_padding: String = cleaned.trim_end_matches('=').to_string();
@@ -884,7 +899,10 @@ impl ContentDetector {
         }
 
         // 尝试解码
-        match general_purpose::STANDARD.decode(&cleaned) {
+        match general_purpose::STANDARD
+            .decode(&cleaned)
+            .or_else(|_| general_purpose::STANDARD_NO_PAD.decode(&cleaned))
+        {
             Ok(decoded) => {
                 let encoded_size = cleaned.len();
                 let decoded_size = decoded.len();
@@ -902,6 +920,11 @@ impl ContentDetector {
 
                 // 分析解码后的内容特征
                 let content_hint = Self::analyze_decoded_content(&decoded);
+                let has_padding = cleaned.ends_with('=');
+                let has_content_signal = content_hint.is_some();
+                if !explicit_data_url && !has_padding && !has_content_signal {
+                    return None;
+                }
 
                 log::debug!(
                     "[ContentDetector] Base64检测成功: {}字节 -> {}字节, 效率: {:.2}",
@@ -919,6 +942,44 @@ impl ContentDetector {
             }
             Err(_) => None,
         }
+    }
+
+    fn extract_base64_data_url_payload(text: &str) -> Option<&str> {
+        let trimmed = text.trim();
+        if !trimmed
+            .get(..5)
+            .is_some_and(|prefix| prefix.eq_ignore_ascii_case("data:"))
+        {
+            return None;
+        }
+
+        let comma_index = trimmed.find(',')?;
+        let header = &trimmed[..comma_index];
+        if !header.to_ascii_lowercase().contains(";base64") {
+            return None;
+        }
+
+        let payload = &trimmed[comma_index + 1..];
+        if payload.trim().is_empty() {
+            None
+        } else {
+            Some(payload)
+        }
+    }
+
+    fn is_standard_base64_char(char: char) -> bool {
+        char.is_ascii_alphanumeric() || char == '+' || char == '/' || char == '='
+    }
+
+    fn has_valid_base64_padding(cleaned: &str) -> bool {
+        if let Some(first_padding_index) = cleaned.find('=') {
+            let padding = &cleaned[first_padding_index..];
+            if padding.len() > 2 || padding.chars().any(|char| char != '=') {
+                return false;
+            }
+        }
+
+        cleaned.trim_end_matches('=').len() % 4 != 1
     }
 
     fn analyze_decoded_content(data: &[u8]) -> Option<String> {
@@ -954,6 +1015,7 @@ impl ContentDetector {
                 .chars()
                 .all(|c| c.is_ascii() && (!c.is_control() || c.is_whitespace()))
                 && text.len() > 10
+                && Self::decoded_text_has_content_signal(text)
             {
                 return Some("文本内容".to_string());
             }
@@ -969,7 +1031,49 @@ impl ContentDetector {
             }
         }
 
-        Some("未知格式".to_string())
+        None
+    }
+
+    fn decoded_text_has_content_signal(text: &str) -> bool {
+        let trimmed = text.trim();
+        if trimmed.is_empty() {
+            return false;
+        }
+
+        if serde_json::from_str::<Value>(trimmed).is_ok() {
+            return true;
+        }
+
+        trimmed.chars().any(char::is_whitespace)
+            || trimmed.chars().any(|char| {
+                matches!(
+                    char,
+                    '{' | '}'
+                        | '['
+                        | ']'
+                        | '('
+                        | ')'
+                        | ':'
+                        | ';'
+                        | ','
+                        | '.'
+                        | '\''
+                        | '"'
+                        | '<'
+                        | '>'
+                        | '='
+                        | '+'
+                        | '-'
+                        | '*'
+                        | '#'
+                        | '$'
+                        | '%'
+                        | '&'
+                        | '|'
+                        | '\\'
+                        | '`'
+                )
+            })
     }
 }
 
@@ -1645,6 +1749,27 @@ mod tests {
                 word
             );
         }
+
+        let developer_texts = [
+            "/admin/organizations",
+            "/api/users",
+            "/v1/chat/completions",
+            "foo/bar/baz",
+            "clientSecret",
+            "userSettings",
+            "CookieHeader",
+            "BearerTokenX",
+            "MTIz",
+        ];
+        for text in developer_texts {
+            let (sub_type, _) = ContentDetector::detect(text);
+            assert!(
+                matches!(sub_type, ContentSubType::PlainText),
+                "Expected '{}' to be plain text, got {:?}",
+                text,
+                sub_type
+            );
+        }
     }
 
     #[test]
@@ -1681,7 +1806,7 @@ mod tests {
             ("YWI=", "ab"),
             ("SGVsbG8=", "Hello"),
             ("VGVzdA==", "Test"),
-            ("MTIz", "123"),
+            ("data:text/plain;base64,SGVsbG8=", "Hello"),
         ];
 
         for (encoded, expected_decoded) in test_cases {

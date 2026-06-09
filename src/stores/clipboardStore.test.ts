@@ -64,7 +64,12 @@ describe('clipboardStore preview resolution', () => {
         throw 'HTTP error: 503';
       }
       if (command === 'extract_media_metadata') {
-        return Promise.resolve({ width: 1920, height: 1080 });
+        return Promise.resolve({
+          width: 1920,
+          height: 1080,
+          size_bytes: 5_242_880,
+          format: 'png',
+        });
       }
       throw new Error(`unexpected command: ${command}`);
     });
@@ -75,7 +80,14 @@ describe('clipboardStore preview resolution', () => {
 
     expect(result).toMatchObject({
       imageUrl: 'https://example.com/preview.png',
-      media: { width: 1920, height: 1080 },
+      media: {
+        width: 1920,
+        height: 1080,
+        sizeBytes: 5_242_880,
+        size: '5.0 MB',
+        format: 'png',
+      },
+      sizeBytes: 5_242_880,
       url: {
         finalUrl: 'https://example.com/preview.png',
         previewKind: 'image',
@@ -125,6 +137,63 @@ describe('clipboardStore preview resolution', () => {
       },
     });
     expect(result?.textContent).toBeUndefined();
+  });
+
+  it('URL 媒体解析会保留后端返回的大小和格式字段', async () => {
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'resolve_url_preview') {
+        return Promise.resolve({
+          final_url: 'https://cdn.example.com/video.mp4',
+          status: 200,
+          content_type: 'video/mp4',
+          content_length: 5_242_880,
+          preview_kind: 'video',
+          resolved: {
+            source_kind: 'remote',
+            mime: 'video/mp4',
+            extension: 'mp4',
+            size_bytes: 5_242_880,
+            video_url: 'https://cdn.example.com/video.mp4',
+            media: {
+              width: 1920,
+              height: 1080,
+              duration: '1:23',
+              fps: '29.97',
+              codec: 'h264',
+              bitrate: '1200 kbps',
+              size_bytes: 5_242_880,
+              format: 'mp4',
+            },
+          },
+        });
+      }
+
+      throw new Error(`unexpected command: ${command}`);
+    });
+
+    const result = await useClipboardStore
+      .getState()
+      .resolveUrlPreview?.('https://cdn.example.com/video.mp4');
+
+    expect(result).toMatchObject({
+      videoUrl: 'https://cdn.example.com/video.mp4',
+      sizeBytes: 5_242_880,
+      media: {
+        width: 1920,
+        height: 1080,
+        duration: '1:23',
+        fps: '29.97',
+        codec: 'h264',
+        bitrate: '1200 kbps',
+        sizeBytes: 5_242_880,
+        size: '5.0 MB',
+        format: 'mp4',
+      },
+      url: {
+        contentLength: 5_242_880,
+        previewKind: 'video',
+      },
+    });
   });
 
   it('setSelectedType 会改走后端 retrieval query，而不是继续本地同步过滤', async () => {

@@ -7,6 +7,7 @@ use std::sync::OnceLock;
 pub const URL_PREVIEW_MAX_BYTES: usize = 256 * 1024;
 pub const BASE64_TEXT_PREVIEW_MAX_CHARS: usize = 8192;
 pub const BASE64_DATA_URL_MAX_BYTES: usize = 2 * 1024 * 1024;
+const REMOTE_IMAGE_METADATA_MAX_BYTES: usize = 10 * 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -424,6 +425,31 @@ pub async fn read_response_text_limited(
     Ok((String::from_utf8_lossy(&buffer).to_string(), truncated))
 }
 
+async fn read_response_bytes_limited(
+    response: &mut reqwest::Response,
+    max_bytes: usize,
+) -> Result<Vec<u8>, String> {
+    let mut buffer = Vec::new();
+
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|e| format!("Failed to read response body: {}", e))?
+    {
+        let remaining = max_bytes.saturating_sub(buffer.len());
+        if remaining == 0 || chunk.len() > remaining {
+            return Err(format!(
+                "Remote image is too large to inspect: more than {} bytes",
+                max_bytes
+            ));
+        }
+
+        buffer.extend_from_slice(&chunk);
+    }
+
+    Ok(buffer)
+}
+
 fn printable_ratio(text: &str) -> f32 {
     if text.is_empty() {
         return 0.0;
@@ -492,6 +518,81 @@ fn to_u32_value(value: Option<&Value>) -> Option<u32> {
         }
     }
     None
+}
+
+fn to_u64_value(value: Option<&Value>) -> Option<u64> {
+    if let Some(v) = value {
+        if let Some(num) = v.as_u64() {
+            return Some(num);
+        }
+        if let Some(text) = v.as_str() {
+            return text.parse::<u64>().ok();
+        }
+    }
+    None
+}
+
+fn infer_kind_and_format_from_remote_path(source: &str) -> (Option<String>, Option<String>) {
+    let Ok(parsed) = url::Url::parse(source) else {
+        return (None, None);
+    };
+
+    let extension = std::path::Path::new(parsed.path())
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(|value| value.to_lowercase());
+
+    let kind = match preview_kind_from_url_path(&parsed) {
+        PreviewKind::Image => Some("image".to_string()),
+        PreviewKind::Audio => Some("audio".to_string()),
+        PreviewKind::Video => Some("video".to_string()),
+        _ => None,
+    };
+
+    (kind, extension)
+}
+
+async fn inspect_remote_image_bytes(
+    source: &str,
+) -> Result<(Option<String>, u64, u32, u32), String> {
+    use std::time::Duration;
+
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .user_agent("Dance/media-inspector")
+        .build()
+        .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
+
+    let mut response = client
+        .get(source)
+        .send()
+        .await
+        .map_err(|e| format!("Network request failed: {}", e))?;
+
+    if !response.status().is_success() {
+        return Err(format!("HTTP error: {}", response.status()));
+    }
+
+    if let Some(content_length) = response.content_length() {
+        if content_length > REMOTE_IMAGE_METADATA_MAX_BYTES as u64 {
+            return Err(format!(
+                "Remote image is too large to inspect: {} bytes",
+                content_length
+            ));
+        }
+    }
+
+    let mime = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .map(normalize_mime);
+    let bytes = read_response_bytes_limited(&mut response, REMOTE_IMAGE_METADATA_MAX_BYTES).await?;
+
+    let image =
+        image::load_from_memory(&bytes).map_err(|e| format!("Failed to decode image: {}", e))?;
+
+    Ok((mime, bytes.len() as u64, image.width(), image.height()))
 }
 
 fn source_kind_from_input(source: &str) -> String {
@@ -574,9 +675,28 @@ pub async fn inspect_media_source_internal(
         inspection.format = extension_from_mime(mime).or_else(|| inspection.format.clone());
     }
 
+    if inspection.source_kind == "remote" {
+        let (path_kind, path_format) = infer_kind_and_format_from_remote_path(source);
+        if inspection.kind.is_none() {
+            inspection.kind = path_kind;
+        }
+        if inspection.format.is_none() {
+            inspection.format = path_format;
+        }
+    }
+
     match extract_media_metadata(source.to_string()).await {
         Ok(metadata) => {
             inspection.ffprobe_used = true;
+            if inspection.format.is_none() {
+                inspection.format = metadata
+                    .get("format")
+                    .and_then(Value::as_str)
+                    .map(ToString::to_string);
+            }
+            if inspection.size_bytes.is_none() {
+                inspection.size_bytes = to_u64_value(metadata.get("size_bytes"));
+            }
             inspection.duration = metadata
                 .get("duration")
                 .and_then(Value::as_str)
@@ -621,6 +741,30 @@ pub async fn inspect_media_source_internal(
         if let Ok(img) = image::open(source) {
             inspection.width = Some(img.width());
             inspection.height = Some(img.height());
+        }
+    }
+
+    if inspection.kind.as_deref() == Some("image")
+        && (inspection.width.is_none() || inspection.height.is_none())
+        && inspection.source_kind == "remote"
+    {
+        match inspect_remote_image_bytes(source).await {
+            Ok((mime, size_bytes, width, height)) => {
+                if inspection.mime.is_none() {
+                    inspection.mime = mime;
+                }
+                if inspection.size_bytes.is_none() {
+                    inspection.size_bytes = Some(size_bytes);
+                }
+                inspection.width = Some(width);
+                inspection.height = Some(height);
+                inspection.error = None;
+            }
+            Err(err) => {
+                if inspection.error.is_none() {
+                    inspection.error = Some(err);
+                }
+            }
         }
     }
 
@@ -796,6 +940,25 @@ pub fn extract_basic_media_metadata(metadata: &serde_json::Value) -> serde_json:
     let mut result = serde_json::Map::new();
 
     if let Some(format) = metadata.get("format") {
+        if let Some(format_name) = format.get("format_name").and_then(Value::as_str) {
+            let normalized_format = format_name
+                .split(',')
+                .find(|value| !value.trim().is_empty())
+                .unwrap_or(format_name)
+                .trim();
+            if !normalized_format.is_empty() {
+                result.insert(
+                    "format".to_string(),
+                    serde_json::Value::String(normalized_format.to_string()),
+                );
+            }
+        }
+        if let Some(size_bytes) = to_u64_value(format.get("size")) {
+            result.insert(
+                "size_bytes".to_string(),
+                serde_json::Value::Number(serde_json::Number::from(size_bytes)),
+            );
+        }
         if let Some(duration) = format.get("duration") {
             if let Some(duration_str) = duration.as_str() {
                 if let Ok(duration_f64) = duration_str.parse::<f64>() {
@@ -881,7 +1044,9 @@ mod tests {
         let metadata = json!({
             "format": {
                 "duration": "125.4",
-                "bit_rate": "3200000"
+                "bit_rate": "3200000",
+                "size": "5242880",
+                "format_name": "mov,mp4,m4a,3gp,3g2,mj2"
             },
             "streams": [
                 {
@@ -914,5 +1079,38 @@ mod tests {
             result.get("sample_rate").and_then(Value::as_str),
             Some("48000")
         );
+        assert_eq!(
+            result.get("size_bytes").and_then(Value::as_u64),
+            Some(5242880)
+        );
+        assert_eq!(result.get("format").and_then(Value::as_str), Some("mov"));
+    }
+
+    #[tokio::test]
+    async fn inspects_data_url_image_size_and_dimensions_without_ffprobe() {
+        use base64::Engine as _;
+
+        let image = image::RgbaImage::from_pixel(2, 3, image::Rgba([255, 0, 0, 255]));
+        let mut bytes = Vec::new();
+        image::DynamicImage::ImageRgba8(image)
+            .write_to(
+                &mut std::io::Cursor::new(&mut bytes),
+                image::ImageFormat::Png,
+            )
+            .expect("encode png");
+        let data_url = format!(
+            "data:image/png;base64,{}",
+            base64::engine::general_purpose::STANDARD.encode(&bytes)
+        );
+
+        let inspection = inspect_media_source_internal(&data_url, None, None).await;
+
+        assert_eq!(inspection.kind.as_deref(), Some("image"));
+        assert_eq!(inspection.mime.as_deref(), Some("image/png"));
+        assert_eq!(inspection.format.as_deref(), Some("png"));
+        assert_eq!(inspection.size_bytes, Some(bytes.len() as u64));
+        assert_eq!(inspection.width, Some(2));
+        assert_eq!(inspection.height, Some(3));
+        assert!(!inspection.ffprobe_used);
     }
 }
